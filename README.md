@@ -152,8 +152,8 @@ In Blender's 3D viewport, press `N` → open the **BlenderMCP** tab → click **
 
 The system consists of two main components:
 
-1. **Blender Addon** (`addon.py`) — a Blender addon that creates a socket server within Blender to receive and execute commands
-2. **MCP Server** (`src/blender_mcp/server.py`) — a Python server that implements the Model Context Protocol and connects to the Blender addon
+1. **Blender Addon** (`src/blender_mcp/bundled/addon/`) — a Blender addon that creates a socket server within Blender to receive and execute commands
+2. **MCP Server** (`src/blender_mcp/server/`) — a Python server that implements the Model Context Protocol and connects to the Blender addon
 
 ---
 
@@ -360,7 +360,7 @@ claude mcp add blender blender-mcp
 blender-mcp install-addon
 ```
 
-This copies the addon into your Blender addons folder as `blender_mcp.py`. It prints where it wrote to, and keeps a `.bak` of any file it replaces.
+This copies the addon into your Blender addons folder as a `blender_mcp/` addon folder. It prints where it wrote to, and keeps a `.bak` copy of any existing install it replaces.
 
 > Optional: `blender-mcp addon-paths` lists detected Blender addons folders. Override the destination with `BLENDERMCP_ADDONS_DIR=/path/to/scripts/addons`.
 
@@ -368,9 +368,9 @@ This copies the addon into your Blender addons folder as `blender_mcp.py`. It pr
 
 **3.** Go to **Edit → Preferences → Add-ons**
 
-**4.** Enable **Interface: Blender MCP** (search "Blender MCP"). If it doesn't appear yet, click **Install…** and select the copied `blender_mcp.py` / `addon.py`, or restart Blender.
+**4.** Enable **Interface: Blender MCP** (search "Blender MCP"). If it doesn't appear yet, restart Blender.
 
-**5. Manual alternative** — if the command above can't find your Blender install, or you prefer doing it by hand: download `addon.py` from this repo → in Blender, **Edit → Preferences → Add-ons → Install…** → select the downloaded `addon.py` → enable it.
+**5. Manual alternative** — if the command above can't find your Blender install, or you prefer doing it by hand: clone or download this repo, then in Blender, **Edit → Preferences → Add-ons → Install…** → select the `src/blender_mcp/bundled/addon/` folder (or a zip of it) → enable it.
 
 Then open the **BlenderMCP** tab in Blender's sidebar (press `N` in the 3D viewport) and click **Start MCP Server**. See [Starting the Connection](#starting-the-connection) below.
 

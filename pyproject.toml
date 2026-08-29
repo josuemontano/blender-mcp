@@ -62,7 +62,7 @@ pytest = ">=8.0"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-blender_mcp = ["bundled/addon.py"]
+blender_mcp = ["bundled/addon/**/*.py"]
 
 [project.urls]
 "Homepage" = "https://github.com/ahujasid/blender-mcp"
