@@ -26,24 +26,24 @@ _STATUS_COMMANDS: dict[Provider, str] = {
 
 @mcp.tool()
 async def get_integration_status(ctx: Context, provider: Provider | None = None) -> dict:
-    """
-    Check whether an optional third-party integration is enabled in Blender.
+    """Check whether an optional third-party integration is enabled in Blender.
 
-    Parameters:
-    - provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted,
-      checks all five and returns a dict keyed by provider name.
+    Args:
+        ctx: MCP request context.
+        provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted, checks all five and returns a dict keyed by provider name. Each provider's result is {"enabled": bool, "message": str} describing whether that integration's features are available and, if not, how to enable it.
 
-    Each provider's result is {"enabled": bool, "message": str} describing whether that
-    integration's features are available and, if not, how to enable it.
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
         if provider is not None:
             result = blender.send_command(_STATUS_COMMANDS[provider])
             return ok(result)
-        results = {
-            name: blender.send_command(command) for name, command in _STATUS_COMMANDS.items()
-        }
+        results = {name: blender.send_command(command) for name, command in _STATUS_COMMANDS.items()}
         return ok(results)
     except Exception as e:
         logger.error(f"Error checking integration status: {e}")
@@ -52,11 +52,19 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
 
 @mcp.tool()
 async def get_addon_status(ctx: Context) -> dict:
-    """
-    Check whether the connected Blender addon matches this MCP server version.
+    """Check whether the connected Blender addon matches this MCP server version.
 
     If outdated, tells the user how to update via `blender-mcp install-addon`
     (then restart or re-enable the addon in Blender).
+
+    Args:
+        ctx: MCP request context.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()

@@ -8,7 +8,14 @@ from . import ADDON_ID
 
 
 def get_blendermcp_addon_preferences(context=None):
-    """Get add-on preferences object if available."""
+    """Get add-on preferences object if available.
+
+    Args:
+        context: Value for context.
+
+    Returns:
+        Result produced by the operation.
+    """
     if context is None:
         context = bpy.context
     addon = context.preferences.addons.get(ADDON_ID)
@@ -17,7 +24,17 @@ def get_blendermcp_addon_preferences(context=None):
 
 # region Mesh/model editing helpers
 def _get_mesh_object(name):
-    """Look up an object by name and require it to be a mesh."""
+    """Look up an object by name and require it to be a mesh.
+
+    Args:
+        name: Name to assign or look up.
+
+    Returns:
+        Result produced by the operation.
+
+    Raises:
+        ValueError: If the operation cannot be completed.
+    """
     obj = bpy.data.objects.get(name)
     if not obj:
         raise ValueError(f"Object not found: {name}")
@@ -27,7 +44,11 @@ def _get_mesh_object(name):
 
 
 def _set_active(obj):
-    """Make obj the sole selected + active object."""
+    """Make obj the sole selected + active object.
+
+    Args:
+        obj: Value for obj.
+    """
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -38,6 +59,12 @@ def _select_geometry(obj, vert_indices=None, edge_indices=None, face_indices=Non
 
     An explicitly-passed empty list means "select none of this component type" -
     it must not be treated the same as omitting the argument (which means "all").
+
+    Args:
+        obj: Value for obj.
+        vert_indices: Value for vert indices.
+        edge_indices: Indices of edges to operate on.
+        face_indices: Indices of faces to operate on.
     """
     _set_active(obj)
     bpy.ops.object.mode_set(mode="EDIT")
@@ -86,7 +113,16 @@ def _exit_edit_mode():
 
 
 def _validate_indices(obj, attr, indices):
-    """Raise a clear error if any index is out of range for obj.data.<attr>, before edit mode is entered."""
+    """Raise a clear error if any index is out of range for obj.data.<attr>, before edit mode is entered.
+
+    Args:
+        obj: Value for obj.
+        attr: Value for attr.
+        indices: Value for indices.
+
+    Raises:
+        ValueError: If the operation cannot be completed.
+    """
     if indices is None:
         return
     total = len(getattr(obj.data, attr))
@@ -105,6 +141,12 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     an out-of-range index raises a clear ValueError instead of bmesh's bare
     IndexError - and the mode restoration in the finally block happens even if
     the caller's operator inside the `with` block raises.
+
+    Args:
+        obj: Value for obj.
+        vert_indices: Value for vert indices.
+        edge_indices: Indices of edges to operate on.
+        face_indices: Indices of faces to operate on.
     """
     _validate_indices(obj, "vertices", vert_indices)
     _validate_indices(obj, "edges", edge_indices)
@@ -122,7 +164,17 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
 
 
 def _paginate(total, offset, limit, max_limit):
-    """Clamp offset/limit against total and return (start, end, truncated, next_offset)."""
+    """Clamp offset/limit against total and return (start, end, truncated, next_offset).
+
+    Args:
+        total: Value for total.
+        offset: Zero-based starting position.
+        limit: Maximum number of items to return.
+        max_limit: Value for max limit.
+
+    Returns:
+        Result produced by the operation.
+    """
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), max_limit))
     start = min(offset, total)
@@ -145,7 +197,15 @@ def _apply_modifier(obj, modifier):
 
 
 def _world_bounds(matrix_world, vertices):
-    """Compute the world-space axis-aligned bounding box of vertices."""
+    """Compute the world-space axis-aligned bounding box of vertices.
+
+    Args:
+        matrix_world: Value for matrix world.
+        vertices: Value for vertices.
+
+    Returns:
+        Result produced by the operation.
+    """
     if not vertices:
         return {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]}
     coords = [matrix_world @ v.co for v in vertices]
@@ -164,6 +224,14 @@ def _modifier_result(obj, modifier, applied):
     When apply=False, _mesh_counts(obj) only reflects the base mesh - the
     live modifier's effect is invisible unless it's read from the
     depsgraph-evaluated object instead.
+
+    Args:
+        obj: Value for obj.
+        modifier: Value for modifier.
+        applied: Value for applied.
+
+    Returns:
+        Result produced by the operation.
     """
     base = _mesh_counts(obj)
     if applied or modifier is None:
@@ -192,7 +260,14 @@ def _modifier_result(obj, modifier, applied):
 
 
 def _get_rotation_quaternion(obj):
-    """Read obj's rotation as a quaternion, regardless of its rotation_mode."""
+    """Read obj's rotation as a quaternion, regardless of its rotation_mode.
+
+    Args:
+        obj: Value for obj.
+
+    Returns:
+        Result produced by the operation.
+    """
     if obj.rotation_mode == "QUATERNION":
         return obj.rotation_quaternion.copy()
     if obj.rotation_mode == "AXIS_ANGLE":
@@ -202,7 +277,12 @@ def _get_rotation_quaternion(obj):
 
 
 def _set_rotation_quaternion(obj, quat):
-    """Write a quaternion to obj, converting to whatever rotation_mode it uses."""
+    """Write a quaternion to obj, converting to whatever rotation_mode it uses.
+
+    Args:
+        obj: Value for obj.
+        quat: Value for quat.
+    """
     if obj.rotation_mode == "QUATERNION":
         obj.rotation_quaternion = quat
     elif obj.rotation_mode == "AXIS_ANGLE":
@@ -213,7 +293,18 @@ def _set_rotation_quaternion(obj, quat):
 
 
 def _select_objects(names, active_name=None):
-    """Deselect everything, select the named objects, and set the active object."""
+    """Deselect everything, select the named objects, and set the active object.
+
+    Args:
+        names: Value for names.
+        active_name: Name of the active.
+
+    Returns:
+        Result produced by the operation.
+
+    Raises:
+        ValueError: If the operation cannot be completed.
+    """
     if not names:
         raise ValueError("At least one object name is required")
     objs = []
@@ -231,7 +322,11 @@ def _select_objects(names, active_name=None):
 
 
 def _find_view3d():
-    """Locate a VIEW_3D area/region, needed to override bpy.context.space_data for ND's viewport operators."""
+    """Locate a VIEW_3D area/region, needed to override bpy.context.space_data for ND's viewport operators.
+
+    Returns:
+        Result produced by the operation.
+    """
     for area in bpy.context.screen.areas:
         if area.type == "VIEW_3D":
             region = next((r for r in area.regions if r.type == "WINDOW"), None)
@@ -241,7 +336,20 @@ def _find_view3d():
 
 
 def _nd_call(op_name, op, *args, **kwargs):
-    """Call an ND operator, raising if it unexpectedly enters a modal state."""
+    """Call an ND operator, raising if it unexpectedly enters a modal state.
+
+    Args:
+        op_name: Name of the op.
+        op: Value for op.
+        args: Value for args.
+        kwargs: Value for kwargs.
+
+    Returns:
+        Result produced by the operation.
+
+    Raises:
+        RuntimeError: If the operation cannot be completed.
+    """
     result = op(*args, **kwargs)
     if "RUNNING_MODAL" in result:
         raise RuntimeError(
@@ -251,7 +359,12 @@ def _nd_call(op_name, op, *args, **kwargs):
 
 
 def _nd_configure_object_as_util(obj, util=True):
-    """Replicate ND's lib/objects.configure_object_as_util (mark/unmark a utility object)."""
+    """Replicate ND's lib/objects.configure_object_as_util (mark/unmark a utility object).
+
+    Args:
+        obj: Value for obj.
+        util: Value for util.
+    """
     obj.display_type = "WIRE" if util else "SOLID"
     obj.hide_render = util
     obj.visible_camera = not util

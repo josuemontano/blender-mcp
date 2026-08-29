@@ -26,21 +26,21 @@ async def model_match_reference(
     match_scale: bool = True,
     space: Space = "WORLD",
 ) -> dict:
-    """
-    Align an object's transform to another object's transform in the scene.
+    """Align an object's transform to another object's transform in the scene.
 
-    Parameters:
-    - object_name: Name of the object to move/rotate/scale.
-    - reference_object_name: Name of the object whose transform to copy.
-    - match_location: Copy the reference object's location.
-    - match_rotation: Copy the reference object's rotation.
-    - match_scale: Copy the reference object's scale.
-    - space: "WORLD" (default) matches visually even across differently-parented
-      objects, and correctly handles quaternion/axis-angle rotation modes, by
-      decomposing/recomposing world matrices. "LOCAL" copies the raw local
-      location/rotation/scale properties instead.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the object to move/rotate/scale.
+        reference_object_name: Name of the object whose transform to copy.
+        match_location: Copy the reference object's location.
+        match_rotation: Copy the reference object's rotation.
+        match_scale: Copy the reference object's scale.
+        space: "WORLD" (default) matches visually even across differently-parented objects, and correctly handles quaternion/axis-angle rotation modes, by decomposing/recomposing world matrices. "LOCAL" copies the raw local location/rotation/scale properties instead.
 
-    Returns the object's name and resulting location/rotation/scale.
+    Returns:
+        the object's name and resulting location/rotation/scale.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -68,17 +68,18 @@ async def model_refine(
     levels: int = 1,
     apply: bool = False,
 ) -> dict:
-    """
-    Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
+    """Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
 
-    Parameters:
-    - object_name: Name of the mesh object to refine.
-    - levels: Subdivision levels (viewport and render).
-    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to refine.
+        levels: Subdivision levels (viewport and render).
+        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -106,27 +107,25 @@ async def add_procedural_displacement(
     apply: bool = False,
     subdivide: bool = False,
 ) -> dict:
-    """
-    Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
+    """Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
 
     Displace only offsets existing vertices - it cannot produce fine detail on a mesh
     that doesn't already have enough topology. Set subdivide=True to add a Subdivision
     Surface pass first, or ensure the mesh is already dense enough.
 
-    Parameters:
-    - object_name: Name of the mesh object to detail.
-    - strength: Displacement strength.
-    - scale: Noise scale of the driving texture.
-    - texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
-    - apply: If True, bake the modifier(s) into the mesh and remove the generated texture
-      datablock. If False (default), leave everything as live modifiers/texture.
-    - subdivide: If True, add a Subdivision Surface modifier before adding the Displace
-      modifier, to ensure enough topology exists for visible detail. It is only baked in
-      when apply is also True - with apply=False both modifiers stay live.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to detail.
+        strength: Displacement strength.
+        scale: Noise scale of the driving texture.
+        texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
+        apply: If True, bake the modifier(s) into the mesh and remove the generated texture datablock. If False (default), leave everything as live modifiers/texture.
+        subdivide: If True, add a Subdivision Surface modifier before adding the Displace modifier, to ensure enough topology exists for visible detail. It is only baked in when apply is also True - with apply=False both modifiers stay live.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -156,19 +155,20 @@ async def model_mirror(
     clip: bool = True,
     apply: bool = False,
 ) -> dict:
-    """
-    Add a Mirror modifier to an object across the given axis.
+    """Add a Mirror modifier to an object across the given axis.
 
-    Parameters:
-    - object_name: Name of the mesh object to mirror.
-    - axis: One of X, Y, Z.
-    - merge: Weld coincident vertices at the mirror seam.
-    - clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
-    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to mirror.
+        axis: One of X, Y, Z.
+        merge: Weld coincident vertices at the mirror seam.
+        clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
+        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -196,18 +196,19 @@ async def model_array(
     relative_offset: tuple[float, float, float] = (1, 0, 0),
     apply: bool = False,
 ) -> dict:
-    """
-    Add a linear Array modifier to an object, duplicating it along an offset direction.
+    """Add a linear Array modifier to an object, duplicating it along an offset direction.
 
-    Parameters:
-    - object_name: Name of the mesh object to array.
-    - count: Number of copies (including the original).
-    - relative_offset: [x, y, z] offset between copies, relative to the object's bounding box.
-    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to array.
+        count: Number of copies (including the original).
+        relative_offset: [x, y, z] offset between copies, relative to the object's bounding box.
+        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -237,8 +238,7 @@ async def model_radial_array(
     pivot_location: tuple[float, float, float] | None = None,
     radius: float | None = None,
 ) -> dict:
-    """
-    Duplicate an object radially around a pivot, evenly spaced about an axis.
+    """Duplicate an object radially around a pivot, evenly spaced about an axis.
 
     The array's visible spread is the distance between the object and the pivot - if
     the mesh is centered on its own origin, every rotated copy lands on top of the
@@ -246,19 +246,20 @@ async def model_radial_array(
     set that distance; omitting all three raises an error instead of silently
     producing overlapping copies.
 
-    Parameters:
-    - object_name: Name of the mesh object to array.
-    - count: Number of copies around the circle (including the original). Must be at least 2.
-    - axis: One of X, Y, Z — the axis to rotate around.
-    - apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both live.
-    - pivot_object_name: Name of an existing object whose world location is used as the pivot.
-    - pivot_location: [x, y, z] world location to use as the pivot.
-    - radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a
-      parented object, the pivot is offset from its world-space location, not its local one.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to array.
+        count: Number of copies around the circle (including the original). Must be at least 2.
+        axis: One of X, Y, Z — the axis to rotate around.
+        apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both live.
+        pivot_object_name: Name of an existing object whose world location is used as the pivot.
+        pivot_location: [x, y, z] world location to use as the pivot.
+        radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a parented object, the pivot is offset from its world-space location, not its local one.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()

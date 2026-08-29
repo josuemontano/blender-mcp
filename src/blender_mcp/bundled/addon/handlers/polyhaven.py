@@ -12,7 +12,14 @@ from ..constants import REQ_HEADERS
 
 class PolyhavenHandlersMixin:
     def get_polyhaven_categories(self, asset_type):
-        """Get categories for a specific asset type from Polyhaven"""
+        """Get categories for a specific asset type from Polyhaven
+
+        Args:
+            asset_type: Value for asset type.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             if asset_type not in ["hdris", "textures", "models", "all"]:
                 return {
@@ -33,7 +40,15 @@ class PolyhavenHandlersMixin:
             return {"error": str(e)}
 
     def search_polyhaven_assets(self, asset_type=None, categories=None):
-        """Search for assets from Polyhaven with optional filtering"""
+        """Search for assets from Polyhaven with optional filtering
+
+        Args:
+            asset_type: Value for asset type.
+            categories: Value for categories.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             url = "https://api.polyhaven.com/assets"
             params = {}
@@ -486,7 +501,15 @@ class PolyhavenHandlersMixin:
             return {"error": f"Failed to download asset: {str(e)}"}
 
     def apply_polyhaven_texture(self, object_name, texture_id):
-        """Apply a previously downloaded Polyhaven texture to an object by creating a new material"""
+        """Apply a previously downloaded Polyhaven texture to an object by creating a new material
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            texture_id: Identifier of the texture.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             # Get the object
             obj = bpy.data.objects.get(object_name)
@@ -829,7 +852,11 @@ class PolyhavenHandlersMixin:
             return {"error": f"Failed to apply texture: {str(e)}"}
 
     def get_polyhaven_status(self):
-        """Get the current status of PolyHaven integration"""
+        """Get the current status of PolyHaven integration
+
+        Returns:
+            Result produced by the operation.
+        """
         enabled = bpy.context.scene.blendermcp_use_polyhaven
         if enabled:
             return {

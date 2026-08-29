@@ -10,7 +10,11 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 def main():
-    """Run the MCP server, or addon install CLI subcommands."""
+    """Run the MCP server, or addon install CLI subcommands.
+
+    Raises:
+        SystemExit: If the operation cannot be completed.
+    """
     if len(sys.argv) > 1 and sys.argv[1] in {
         "install-addon",
         "addon-paths",

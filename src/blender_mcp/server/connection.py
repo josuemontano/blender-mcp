@@ -11,9 +11,7 @@ from typing import Any
 from ..addon_manager import AddonHandshake, format_handshake_log, handshake_addon
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("BlenderMCPServer")
 
 # Default configuration
@@ -29,16 +27,18 @@ _addon_handshake_lock = threading.Lock()
 class BlenderConnection:
     host: str
     port: int
-    sock: socket.socket = (
-        None  # Changed from 'socket' to 'sock' to avoid naming conflict
-    )
+    sock: socket.socket = None  # Changed from 'socket' to 'sock' to avoid naming conflict
     # Serializes send+receive so two commands can never interleave on one socket.
     # Without this, a second command's response can be read as the first's, and
     # the stream stays desynced until the 180s timeout fires.
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def connect(self) -> bool:
-        """Connect to the Blender addon socket server"""
+        """Connect to the Blender addon socket server
+
+        Returns:
+            bool: Result produced by the operation.
+        """
         if self.sock:
             return True
 
@@ -63,7 +63,18 @@ class BlenderConnection:
                 self.sock = None
 
     def receive_full_response(self, sock, buffer_size=8192):
-        """Receive the complete response, potentially in multiple chunks"""
+        """Receive the complete response, potentially in multiple chunks
+
+        Args:
+            sock: Value for sock.
+            buffer_size: Value for buffer size.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            Exception: If the operation cannot be completed.
+        """
         chunks = []
         # Use a consistent timeout value that matches the addon's timeout
         sock.settimeout(180.0)  # Match the addon's timeout
@@ -74,12 +85,8 @@ class BlenderConnection:
                     chunk = sock.recv(buffer_size)
                     if not chunk:
                         # If we get an empty chunk, the connection might be closed
-                        if (
-                            not chunks
-                        ):  # If we haven't received anything yet, this is an error
-                            raise Exception(
-                                "Connection closed before receiving any data"
-                            )
+                        if not chunks:  # If we haven't received anything yet, this is an error
+                            raise Exception("Connection closed before receiving any data")
                         break
 
                     chunks.append(chunk)
@@ -122,16 +129,21 @@ class BlenderConnection:
         else:
             raise Exception("No data received")
 
-    def send_command(
-        self, command_type: str, params: dict[str, Any] = None
-    ) -> dict[str, Any]:
-        """Send a command to Blender and return the response"""
+    def send_command(self, command_type: str, params: dict[str, Any] = None) -> dict[str, Any]:
+        """Send a command to Blender and return the response
+
+        Args:
+            command_type: Value for command type.
+            params: Value for params.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation.
+
+        Raises:
+            Exception: If the operation cannot be completed.
+        """
         handshake = get_last_handshake()
-        if (
-            handshake
-            and handshake.capabilities
-            and command_type not in handshake.capabilities
-        ):
+        if handshake and handshake.capabilities and command_type not in handshake.capabilities:
             raise Exception(
                 f"'{command_type}' is not supported by the installed Blender addon "
                 f"(protocol {handshake.protocol_version}). Update the addon and reconnect."
@@ -142,9 +154,7 @@ class BlenderConnection:
         with self._lock:
             return self._send_command_locked(command_type, params)
 
-    def _send_command_locked(
-        self, command_type: str, params: dict[str, Any] = None
-    ) -> dict[str, Any]:
+    def _send_command_locked(self, command_type: str, params: dict[str, Any] = None) -> dict[str, Any]:
         if not self.sock and not self.connect():
             raise ConnectionError("Not connected to Blender")
 
@@ -203,7 +213,11 @@ _blender_connection = None
 
 
 def _maybe_handshake_addon(blender: BlenderConnection) -> None:
-    """Run addon version handshake once per process after a live connection."""
+    """Run addon version handshake once per process after a live connection.
+
+    Args:
+        blender: Value for blender.
+    """
     global _addon_handshake, _addon_handshake_checked
     with _addon_handshake_lock:
         if _addon_handshake_checked:
@@ -221,7 +235,14 @@ def _maybe_handshake_addon(blender: BlenderConnection) -> None:
 
 
 def get_blender_connection():
-    """Get or create a persistent Blender connection"""
+    """Get or create a persistent Blender connection
+
+    Returns:
+        Result produced by the operation.
+
+    Raises:
+        Exception: If the operation cannot be completed.
+    """
     global _blender_connection
 
     # Reuse the existing connection. We deliberately do NOT probe it with a
@@ -239,9 +260,7 @@ def get_blender_connection():
         if not _blender_connection.connect():
             logger.error("Failed to connect to Blender")
             _blender_connection = None
-            raise Exception(
-                "Could not connect to Blender. Make sure the Blender addon is running."
-            )
+            raise Exception("Could not connect to Blender. Make sure the Blender addon is running.")
         logger.info("Created new persistent connection to Blender")
         _maybe_handshake_addon(_blender_connection)
 
@@ -270,6 +289,12 @@ def force_addon_handshake(blender: BlenderConnection) -> AddonHandshake | None:
     globals directly. That can't be replicated across a module boundary via a
     plain `from ..connection import _addon_handshake_checked` (it copies the
     reference, not a live binding), so this needs to be a real function here.
+
+    Args:
+        blender: Value for blender.
+
+    Returns:
+        AddonHandshake | None: Result produced by the operation.
     """
     global _addon_handshake_checked
     with _addon_handshake_lock:
@@ -279,5 +304,9 @@ def force_addon_handshake(blender: BlenderConnection) -> AddonHandshake | None:
 
 
 def get_last_handshake() -> AddonHandshake | None:
-    """Read accessor for the most recent addon handshake result, if any."""
+    """Read accessor for the most recent addon handshake result, if any.
+
+    Returns:
+        AddonHandshake | None: Result produced by the operation.
+    """
     return _addon_handshake

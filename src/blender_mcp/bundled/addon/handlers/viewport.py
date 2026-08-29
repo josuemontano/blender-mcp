@@ -6,15 +6,15 @@ import bpy
 
 class ViewportHandlersMixin:
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
-        """
-        Capture a screenshot of the current 3D viewport and save it to the specified path.
+        """Capture a screenshot of the current 3D viewport and save it to the specified path.
 
-        Parameters:
-        - max_size: Maximum size in pixels for the largest dimension of the image
-        - filepath: Path where to save the screenshot file
-        - format: Image format (png, jpg, etc.)
+        Args:
+            max_size: Maximum size in pixels for the largest dimension of the image
+            filepath: Path where to save the screenshot file
+            format: Image format (png, jpg, etc.)
 
-        Returns success/error status
+        Returns:
+            success/error status
         """
         # screen.screenshot_area captures the OS window framebuffer, which is
         # all-black whenever the Blender window is not composited in the
@@ -109,7 +109,17 @@ class ViewportHandlersMixin:
             return {"error": str(e)}
 
     def execute_code(self, code):
-        """Execute arbitrary Blender Python code"""
+        """Execute arbitrary Blender Python code
+
+        Args:
+            code: Value for code.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            Exception: If the operation cannot be completed.
+        """
         # This is powerful but potentially dangerous - use with caution
         try:
             # Create a local namespace for execution

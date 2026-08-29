@@ -29,6 +29,20 @@ class ModelHandlersMixin:
         space="WORLD" (default) matches visually across differently-parented
         objects by decomposing/recomposing matrix_world. space="LOCAL" copies
         the raw local location/rotation/scale properties instead.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            reference_object_name: Name of the reference object.
+            match_location: Value for match location.
+            match_rotation: Value for match rotation.
+            match_scale: Value for match scale.
+            space: Value for space.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
         """
         space = str(space).upper()
         if space not in _SPACES:
@@ -66,7 +80,16 @@ class ModelHandlersMixin:
         }
 
     def model_refine(self, object_name, levels=1, apply=False):
-        """Smooth and increase effective resolution via a Subdivision Surface modifier."""
+        """Smooth and increase effective resolution via a Subdivision Surface modifier.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            levels: Value for levels.
+            apply: Value for apply.
+
+        Returns:
+            Result produced by the operation.
+        """
         obj = _get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Subdivision", type="SUBSURF")
         mod.levels = levels
@@ -94,6 +117,17 @@ class ModelHandlersMixin:
         yourself before calling this. The Subdivision modifier is only baked in
         (applied) when apply=True as well - with apply=False both modifiers are
         left live so the result stays fully non-destructive.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            strength: Value for strength.
+            scale: Value for scale.
+            texture_type: Value for texture type.
+            apply: Value for apply.
+            subdivide: Value for subdivide.
+
+        Returns:
+            Result produced by the operation.
         """
         obj = _get_mesh_object(object_name)
         if subdivide:
@@ -113,7 +147,21 @@ class ModelHandlersMixin:
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
     def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
-        """Add a Mirror modifier to an object across the given axis."""
+        """Add a Mirror modifier to an object across the given axis.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            axis: Axis that controls the operation.
+            merge: Value for merge.
+            clip: Value for clip.
+            apply: Value for apply.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+        """
         obj = _get_mesh_object(object_name)
         axis = str(axis).upper()
         if axis not in {"X", "Y", "Z"}:
@@ -127,7 +175,17 @@ class ModelHandlersMixin:
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
     def model_array(self, object_name, count=2, relative_offset=(1, 0, 0), apply=False):
-        """Add a linear Array modifier to an object."""
+        """Add a linear Array modifier to an object.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            count: Value for count.
+            relative_offset: Value for relative offset.
+            apply: Value for apply.
+
+        Returns:
+            Result produced by the operation.
+        """
         obj = _get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Array", type="ARRAY")
         mod.count = count
@@ -155,6 +213,21 @@ class ModelHandlersMixin:
         lands on top of the original. Provide one of pivot_object_name,
         pivot_location, or radius to set that distance; omitting all three
         raises an error instead of silently producing overlapping copies.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            count: Value for count.
+            axis: Axis that controls the operation.
+            apply: Value for apply.
+            pivot_object_name: Name of the pivot object.
+            pivot_location: Value for pivot location.
+            radius: Value for radius.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
         """
         obj = _get_mesh_object(object_name)
         axis = str(axis).upper()

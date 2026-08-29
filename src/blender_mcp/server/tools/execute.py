@@ -14,11 +14,17 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @mcp.tool()
 async def execute_blender_code(ctx: Context, code: str) -> dict:
-    """
-    Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.
+    """Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.
 
-    Parameters:
-    - code: The Python code to execute
+    Args:
+        ctx: MCP request context.
+        code: The Python code to execute
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         # Get the global connection

@@ -42,12 +42,8 @@ def _rodin_extract_job_ids(result: dict[str, Any]) -> dict[str, str]:
     raise ValueError(f"Could not determine Hyper3D job id from response: {result}")
 
 
-async def _rodin_wait_until_done(
-    blender, job_ids: dict[str, str], timeout_s: float
-) -> None:
-    poll_kwargs = {
-        k: v for k, v in job_ids.items() if k in ("subscription_key", "request_id")
-    }
+async def _rodin_wait_until_done(blender, job_ids: dict[str, str], timeout_s: float) -> None:
+    poll_kwargs = {k: v for k, v in job_ids.items() if k in ("subscription_key", "request_id")}
     deadline = time.monotonic() + timeout_s
     while True:
         status = blender.send_command("poll_rodin_job_status", poll_kwargs)
@@ -66,9 +62,7 @@ async def _rodin_wait_until_done(
             if job_status not in (None, "IN_PROGRESS", "IN_QUEUE"):
                 raise ValueError(f"Hyper3D generation failed: {status}")
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Timed out after {timeout_s}s waiting for Hyper3D generation"
-            )
+            raise TimeoutError(f"Timed out after {timeout_s}s waiting for Hyper3D generation")
         await asyncio.sleep(3)
 
 
@@ -92,14 +86,10 @@ async def _generate_hyper3d_and_import(
     job_ids = _rodin_extract_job_ids(result)
     await _rodin_wait_until_done(blender, job_ids, timeout_s)
     import_kwargs = {"name": name or "GeneratedModel"}
-    import_kwargs.update(
-        {k: v for k, v in job_ids.items() if k in ("task_uuid", "request_id")}
-    )
+    import_kwargs.update({k: v for k, v in job_ids.items() if k in ("task_uuid", "request_id")})
     import_result = blender.send_command("import_generated_asset", import_kwargs)
     if isinstance(import_result, dict) and import_result.get("succeed") is False:
-        raise ValueError(
-            f"Hyper3D import failed: {import_result.get('error', import_result)}"
-        )
+        raise ValueError(f"Hyper3D import failed: {import_result.get('error', import_result)}")
     return {
         "provider": "hyper3d",
         "import_result": import_result,
@@ -108,7 +98,14 @@ async def _generate_hyper3d_and_import(
 
 
 def _find_urls(value) -> list:
-    """Recursively collect http(s) URL strings from an arbitrary JSON-like structure."""
+    """Recursively collect http(s) URL strings from an arbitrary JSON-like structure.
+
+    Args:
+        value: Value for value.
+
+    Returns:
+        list: Result produced by the operation.
+    """
     urls = []
     if isinstance(value, str):
         if value.startswith("http://") or value.startswith("https://"):
@@ -135,18 +132,12 @@ async def _hunyuan_wait_for_model_url(blender, job_id: str, timeout_s: float) ->
         if job_status == "DONE":
             urls = _find_urls(response.get("ResultFile3Ds", response))
             glb = next(
-                (
-                    u
-                    for u in urls
-                    if u.split("?", 1)[0].split("#", 1)[0].lower().endswith(".glb")
-                ),
+                (u for u in urls if u.split("?", 1)[0].split("#", 1)[0].lower().endswith(".glb")),
                 None,
             )
             model_url = glb or (urls[0] if urls else None)
             if not model_url:
-                raise ValueError(
-                    f"Hunyuan3D job completed but no result file URL was found: {status}"
-                )
+                raise ValueError(f"Hunyuan3D job completed but no result file URL was found: {status}")
             return model_url
         if job_status not in (
             None,
@@ -158,9 +149,7 @@ async def _hunyuan_wait_for_model_url(blender, job_id: str, timeout_s: float) ->
         ):
             raise ValueError(f"Hunyuan3D generation failed: {status}")
         if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Timed out after {timeout_s}s waiting for Hunyuan3D generation"
-            )
+            raise TimeoutError(f"Timed out after {timeout_s}s waiting for Hunyuan3D generation")
         await asyncio.sleep(3)
 
 
@@ -212,9 +201,7 @@ async def _generate_hunyuan_and_import(
 async def _select_3d_provider(blender, provider: str) -> str:
     provider = (provider or "auto").lower()
     if provider not in ("auto", "hyper3d", "hunyuan3d"):
-        raise ValueError(
-            f"Unknown provider: {provider}. Must be one of auto, hyper3d, hunyuan3d"
-        )
+        raise ValueError(f"Unknown provider: {provider}. Must be one of auto, hyper3d, hunyuan3d")
     hyper3d_enabled = False
     hunyuan3d_enabled = False
     if provider in ("auto", "hyper3d"):
@@ -248,18 +235,22 @@ async def model_from_reference(
     provider: Provider = "auto",
     timeout_s: float = 180,
 ) -> dict:
-    """
-    Generate a 3D model from a reference image and import it into the scene.
+    """Generate a 3D model from a reference image and import it into the scene.
+
     Auto-selects an enabled AI provider (Hyper3D Rodin or Hunyuan3D), collapsing the
     generate -> poll -> import workflow into a single call.
 
-    Parameters:
-    - image_path_or_url: Absolute local file path or http(s) URL of the reference image.
-    - name: Optional name for the imported object. Defaults to a generic generated name.
-    - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
-    - timeout_s: Maximum seconds to wait for generation to finish before giving up.
+    Args:
+        ctx: MCP request context.
+        image_path_or_url: Absolute local file path or http(s) URL of the reference image.
+        name: Optional name for the imported object. Defaults to a generic generated name.
+        provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
+        timeout_s: Maximum seconds to wait for generation to finish before giving up.
 
-    Returns the import result.
+    Returns:
+        the import result.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -303,19 +294,23 @@ async def model_generate_from_description(
     provider: Provider = "auto",
     timeout_s: float = 180,
 ) -> dict:
-    """
-    Generate a 3D model from a text description and import it into the scene.
+    """Generate a 3D model from a text description and import it into the scene.
+
     Auto-selects an enabled AI provider (Hyper3D Rodin or Hunyuan3D), collapsing the
     generate -> poll -> import workflow into a single call.
 
-    Parameters:
-    - text_prompt: A short description of the desired model in English.
-    - bbox_condition: Optional [Length, Width, Height] ratio for the model (Hyper3D only).
-    - name: Optional name for the imported object. Defaults to a generic generated name.
-    - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
-    - timeout_s: Maximum seconds to wait for generation to finish before giving up.
+    Args:
+        ctx: MCP request context.
+        text_prompt: A short description of the desired model in English.
+        bbox_condition: Optional [Length, Width, Height] ratio for the model (Hyper3D only).
+        name: Optional name for the imported object. Defaults to a generic generated name.
+        provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
+        timeout_s: Maximum seconds to wait for generation to finish before giving up.
 
-    Returns the import result.
+    Returns:
+        the import result.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()

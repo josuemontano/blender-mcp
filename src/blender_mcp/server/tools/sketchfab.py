@@ -21,16 +21,19 @@ async def search_sketchfab_models(
     count: int = 20,
     downloadable: bool = True,
 ) -> dict:
-    """
-    Search for models on Sketchfab with optional filtering.
+    """Search for models on Sketchfab with optional filtering.
 
-    Parameters:
-    - query: Text to search for
-    - categories: Optional comma-separated list of categories
-    - count: Maximum number of results to return (default 20)
-    - downloadable: Whether to include only downloadable models (default True)
+    Args:
+        ctx: MCP request context.
+        query: Text to search for
+        categories: Optional comma-separated list of categories
+        count: Maximum number of results to return (default 20)
+        downloadable: Whether to include only downloadable models (default True)
 
-    Returns the matching models.
+    Returns:
+        the matching models.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -60,17 +63,19 @@ async def search_sketchfab_models(
 
 
 @mcp.tool()
-async def get_sketchfab_model_preview(
-    ctx: Context, uid: str
-) -> Image:
-    """
-    Get a preview thumbnail of a Sketchfab model by its UID.
+async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
+    """Get a preview thumbnail of a Sketchfab model by its UID.
+
     Use this to visually confirm a model before downloading.
 
-    Parameters:
-    - uid: The unique identifier of the Sketchfab model (obtained from search_sketchfab_models)
+    Args:
+        ctx: MCP request context.
+        uid: The unique identifier of the Sketchfab model (obtained from search_sketchfab_models)
 
-    Returns the model's thumbnail as an Image for visual confirmation.
+    Returns:
+        the model's thumbnail as an Image for visual confirmation.
+    Raises:
+        Exception: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -101,26 +106,20 @@ async def get_sketchfab_model_preview(
 
 
 @mcp.tool()
-async def download_sketchfab_model(
-    ctx: Context, uid: str, target_size: float
-) -> dict:
-    """
-    Download and import a Sketchfab model by its UID.
+async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -> dict:
+    """Download and import a Sketchfab model by its UID.
+
     The model will be scaled so its largest dimension equals target_size.
 
-    Parameters:
-    - uid: The unique identifier of the Sketchfab model
-    - target_size: REQUIRED. The target size in Blender units/meters for the largest dimension.
-                  You must specify the desired size for the model.
-                  Examples:
-                  - Chair: target_size=1.0 (1 meter tall)
-                  - Table: target_size=0.75 (75cm tall)
-                  - Car: target_size=4.5 (4.5 meters long)
-                  - Person: target_size=1.7 (1.7 meters tall)
-                  - Small object (cup, phone): target_size=0.1 to 0.3
+    Args:
+        ctx: MCP request context.
+        uid: The unique identifier of the Sketchfab model
+        target_size: REQUIRED. The target size in Blender units/meters for the largest dimension. You must specify the desired size for the model. Examples: - Chair: target_size=1.0 (1 meter tall) - Table: target_size=0.75 (75cm tall) - Car: target_size=4.5 (4.5 meters long) - Person: target_size=1.7 (1.7 meters tall) - Small object (cup, phone): target_size=0.1 to 0.3
 
-    Returns import details including object names, dimensions, and bounding box.
-    The model must be downloadable and you must have proper access rights.
+    Returns:
+        import details including object names, dimensions, and bounding box. The model must be downloadable and you must have proper access rights.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -140,9 +139,7 @@ async def download_sketchfab_model(
         if "error" in result:
             raise ToolError(result["error"])
         if not result.get("success"):
-            raise ToolError(
-                f"Failed to download model: {result.get('message', 'Unknown error')}"
-            )
+            raise ToolError(f"Failed to download model: {result.get('message', 'Unknown error')}")
         return ok(result, changed_objects=result.get("imported_objects", []))
     except ToolError:
         raise

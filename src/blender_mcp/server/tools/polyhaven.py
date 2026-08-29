@@ -16,16 +16,17 @@ AssetType = Literal["hdris", "textures", "models", "all"]
 
 
 @mcp.tool()
-async def get_polyhaven_categories(
-    ctx: Context, asset_type: AssetType = "hdris"
-) -> dict:
-    """
-    Get a list of categories for a specific asset type on Polyhaven.
+async def get_polyhaven_categories(ctx: Context, asset_type: AssetType = "hdris") -> dict:
+    """Get a list of categories for a specific asset type on Polyhaven.
 
-    Parameters:
-    - asset_type: One of hdris, textures, models, all.
+    Args:
+        ctx: MCP request context.
+        asset_type: One of hdris, textures, models, all.
 
-    Returns the categories and their asset counts.
+    Returns:
+        the categories and their asset counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -34,9 +35,7 @@ async def get_polyhaven_categories(
             raise ToolError(
                 "PolyHaven integration is disabled. Select it in the sidebar in BlenderMCP, then run it again."
             )
-        result = blender.send_command(
-            "get_polyhaven_categories", {"asset_type": asset_type}
-        )
+        result = blender.send_command("get_polyhaven_categories", {"asset_type": asset_type})
         if "error" in result:
             raise ToolError(result["error"])
         return ok({"asset_type": asset_type, "categories": result["categories"]})
@@ -53,14 +52,17 @@ async def search_polyhaven_assets(
     asset_type: AssetType = "all",
     categories: str | None = None,
 ) -> dict:
-    """
-    Search for assets on Polyhaven with optional filtering.
+    """Search for assets on Polyhaven with optional filtering.
 
-    Parameters:
-    - asset_type: One of hdris, textures, models, all.
-    - categories: Optional comma-separated list of categories to filter by.
+    Args:
+        ctx: MCP request context.
+        asset_type: One of hdris, textures, models, all.
+        categories: Optional comma-separated list of categories to filter by.
 
-    Returns matching assets with basic information.
+    Returns:
+        matching assets with basic information.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -92,14 +94,20 @@ async def download_polyhaven_asset(
     resolution: str = "1k",
     file_format: str | None = None,
 ) -> dict:
-    """
-    Download and import a Polyhaven asset into Blender.
+    """Download and import a Polyhaven asset into Blender.
 
-    Parameters:
-    - asset_id: The ID of the asset to download
-    - asset_type: The type of asset (hdris, textures, models)
-    - resolution: The resolution to download (e.g., 1k, 2k, 4k)
-    - file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
+    Args:
+        ctx: MCP request context.
+        asset_id: The ID of the asset to download
+        asset_type: The type of asset (hdris, textures, models)
+        resolution: The resolution to download (e.g., 1k, 2k, 4k)
+        file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -115,14 +123,8 @@ async def download_polyhaven_asset(
         if "error" in result:
             raise ToolError(result["error"])
         if not result.get("success"):
-            raise ToolError(
-                f"Failed to download asset: {result.get('message', 'Unknown error')}"
-            )
-        changed = (
-            [asset_id]
-            if asset_type in ("textures", "models")
-            else []
-        )
+            raise ToolError(f"Failed to download asset: {result.get('message', 'Unknown error')}")
+        changed = [asset_id] if asset_type in ("textures", "models") else []
         return ok(result, changed_objects=changed)
     except ToolError:
         raise
@@ -132,27 +134,27 @@ async def download_polyhaven_asset(
 
 
 @mcp.tool()
-async def apply_polyhaven_texture(
-    ctx: Context, object_name: str, texture_id: str
-) -> dict:
-    """
-    Apply a previously downloaded Polyhaven texture to an object.
+async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: str) -> dict:
+    """Apply a previously downloaded Polyhaven texture to an object.
 
-    Parameters:
-    - object_name: Name of the object to apply the texture to
-    - texture_id: ID of the Polyhaven texture to apply (must be downloaded first)
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the object to apply the texture to
+        texture_id: ID of the Polyhaven texture to apply (must be downloaded first)
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command(
-            "apply_polyhaven_texture", {"object_name": object_name, "texture_id": texture_id}
-        )
+        result = blender.send_command("apply_polyhaven_texture", {"object_name": object_name, "texture_id": texture_id})
         if "error" in result:
             raise ToolError(result["error"])
         if not result.get("success"):
-            raise ToolError(
-                f"Failed to apply texture: {result.get('message', 'Unknown error')}"
-            )
+            raise ToolError(f"Failed to apply texture: {result.get('message', 'Unknown error')}")
         return ok(result, changed_objects=[object_name])
     except ToolError:
         raise

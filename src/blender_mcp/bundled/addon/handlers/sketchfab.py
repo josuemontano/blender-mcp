@@ -13,7 +13,11 @@ import requests
 class SketchfabHandlersMixin:
     # region Sketchfab API
     def get_sketchfab_status(self):
-        """Get the current status of Sketchfab integration"""
+        """Get the current status of Sketchfab integration
+
+        Returns:
+            Result produced by the operation.
+        """
         enabled = bpy.context.scene.blendermcp_use_sketchfab
         api_key = self._get_sketchfab_api_key()
 
@@ -78,7 +82,17 @@ class SketchfabHandlersMixin:
     def search_sketchfab_models(
         self, query, categories=None, count=20, downloadable=True
     ):
-        """Search for models on Sketchfab based on query and optional filters"""
+        """Search for models on Sketchfab based on query and optional filters
+
+        Args:
+            query: Search query.
+            categories: Value for categories.
+            count: Value for count.
+            downloadable: Value for downloadable.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             api_key = self._get_sketchfab_api_key()
             if not api_key:
@@ -142,7 +156,14 @@ class SketchfabHandlersMixin:
             return {"error": str(e)}
 
     def get_sketchfab_model_preview(self, uid):
-        """Get thumbnail preview image of a Sketchfab model by its UID"""
+        """Get thumbnail preview image of a Sketchfab model by its UID
+
+        Args:
+            uid: Value for uid.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             import base64
 
@@ -233,10 +254,13 @@ class SketchfabHandlersMixin:
     def download_sketchfab_model(self, uid, normalize_size=False, target_size=1.0):
         """Download a model from Sketchfab by its UID
 
-        Parameters:
-        - uid: The unique identifier of the Sketchfab model
-        - normalize_size: If True, scale the model so its largest dimension equals target_size
-        - target_size: The target size in Blender units (meters) for the largest dimension
+        Args:
+            uid: The unique identifier of the Sketchfab model
+            normalize_size: If True, scale the model so its largest dimension equals target_size
+            target_size: The target size in Blender units (meters) for the largest dimension
+
+        Returns:
+            Result produced by the operation.
         """
         try:
             api_key = self._get_sketchfab_api_key()
@@ -364,7 +388,14 @@ class SketchfabHandlersMixin:
 
             # Helper function to recursively get all mesh children
             def get_all_mesh_children(obj):
-                """Recursively collect all mesh objects in the hierarchy"""
+                """Recursively collect all mesh objects in the hierarchy
+
+                Args:
+                    obj: Value for obj.
+
+                Returns:
+                    Result produced by the operation.
+                """
                 meshes = []
                 if obj.type == "MESH":
                     meshes.append(obj)

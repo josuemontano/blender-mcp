@@ -16,18 +16,19 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def get_scene_info(
-    ctx: Context, limit: int = 25, offset: int = 0
-) -> dict:
+async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
     """Get detailed information about the current Blender scene, paginated over its objects.
 
-    Parameters:
-    - limit: Maximum number of objects to return in this page (default 25, capped at 200).
-    - offset: Index of the first object to return, for paging through a scene with more objects than fit in one page.
+    Args:
+        ctx: MCP request context.
+        limit: Maximum number of objects to return in this page (default 25, capped at 200).
+        offset: Index of the first object to return, for paging through a scene with more objects than fit in one page. The result includes "object_count" (the true total), "returned_count", "truncated", and "next_offset" - when "truncated" is true, call again with offset=next_offset to see the rest of the scene's objects.
 
-    The result includes "object_count" (the true total), "returned_count", "truncated",
-    and "next_offset" - when "truncated" is true, call again with offset=next_offset to
-    see the rest of the scene's objects.
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -40,15 +41,17 @@ async def get_scene_info(
 
 @mcp.tool()
 async def get_object_info(ctx: Context, object_name: str) -> dict:
-    """
-    Get detailed information about a specific object in the Blender scene.
+    """Get detailed information about a specific object in the Blender scene.
 
-    Parameters:
-    - object_name: The name of the object to get information about
+    Args:
+        ctx: MCP request context.
+        object_name: The name of the object to get information about For mesh objects, "mesh" only reports vertex/edge/polygon counts. To discover actual per-element coordinates, normals, indices, or selection state (needed before calling index-based tools like mesh_extrude/mesh_bevel/mesh_bridge), use get_mesh_data instead.
 
-    For mesh objects, "mesh" only reports vertex/edge/polygon counts. To discover actual
-    per-element coordinates, normals, indices, or selection state (needed before calling
-    index-based tools like mesh_extrude/mesh_bevel/mesh_bridge), use get_mesh_data instead.
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -68,28 +71,25 @@ async def get_mesh_data(
     offset: int = 0,
     selected_only: bool = False,
 ) -> dict:
-    """
-    Paginated inspection of a mesh's topology: vertices, edges, faces, or loops.
+    """Paginated inspection of a mesh's topology: vertices, edges, faces, or loops.
 
     Use this to discover valid indices (with coordinates, normals, and selection state)
     before calling index-based mesh tools such as mesh_extrude, mesh_inset, mesh_bevel,
     mesh_bridge, or mesh_subdivide.
 
-    Parameters:
-    - object_name: Name of the mesh object to inspect.
-    - element_type: One of "vertices", "edges", "faces", "loops". Each element in the
-      result includes its "index" plus type-specific fields: vertices have "co" and
-      "normal"; edges have their two "vertices" indices; faces have their "vertices"
-      indices, "normal", and "material_index"; loops have "vertex_index", "edge_index",
-      and "face_index". Vertices/edges/faces also include a "select" flag.
-    - limit: Maximum number of elements to return in this page (default 100, capped at 1000).
-    - offset: Index of the first element to return, for paging through a large mesh.
-    - selected_only: If True, only return elements currently selected in Edit Mode
-      (not supported for element_type="loops", which has no selection state of its own).
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to inspect.
+        element_type: One of "vertices", "edges", "faces", "loops". Each element in the result includes its "index" plus type-specific fields: vertices have "co" and "normal"; edges have their two "vertices" indices; faces have their "vertices" indices, "normal", and "material_index"; loops have "vertex_index", "edge_index", and "face_index". Vertices/edges/faces also include a "select" flag.
+        limit: Maximum number of elements to return in this page (default 100, capped at 1000).
+        offset: Index of the first element to return, for paging through a large mesh.
+        selected_only: If True, only return elements currently selected in Edit Mode (not supported for element_type="loops", which has no selection state of its own). The result includes "total" (elements matching the current filter), "total_unfiltered", "returned_count", "truncated", and "next_offset" - when "truncated" is true, call again with offset=next_offset to see the rest.
 
-    The result includes "total" (elements matching the current filter), "total_unfiltered",
-    "returned_count", "truncated", and "next_offset" - when "truncated" is true, call again
-    with offset=next_offset to see the rest.
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -110,16 +110,17 @@ async def get_mesh_data(
 
 
 @mcp.tool()
-def get_viewport_screenshot(
-    ctx: Context, max_size: int = 1000
-) -> Image:
-    """
-    Capture a screenshot of the current Blender 3D viewport.
+def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
+    """Capture a screenshot of the current Blender 3D viewport.
 
-    Parameters:
-    - max_size: Maximum size in pixels for the largest dimension (default: 800)
+    Args:
+        ctx: MCP request context.
+        max_size: Maximum size in pixels for the largest dimension (default: 800)
 
-    Returns the screenshot as an Image.
+    Returns:
+        the screenshot as an Image.
+    Raises:
+        Exception: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()

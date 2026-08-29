@@ -54,7 +54,16 @@ class BlenderMCPServer(
         self._clients_lock = threading.Lock()
 
     def _get_config_value(self, scene_attr, pref_attr=None, env_var=None):
-        """Read config in order: addon preferences -> scene -> env var."""
+        """Read config in order: addon preferences -> scene -> env var.
+
+        Args:
+            scene_attr: Value for scene attr.
+            pref_attr: Value for pref attr.
+            env_var: Value for env var.
+
+        Returns:
+            Result produced by the operation.
+        """
         prefs = get_blendermcp_addon_preferences()
         if prefs and pref_attr:
             pref_value = getattr(prefs, pref_attr, "")
@@ -200,7 +209,8 @@ class BlenderMCPServer(
         print("BlenderMCP server stopped")
 
     def _server_loop(self):
-        """Main server loop in a separate thread"""
+        """Main server loop in a separate thread
+        """
         print("Server thread started")
         self.socket.settimeout(1.0)  # Timeout to allow for stopping
 
@@ -236,6 +246,9 @@ class BlenderMCPServer(
 
         Registered once by start(); returns the poll interval so Blender keeps
         calling it. All bpy access happens here, on the main thread.
+
+        Returns:
+            Result produced by the operation.
         """
         if not self.running:
             return None
@@ -262,7 +275,11 @@ class BlenderMCPServer(
         return 0.05
 
     def _handle_client(self, client):
-        """Handle connected client"""
+        """Handle connected client
+
+        Args:
+            client: Value for client.
+        """
         print("Client handler started")
         # A finite timeout keeps this loop responsive to self.running instead
         # of parking in recv() forever.
@@ -313,7 +330,14 @@ class BlenderMCPServer(
             print("Client handler stopped")
 
     def execute_command(self, command):
-        """Execute a command in the main Blender thread"""
+        """Execute a command in the main Blender thread
+
+        Args:
+            command: Command requested by the client.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             return self._execute_command_internal(command)
         except Exception as e:
@@ -326,6 +350,9 @@ class BlenderMCPServer(
 
         Shared by _execute_command_internal (dispatch) and get_addon_info
         (advertised capabilities), so the two can never drift apart.
+
+        Returns:
+            Result produced by the operation.
         """
         # Base handlers that are always available
         handlers = {
@@ -417,7 +444,14 @@ class BlenderMCPServer(
         return handlers
 
     def _execute_command_internal(self, command):
-        """Internal command execution with proper context"""
+        """Internal command execution with proper context
+
+        Args:
+            command: Command requested by the client.
+
+        Returns:
+            Result produced by the operation.
+        """
         cmd_type = command.get("type")
         params = command.get("params", {})
 
@@ -451,7 +485,11 @@ class BlenderMCPServer(
             return {"status": "error", "message": f"Unknown command type: {cmd_type}"}
 
     def get_addon_info(self):
-        """Version/capability handshake for the MCP server (and install tooling)."""
+        """Version/capability handshake for the MCP server (and install tooling).
+
+        Returns:
+            Result produced by the operation.
+        """
         return {
             "name": bl_info.get("name", "Blender MCP"),
             "addon_version": list(bl_info.get("version", (0, 0))),
@@ -465,7 +503,15 @@ class BlenderMCPServer(
     _SCENE_INFO_MAX_LIMIT = 200
 
     def get_scene_info(self, limit=25, offset=0):
-        """Get information about the current Blender scene, paginated over its objects."""
+        """Get information about the current Blender scene, paginated over its objects.
+
+        Args:
+            limit: Maximum number of items to return.
+            offset: Zero-based starting position.
+
+        Returns:
+            Result produced by the operation.
+        """
         try:
             print("Getting scene info...")
             scene_objects = list(bpy.context.scene.objects)
@@ -510,7 +556,17 @@ class BlenderMCPServer(
 
     @staticmethod
     def _get_aabb(obj):
-        """Returns the world-space axis-aligned bounding box (AABB) of an object."""
+        """Returns the world-space axis-aligned bounding box (AABB) of an object.
+
+        Args:
+            obj: Value for obj.
+
+        Returns:
+            the world-space axis-aligned bounding box (AABB) of an object.
+
+        Raises:
+            TypeError: If the operation cannot be completed.
+        """
         if obj.type != "MESH":
             raise TypeError("Object must be a mesh")
 
@@ -529,7 +585,17 @@ class BlenderMCPServer(
         return [[*min_corner], [*max_corner]]
 
     def get_object_info(self, name):
-        """Get detailed information about a specific object"""
+        """Get detailed information about a specific object
+
+        Args:
+            name: Name to assign or look up.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+        """
         obj = bpy.data.objects.get(name)
         if not obj:
             raise ValueError(f"Object not found: {name}")
@@ -607,6 +673,19 @@ class BlenderMCPServer(
         Prerequisite for index-based edits: mesh_extrude/mesh_inset/mesh_bevel/
         mesh_bridge/mesh_subdivide take raw indices with no way to discover them
         otherwise, since get_object_info only reports element counts.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+            element_type: Value for element type.
+            limit: Maximum number of items to return.
+            offset: Zero-based starting position.
+            selected_only: Value for selected only.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
         """
         if element_type not in self._MESH_DATA_ELEMENT_TYPES:
             raise ValueError(

@@ -15,7 +15,14 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
-    """Manage server startup and shutdown lifecycle"""
+    """Manage server startup and shutdown lifecycle
+
+    Args:
+        server: Value for server.
+
+    Returns:
+        AsyncIterator[dict[str, Any]]: Result produced by the operation.
+    """
     # We don't need to create a connection here since we're using the global connection
     # for resources and tools
 
@@ -42,9 +49,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
                 logger.warning(format_handshake_log(handshake))
         except Exception as e:
             logger.warning(f"Could not connect to Blender on startup: {str(e)}")
-            logger.warning(
-                "Make sure the Blender addon is running before using Blender resources or tools"
-            )
+            logger.warning("Make sure the Blender addon is running before using Blender resources or tools")
 
         # Return an empty context - we're using the global connection
         yield {}

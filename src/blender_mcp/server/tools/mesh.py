@@ -27,22 +27,22 @@ async def mesh_create_primitive(
     dimensions: tuple[float, float, float] | None = None,
     purpose: PrimitivePurpose | None = None,
 ) -> dict:
-    """
-    Create a primitive mesh or curve object in the scene.
+    """Create a primitive mesh or curve object in the scene.
 
-    Parameters:
-    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
-    - name: Optional name for the created object. Defaults to Blender's auto-generated name.
-    - location: [x, y, z] location for the new object.
-    - rotation: [x, y, z] rotation in radians for the new object.
-    - size: Overall size (interpreted per primitive type, e.g. cube edge length, sphere radius).
-    - dimensions: Optional [x, y, z] world-space bounding box, applied after creation and
-      overriding size for footprint - use this to get the same physical footprint across
-      different primitive types.
-    - purpose: Set to "blockout" to tag the object as a placeholder proxy for later refinement.
+    Args:
+        ctx: MCP request context.
+        primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
+        name: Optional name for the created object. Defaults to Blender's auto-generated name.
+        location: [x, y, z] location for the new object.
+        rotation: [x, y, z] rotation in radians for the new object.
+        size: Overall size (interpreted per primitive type, e.g. cube edge length, sphere radius).
+        dimensions: Optional [x, y, z] world-space bounding box, applied after creation and overriding size for footprint - use this to get the same physical footprint across different primitive types.
+        purpose: Set to "blockout" to tag the object as a placeholder proxy for later refinement.
 
-    Returns the created object's name, type, location, and mesh counts (plus dimensions/scale
-    when `dimensions` was given).
+    Returns:
+        the created object's name, type, location, and mesh counts (plus dimensions/scale when `dimensions` was given).
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -72,15 +72,18 @@ async def mesh_extrude(
     offset: tuple[float, float, float] = (0, 0, 1),
     face_indices: list[int] | None = None,
 ) -> dict:
-    """
-    Extrude the selected faces of a mesh object along an offset vector.
+    """Extrude the selected faces of a mesh object along an offset vector.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - offset: [x, y, z] translation applied to the extruded geometry.
-    - face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        offset: [x, y, z] translation applied to the extruded geometry.
+        face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -106,16 +109,19 @@ async def mesh_inset(
     depth: float = 0.0,
     face_indices: list[int] | None = None,
 ) -> dict:
-    """
-    Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
+    """Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - thickness: Inset thickness.
-    - depth: Inset depth (pushes the inset faces along their normal).
-    - face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        thickness: Inset thickness.
+        depth: Inset depth (pushes the inset faces along their normal).
+        face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -144,19 +150,21 @@ async def mesh_bevel(
     edge_indices: list[int] | None = None,
     vertex_indices: list[int] | None = None,
 ) -> dict:
-    """
-    Bevel the selected edges or vertices of a mesh object.
+    """Bevel the selected edges or vertices of a mesh object.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - offset: Bevel width.
-    - segments: Number of bevel segments.
-    - affect: "EDGES" or "VERTICES".
-    - edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
-    - vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name, element_type="vertices") to discover valid indices.
-    - If neither edge_indices nor vertex_indices is given, the whole mesh is selected.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        offset: Bevel width.
+        segments: Number of bevel segments.
+        affect: "EDGES" or "VERTICES".
+        edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
+        vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name, element_type="vertices") to discover valid indices. - If neither edge_indices nor vertex_indices is given, the whole mesh is selected.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -179,14 +187,17 @@ async def mesh_bevel(
 
 @mcp.tool()
 async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -> dict:
-    """
-    Bridge two open edge loops of a mesh object with new faces.
+    """Bridge two open edge loops of a mesh object with new faces.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -203,23 +214,22 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
         raise ToolError(f"Error bridging mesh edge loops: {e}") from e
 
 
-SymmetrizeDirection = Literal[
-    "NEGATIVE_X", "POSITIVE_X", "NEGATIVE_Y", "POSITIVE_Y", "NEGATIVE_Z", "POSITIVE_Z"
-]
+SymmetrizeDirection = Literal["NEGATIVE_X", "POSITIVE_X", "NEGATIVE_Y", "POSITIVE_Y", "NEGATIVE_Z", "POSITIVE_Z"]
 
 
 @mcp.tool()
-async def mesh_symmetrize(
-    ctx: Context, object_name: str, direction: SymmetrizeDirection = "NEGATIVE_X"
-) -> dict:
-    """
-    Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
+async def mesh_symmetrize(ctx: Context, object_name: str, direction: SymmetrizeDirection = "NEGATIVE_X") -> dict:
+    """Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - direction: Which half to keep and mirror from, e.g. "NEGATIVE_X" keeps the -X half and mirrors it onto +X.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        direction: Which half to keep and mirror from, e.g. "NEGATIVE_X" keeps the -X half and mirrors it onto +X.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -244,16 +254,19 @@ async def mesh_boolean(
     operation: Literal["UNION", "DIFFERENCE", "INTERSECT"] = "DIFFERENCE",
     keep_cutter: bool = True,
 ) -> dict:
-    """
-    Apply a boolean operation between two mesh objects.
+    """Apply a boolean operation between two mesh objects.
 
-    Parameters:
-    - object_name: Name of the mesh object the boolean is applied to (the result).
-    - cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
-    - operation: One of UNION, DIFFERENCE, INTERSECT.
-    - keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete it.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object the boolean is applied to (the result).
+        cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
+        operation: One of UNION, DIFFERENCE, INTERSECT.
+        keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete it.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -280,15 +293,18 @@ async def mesh_subdivide(
     cuts: int = 1,
     face_indices: list[int] | None = None,
 ) -> dict:
-    """
-    Subdivide the selected faces of a mesh object, adding more geometry.
+    """Subdivide the selected faces of a mesh object, adding more geometry.
 
-    Parameters:
-    - object_name: Name of the mesh object to edit.
-    - cuts: Number of cuts per edge.
-    - face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to edit.
+        cuts: Number of cuts per edge.
+        face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -308,14 +324,17 @@ async def mesh_subdivide(
 
 @mcp.tool()
 async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -> dict:
-    """
-    Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
+    """Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
 
-    Parameters:
-    - object_name: Name of the mesh object to remesh.
-    - voxel_size: Size of the voxels used to rebuild the mesh; smaller values produce more detail.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to remesh.
+        voxel_size: Size of the voxels used to rebuild the mesh; smaller values produce more detail.
 
-    Returns the object's name and updated vertex/edge/polygon counts.
+    Returns:
+        the object's name and updated vertex/edge/polygon counts.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()
@@ -339,17 +358,18 @@ async def mesh_solidify(
     thickness: float = 0.01,
     apply: bool = False,
 ) -> dict:
-    """
-    Give a mesh's surface thickness via a Solidify modifier.
+    """Give a mesh's surface thickness via a Solidify modifier.
 
-    Parameters:
-    - object_name: Name of the mesh object to solidify.
-    - thickness: Thickness to add.
-    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to solidify.
+        thickness: Thickness to add.
+        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
-    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
-    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
-    "bounds" reflecting the live modifier's effect.
+    Returns:
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+    Raises:
+        ToolError: If the operation cannot be completed.
     """
     try:
         blender = get_blender_connection()

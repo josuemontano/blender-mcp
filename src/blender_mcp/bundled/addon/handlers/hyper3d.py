@@ -12,7 +12,11 @@ from ..constants import RODIN_FREE_TRIAL_KEY
 class Hyper3DHandlersMixin:
     # region Hyper3D
     def get_hyper3d_status(self):
-        """Get the current status of Hyper3D Rodin integration"""
+        """Get the current status of Hyper3D Rodin integration
+
+        Returns:
+            Result produced by the operation.
+        """
         enabled = bpy.context.scene.blendermcp_use_hyper3d
         hyper3d_api_key = self._get_hyper3d_api_key()
         if enabled:
@@ -135,7 +139,14 @@ class Hyper3DHandlersMixin:
                 return "Error: Unknown Hyper3D Rodin mode!"
 
     def poll_rodin_job_status_main_site(self, subscription_key: str):
-        """Call the job status API to get the job status"""
+        """Call the job status API to get the job status
+
+        Args:
+            subscription_key: Value for subscription key.
+
+        Returns:
+            Result produced by the operation.
+        """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
             return {"error": "Hyper3D API key is not given"}
@@ -152,7 +163,14 @@ class Hyper3DHandlersMixin:
         return {"status_list": [i["status"] for i in data["jobs"]]}
 
     def poll_rodin_job_status_fal_ai(self, request_id: str):
-        """Call the job status API to get the job status"""
+        """Call the job status API to get the job status
+
+        Args:
+            request_id: Identifier of the request.
+
+        Returns:
+            Result produced by the operation.
+        """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
             return {"error": "Hyper3D API key is not given"}
@@ -250,7 +268,15 @@ class Hyper3DHandlersMixin:
                 return "Error: Unknown Hyper3D Rodin mode!"
 
     def import_generated_asset_main_site(self, task_uuid: str, name: str):
-        """Fetch the generated asset, import into blender"""
+        """Fetch the generated asset, import into blender
+
+        Args:
+            task_uuid: Value for task uuid.
+            name: Name to assign or look up.
+
+        Returns:
+            Result produced by the operation.
+        """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
             return {"succeed": False, "error": "Hyper3D API key is not given"}
@@ -319,7 +345,15 @@ class Hyper3DHandlersMixin:
             return {"succeed": False, "error": str(e)}
 
     def import_generated_asset_fal_ai(self, request_id: str, name: str):
-        """Fetch the generated asset, import into blender"""
+        """Fetch the generated asset, import into blender
+
+        Args:
+            request_id: Identifier of the request.
+            name: Name to assign or look up.
+
+        Returns:
+            Result produced by the operation.
+        """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
             return {"succeed": False, "error": "Hyper3D API key is not given"}

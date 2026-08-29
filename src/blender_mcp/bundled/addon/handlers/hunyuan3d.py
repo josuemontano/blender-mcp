@@ -19,7 +19,11 @@ import requests
 class Hunyuan3DHandlersMixin:
     # region Hunyuan3D
     def get_hunyuan3d_status(self):
-        """Get the current status of Hunyuan3D integration"""
+        """Get the current status of Hunyuan3D integration
+
+        Returns:
+            Result produced by the operation.
+        """
         enabled = bpy.context.scene.blendermcp_use_hunyuan3d
         hunyuan3d_mode = bpy.context.scene.blendermcp_hunyuan3d_mode
         secret_id = self._get_hunyuan3d_secret_id()
@@ -79,7 +83,22 @@ class Hunyuan3DHandlersMixin:
         secret_key: str,
         host: str = None,
     ):
-        """Generate the signature header required for Tencent Cloud API requests headers"""
+        """Generate the signature header required for Tencent Cloud API requests headers
+
+        Args:
+            method: Value for method.
+            path: Filesystem path to inspect or update.
+            headParams: Value for headParams.
+            data: Data to process.
+            service: Value for service.
+            region: Value for region.
+            secret_id: Identifier of the secret.
+            secret_key: Value for secret key.
+            host: Server host name or address.
+
+        Returns:
+            Result produced by the operation.
+        """
         # Generate timestamp
         timestamp = int(time.time())
         date = datetime.utcfromtimestamp(timestamp).strftime("%Y-%m-%d")
@@ -320,7 +339,14 @@ class Hunyuan3DHandlersMixin:
         return self.poll_hunyuan_job_status_ai(*args, **kwargs)
 
     def poll_hunyuan_job_status_ai(self, job_id: str):
-        """Call the job status API to get the job status"""
+        """Call the job status API to get the job status
+
+        Args:
+            job_id: Identifier of the job.
+
+        Returns:
+            Result produced by the operation.
+        """
         print(job_id)
         try:
             secret_id = self._get_hunyuan3d_secret_id()
