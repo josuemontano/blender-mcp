@@ -14,12 +14,12 @@ logger = logging.getLogger("BlenderMCPServer")
 
 PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
 SymmetrizeDirection = Literal[
-    "NEGATIVE_X_TO_POSITIVE_X",
-    "POSITIVE_X_TO_NEGATIVE_X",
-    "NEGATIVE_Y_TO_POSITIVE_Y",
-    "POSITIVE_Y_TO_NEGATIVE_Y",
-    "NEGATIVE_Z_TO_POSITIVE_Z",
-    "POSITIVE_Z_TO_NEGATIVE_Z",
+    "NEGATIVE_X",
+    "POSITIVE_X",
+    "NEGATIVE_Y",
+    "POSITIVE_Y",
+    "NEGATIVE_Z",
+    "POSITIVE_Z",
 ]
 Axis = Literal["X", "Y", "Z"]
 
@@ -183,7 +183,7 @@ async def model_detail(
 async def model_symmetrize(
     ctx: Context,
     object_name: str,
-    direction: SymmetrizeDirection = "NEGATIVE_X_TO_POSITIVE_X",
+    direction: SymmetrizeDirection = "NEGATIVE_X",
     user_prompt: str = "",
 ) -> dict:
     """
@@ -191,7 +191,7 @@ async def model_symmetrize(
 
     Parameters:
     - object_name: Name of the mesh object to symmetrize.
-    - direction: One of NEGATIVE_X_TO_POSITIVE_X, POSITIVE_X_TO_NEGATIVE_X, NEGATIVE_Y_TO_POSITIVE_Y, POSITIVE_Y_TO_NEGATIVE_Y, NEGATIVE_Z_TO_POSITIVE_Z, POSITIVE_Z_TO_NEGATIVE_Z.
+    - direction: Side overwritten by its mirror. One of NEGATIVE_X, POSITIVE_X, NEGATIVE_Y, POSITIVE_Y, NEGATIVE_Z, POSITIVE_Z.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
@@ -217,6 +217,7 @@ async def model_mirror(
     object_name: str,
     axis: Axis = "X",
     merge: bool = True,
+    clip: bool = True,
     apply: bool = False,
     user_prompt: str = "",
 ) -> dict:
@@ -226,7 +227,8 @@ async def model_mirror(
     Parameters:
     - object_name: Name of the mesh object to mirror.
     - axis: One of X, Y, Z.
-    - merge: Clip/merge vertices at the mirror plane.
+    - merge: Weld coincident vertices at the mirror seam.
+    - clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
@@ -240,6 +242,7 @@ async def model_mirror(
                 "object_name": object_name,
                 "axis": axis,
                 "merge": merge,
+                "clip": clip,
                 "apply": apply,
             },
         )

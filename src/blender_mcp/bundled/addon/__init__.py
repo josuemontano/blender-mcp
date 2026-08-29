@@ -22,7 +22,7 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-ADDON_PROTOCOL_VERSION = 4
+ADDON_PROTOCOL_VERSION = 5
 
 from .server_core import BlenderMCPServer  # noqa: E402
 from .ui import (  # noqa: E402

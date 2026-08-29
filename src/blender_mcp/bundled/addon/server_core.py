@@ -320,24 +320,12 @@ class BlenderMCPServer(
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def _execute_command_internal(self, command):
-        """Internal command execution with proper context"""
-        cmd_type = command.get("type")
-        params = command.get("params", {})
+    def _build_command_handlers(self):
+        """Build the cmd_type -> handler map, including conditionally-enabled providers.
 
-        # Trivial liveness check. Touches no bpy data, so a successful ping
-        # alongside a failing command isolates data access from transport.
-        if cmd_type == "ping":
-            return {"status": "success", "result": {"pong": True}}
-
-        # Add a handler for checking PolyHaven status
-        if cmd_type == "get_polyhaven_status":
-            return {"status": "success", "result": self.get_polyhaven_status()}
-
-        # Add a handler for checking ND status
-        if cmd_type == "get_nd_status":
-            return {"status": "success", "result": self.get_nd_status()}
-
+        Shared by _execute_command_internal (dispatch) and get_addon_info
+        (advertised capabilities), so the two can never drift apart.
+        """
         # Base handlers that are always available
         handlers = {
             "get_scene_info": self.get_scene_info,
@@ -425,6 +413,28 @@ class BlenderMCPServer(
             }
             handlers.update(nd_handlers)
 
+        return handlers
+
+    def _execute_command_internal(self, command):
+        """Internal command execution with proper context"""
+        cmd_type = command.get("type")
+        params = command.get("params", {})
+
+        # Trivial liveness check. Touches no bpy data, so a successful ping
+        # alongside a failing command isolates data access from transport.
+        if cmd_type == "ping":
+            return {"status": "success", "result": {"pong": True}}
+
+        # Add a handler for checking PolyHaven status
+        if cmd_type == "get_polyhaven_status":
+            return {"status": "success", "result": self.get_polyhaven_status()}
+
+        # Add a handler for checking ND status
+        if cmd_type == "get_nd_status":
+            return {"status": "success", "result": self.get_nd_status()}
+
+        handlers = self._build_command_handlers()
+
         handler = handlers.get(cmd_type)
         if handler:
             try:
@@ -446,13 +456,7 @@ class BlenderMCPServer(
             "addon_version": list(bl_info.get("version", (0, 0))),
             "protocol_version": ADDON_PROTOCOL_VERSION,
             "capabilities": sorted(
-                [
-                    "get_scene_info",
-                    "get_addon_info",
-                    "get_object_info",
-                    "get_viewport_screenshot",
-                    "execute_code",
-                ]
+                {"ping", "get_polyhaven_status", "get_nd_status", *self._build_command_handlers()}
             ),
             "blender_version": bpy.app.version_string,
         }

@@ -126,6 +126,16 @@ class BlenderConnection:
         self, command_type: str, params: dict[str, Any] = None
     ) -> dict[str, Any]:
         """Send a command to Blender and return the response"""
+        handshake = get_last_handshake()
+        if (
+            handshake
+            and handshake.capabilities
+            and command_type not in handshake.capabilities
+        ):
+            raise Exception(
+                f"'{command_type}' is not supported by the installed Blender addon "
+                f"(protocol {handshake.protocol_version}). Update the addon and reconnect."
+            )
         # Hold the lock across send+receive: the response is matched to the
         # command purely by ordering on the stream, so overlapping calls would
         # hand each other's responses back.

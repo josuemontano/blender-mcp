@@ -31,30 +31,50 @@ def _set_active(obj):
 
 
 def _select_geometry(obj, vert_indices=None, edge_indices=None, face_indices=None):
-    """Enter edit mode on obj and select the given indices, or everything if none given."""
+    """Enter edit mode on obj and select exactly the given indices, or everything if all are omitted.
+
+    An explicitly-passed empty list means "select none of this component type" -
+    it must not be treated the same as omitting the argument (which means "all").
+    """
     _set_active(obj)
     bpy.ops.object.mode_set(mode="EDIT")
     bm = bmesh.from_edit_mesh(obj.data)
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
-    any_indices = bool(vert_indices or edge_indices or face_indices)
+    any_given = vert_indices is not None or edge_indices is not None or face_indices is not None
     for v in bm.verts:
-        v.select = not any_indices
+        v.select = not any_given
     for e in bm.edges:
-        e.select = not any_indices
+        e.select = not any_given
     for f in bm.faces:
-        f.select = not any_indices
-    if vert_indices:
+        f.select = not any_given
+    mode = set()
+    if vert_indices is not None:
+        mode.add("VERT")
         for i in vert_indices:
             bm.verts[i].select = True
-    if edge_indices:
+    if edge_indices is not None:
+        mode.add("EDGE")
         for i in edge_indices:
             bm.edges[i].select = True
-    if face_indices:
+    if face_indices is not None:
+        mode.add("FACE")
         for i in face_indices:
             bm.faces[i].select = True
-    bm.select_flush(True)
+    mode = mode or {"VERT", "EDGE", "FACE"}
+    bm.select_mode = mode
+    bpy.context.tool_settings.mesh_select_mode = tuple(
+        c in mode for c in ("VERT", "EDGE", "FACE")
+    )
+    # select_flush(True) flushes only upward from vertex selection, independent
+    # of select_mode - it would select any edge/face that merely shares
+    # selected vertices, leaking into geometry the caller never asked to
+    # touch. select_flush_mode() reconciles selection consistent with
+    # select_mode instead (e.g. pushing a selected face's selection down to
+    # its own edges/verts) without inventing selections among unrelated
+    # elements.
+    bm.select_flush_mode()
     bmesh.update_edit_mesh(obj.data)
 
 

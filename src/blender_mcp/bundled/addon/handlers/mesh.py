@@ -85,8 +85,12 @@ class MeshHandlersMixin:
         """Inset the selected (or all) faces of a mesh."""
         obj = _get_mesh_object(object_name)
         _select_geometry(obj, face_indices=face_indices)
-        bpy.ops.mesh.inset_faces(thickness=thickness, depth=depth)
-        _exit_edit_mode()
+        try:
+            result = bpy.ops.mesh.inset(thickness=thickness, depth=depth)
+            if "FINISHED" not in result:
+                raise RuntimeError(f"mesh.inset did not finish (status: {result})")
+        finally:
+            _exit_edit_mode()
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_bevel(

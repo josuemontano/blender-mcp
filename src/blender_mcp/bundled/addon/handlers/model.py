@@ -76,15 +76,29 @@ class ModelHandlersMixin:
             _apply_modifier(obj, mod)
         return {"name": obj.name, "applied": bool(apply), **_mesh_counts(obj)}
 
-    def model_symmetrize(self, object_name, direction="NEGATIVE_X_TO_POSITIVE_X"):
+    _SYMMETRIZE_DIRECTIONS = {
+        "NEGATIVE_X",
+        "POSITIVE_X",
+        "NEGATIVE_Y",
+        "POSITIVE_Y",
+        "NEGATIVE_Z",
+        "POSITIVE_Z",
+    }
+
+    def model_symmetrize(self, object_name, direction="NEGATIVE_X"):
         """Symmetrize a mesh across an axis, mirroring one half onto the other."""
+        direction = str(direction).upper()
+        if direction not in self._SYMMETRIZE_DIRECTIONS:
+            raise ValueError(
+                f"Invalid direction: {direction}. Must be one of {sorted(self._SYMMETRIZE_DIRECTIONS)}"
+            )
         obj = _get_mesh_object(object_name)
         _select_geometry(obj)
         bpy.ops.mesh.symmetrize(direction=direction)
         _exit_edit_mode()
         return {"name": obj.name, **_mesh_counts(obj)}
 
-    def model_mirror(self, object_name, axis="X", merge=True, apply=False):
+    def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
         """Add a Mirror modifier to an object across the given axis."""
         obj = _get_mesh_object(object_name)
         axis = str(axis).upper()
@@ -92,7 +106,8 @@ class ModelHandlersMixin:
             raise ValueError(f"Invalid axis: {axis}. Must be one of X, Y, Z")
         mod = obj.modifiers.new(name="Mirror", type="MIRROR")
         mod.use_axis = [axis == a for a in ("X", "Y", "Z")]
-        mod.use_clip = bool(merge)
+        mod.use_mirror_merge = bool(merge)
+        mod.use_clip = bool(clip)
         if apply:
             _apply_modifier(obj, mod)
         return {"name": obj.name, "applied": bool(apply), **_mesh_counts(obj)}
