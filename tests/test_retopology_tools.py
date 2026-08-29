@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from blender_mcp.server.tools import mesh, retopology
+from blender_mcp.server.tools import mesh, retopology, retopology_phase1
 from blender_mcp.server.tools._envelope import STALE_INDEX_WARNING
 
 RETOPOLOGY_TOOL_NAMES = {
@@ -23,6 +23,15 @@ RETOPOLOGY_TOOL_NAMES = {
     "redistribute_edge_loop",
     "configure_retopology_symmetry",
     "validate_retopology",
+    "create_retopology_guides",
+    "create_surface_section",
+    "set_retopology_features",
+    "add_support_loops",
+    "transfer_mesh_attributes",
+    "unwrap_retopology_uvs",
+    "create_bake_cage",
+    "bake_retopology_maps",
+    "test_deformation",
 }
 
 
@@ -158,3 +167,93 @@ def test_checkpoint_create_reports_hidden_backup_as_changed_object(monkeypatch) 
     )
 
     assert result["changed_objects"] == ["Low__checkpoint__before"]
+
+
+@pytest.mark.parametrize(
+    "tool,command,kwargs",
+    [
+        (
+            retopology_phase1.set_retopology_features,
+            "set_retopology_features",
+            {"object_name": "Low", "edge_indices": [1], "sharp": True},
+        ),
+        (
+            retopology_phase1.transfer_mesh_attributes,
+            "transfer_mesh_attributes",
+            {"source_object_name": "High", "object_name": "Low", "data_types": ["UVS"]},
+        ),
+        (
+            retopology_phase1.unwrap_retopology_uvs,
+            "unwrap_retopology_uvs",
+            {"object_name": "Low"},
+        ),
+        (
+            retopology_phase1.test_deformation,
+            "test_deformation",
+            {"object_name": "Low", "frames": [1, 10]},
+        ),
+    ],
+)
+def test_phase_one_tools_forward_agent_inputs(monkeypatch, tool, command, kwargs) -> None:
+    connection = StubConnection()
+    monkeypatch.setattr(retopology_phase1, "get_blender_connection", lambda: connection)
+
+    result = asyncio.run(tool(ctx=None, **kwargs))
+
+    assert result["ok"] is True
+    assert len(connection.calls) == 1
+    assert connection.calls[0][0] == command
+    assert "ctx" not in connection.calls[0][1]
+
+
+def test_create_guides_reports_actual_collision_safe_names(monkeypatch) -> None:
+    connection = StubConnection(
+        {"created_guide_objects": ["EyeGuide", "EyeGuide.001"], "guides": [], "coordinate_space": "WORLD"}
+    )
+    monkeypatch.setattr(retopology_phase1, "get_blender_connection", lambda: connection)
+
+    result = asyncio.run(
+        retopology_phase1.create_retopology_guides(
+            ctx=None,
+            source_object_name="High",
+            guides=[{"name": "EyeGuide", "role": "EYE_LOOP", "source_vertex_indices": [0, 1]}],
+        )
+    )
+
+    assert result["changed_objects"] == ["EyeGuide", "EyeGuide.001"]
+
+
+def test_support_loops_warn_that_topology_indices_are_stale(monkeypatch) -> None:
+    connection = StubConnection()
+    monkeypatch.setattr(retopology_phase1, "get_blender_connection", lambda: connection)
+
+    result = asyncio.run(
+        retopology_phase1.add_support_loops(
+            ctx=None,
+            object_name="Low",
+            edge_indices=[0, 1],
+            width=0.1,
+            expected_revision="before",
+        )
+    )
+
+    assert result["warnings"] == [STALE_INDEX_WARNING]
+    assert connection.calls[0][1]["expected_revision"] == "before"
+
+
+def test_bake_reports_image_as_changed_resource(monkeypatch) -> None:
+    connection = StubConnection({"image": "Low_NORMAL", "output_path": "/tmp/normal.exr"})
+    monkeypatch.setattr(retopology_phase1, "get_blender_connection", lambda: connection)
+
+    result = asyncio.run(
+        retopology_phase1.bake_retopology_maps(
+            ctx=None,
+            object_name="Low",
+            high_poly_object_names=["High"],
+            map_type="NORMAL",
+            output_path="/tmp/normal.exr",
+            confirm=True,
+        )
+    )
+
+    assert result["changed_resources"] == ["Low_NORMAL"]
