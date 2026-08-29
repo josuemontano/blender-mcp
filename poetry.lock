@@ -26,7 +26,6 @@ files = [
 
 [package.dependencies]
 idna = ">=2.8"
-typing_extensions = {version = ">=4.5", markers = "python_version < \"3.13\""}
 
 [package.extras]
 trio = ["trio (>=0.32.0)"]
@@ -41,6 +40,18 @@ groups = ["main"]
 files = [
     {file = "attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"},
     {file = "attrs-26.1.0.tar.gz", hash = "sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32"},
+]
+
+[[package]]
+name = "blender-python-stubs"
+version = "5.2.1.1"
+description = "Type stubs for Blender 5.2 Python API"
+optional = false
+python-versions = ">=3.13"
+groups = ["dev"]
+files = [
+    {file = "blender_python_stubs-5.2.1.1-py3-none-any.whl", hash = "sha256:faa7beccd9678187016c1bef37e3f3400557f3d08f057ad155c925ea3e3b30e2"},
+    {file = "blender_python_stubs-5.2.1.1.tar.gz", hash = "sha256:55d022e5711930c52651e85cd6388d9ca15f17a0f2921a2f9006ec01e3fdaed1"},
 ]
 
 [[package]]
@@ -783,7 +794,6 @@ files = [
 [package.dependencies]
 attrs = ">=22.2.0"
 rpds-py = ">=0.7.0"
-typing-extensions = {version = ">=4.4.0", markers = "python_version < \"3.13\""}
 
 [[package]]
 name = "rpds-py"
@@ -976,7 +986,6 @@ files = [
 
 [package.dependencies]
 anyio = ">=3.6.2,<5"
-typing-extensions = {version = ">=4.10.0", markers = "python_version < \"3.13\""}
 
 [package.extras]
 full = ["httpx (>=0.27.0,<0.29.0)", "httpx2 (>=2.0.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.18)", "pyyaml"]
@@ -1030,5 +1039,5 @@ standard = ["httptools (>=0.8.0)", "python-dotenv (>=0.13)", "pyyaml (>=5.1)", "
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.12"
-content-hash = "4521282a197447952ed391537f4f3b1343bdd74f84d624868657defb68cbaaff"
+python-versions = ">=3.13"
+content-hash = "3dc7830df305c986fb176004f4e40958fd244f6b58862ac4e4ec1face439355d"
