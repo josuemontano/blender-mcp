@@ -35,7 +35,8 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
             describing whether that integration's features are available and, if not, how to enable it.
 
     Returns:
-        dict: Result produced by the operation.
+        when provider is given, that provider's {"enabled": bool, "message": str}; when omitted, a dict keyed
+        by "polyhaven"/"sketchfab"/"nd", each mapping to that same shape.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -65,7 +66,10 @@ async def get_addon_status(ctx: Context) -> dict:
         ctx: MCP request context.
 
     Returns:
-        dict: Result produced by the operation.
+        "up_to_date" (bool), "protocol_version"/"expected_protocol_version" (ints to compare), "addon_version",
+        "capabilities" (feature flags reported by the addon), "blender_version", "source" (how the handshake was
+        obtained), "warning" (non-None if something looks off), "update_command", and "after_install"
+        (what to do in Blender after running update_command).
 
     Raises:
         ToolError: If the operation cannot be completed.

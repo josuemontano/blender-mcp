@@ -9,18 +9,12 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from ._envelope import ok
+from ._envelope import STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
 PrimitivePurpose = Literal["blockout"]
-
-STALE_INDEX_WARNING = (
-    "This operation changed the mesh's topology. Vertex/edge/face indices from any get_mesh_data call made "
-    "before this one are no longer reliable - call get_mesh_data again before reusing indices in further "
-    "index-based edits."
-)
 
 
 @mcp.tool()
@@ -468,12 +462,17 @@ async def clear_materials(ctx: Context, object_names: list[str]) -> dict:
     """
     Remove all material slots from the given objects.
 
+    This clears every material slot on each object - there is no way to scope it to a
+    subset of slots. The mutation transaction wraps this in a single named Blender undo
+    step on success, so Edit > Undo History can revert it as one action, but there is no
+    MCP-level rollback once this response has been returned.
+
     Args:
         ctx: MCP request context.
         object_names: Names of the objects to clear materials from.
 
     Returns:
-        dict: Result produced by the operation.
+        the object names that had their material slots cleared.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -493,12 +492,17 @@ async def clear_vertex_groups(ctx: Context, object_name: str) -> dict:
     """
     Remove all vertex groups from a mesh object.
 
+    This clears every vertex group on the object - there is no way to scope it to a
+    subset. The mutation transaction wraps this in a single named Blender undo step on
+    success, so Edit > Undo History can revert it as one action, but there is no
+    MCP-level rollback once this response has been returned.
+
     Args:
         ctx: MCP request context.
         object_name: Name of the mesh object to clear vertex groups from.
 
     Returns:
-        dict: Result produced by the operation.
+        the object name that had its vertex groups cleared.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -518,12 +522,18 @@ async def clear_edge_marks(ctx: Context, object_name: str) -> dict:
     """
     Remove sharp/seam/freestyle edge marks from a mesh object.
 
+    This clears all three mark types on every edge of the object - there is no way to
+    scope it to a subset of edges or to a single mark type. The mutation transaction
+    wraps this in a single named Blender undo step on success, so Edit > Undo History
+    can revert it as one action, but there is no MCP-level rollback once this response
+    has been returned.
+
     Args:
         ctx: MCP request context.
         object_name: Name of the mesh object to clear edge marks from.
 
     Returns:
-        dict: Result produced by the operation.
+        the object name that had its edge marks cleared.
 
     Raises:
         ToolError: If the operation cannot be completed.

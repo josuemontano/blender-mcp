@@ -61,5 +61,43 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
         logger.info("BlenderMCP server shut down")
 
 
+SERVER_INSTRUCTIONS = """
+Every tool below returns one of two shapes:
+
+1. Most tools return a single dict envelope:
+   {"ok": bool, "data": ..., "error": None, "warnings": [...], "changed_objects": [...],
+    "changed_resources": [...]}
+   - Check "ok" before trusting anything else. "ok" is False when the request reached
+     Blender but produced no effect - for example an ND tool the user cancelled
+     interactively (Esc) - in which case "error" is still None (this is not a transport
+     failure) and "warnings" explains why nothing changed.
+   - "changed_objects" lists Blender *objects* created/modified/deleted by the call.
+     "changed_resources" lists non-object datablocks touched (materials, images, worlds,
+     node groups). A name appearing in one of these means it actually changed - not
+     merely that it was in the request.
+   - "warnings" carries non-fatal notices, most commonly that a topology-changing
+     operation invalidated vertex/edge/face indices returned by an earlier
+     get_mesh_data call - call get_mesh_data again before reusing indices.
+   - A tool-specific failure Blender rejects (bad name, invalid input) raises an MCP
+     tool error instead of returning ok:false - stop and fix the input rather than retrying
+     the same call.
+
+2. get_viewport_screenshot and get_sketchfab_model_preview return two content items
+   instead: an image, followed by the same ok() dict described above carrying that
+   image's metadata (dimensions, capture method, or model/author provenance). Read the
+   second item, not just the image.
+
+Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data,
+search_polyhaven_assets) paginate through their "data" dict, not through this envelope:
+look for "truncated" and "next_offset" there, and re-call with offset=next_offset while
+truncated is true to see the rest.
+
+Before editing, inspect the scene (list_scene_objects, get_object_info, get_mesh_data)
+rather than assuming which object is active or selected. Prefer non-destructive tools
+(live modifiers, ND) over apply=True/cleanup tools, which are irreversible from this
+server's perspective even though Blender's own undo history can still revert them
+locally.
+""".strip()
+
 # Create the MCP server with lifespan support
-mcp = FastMCP("BlenderMCP", lifespan=server_lifespan)
+mcp = FastMCP("BlenderMCP", lifespan=server_lifespan, instructions=SERVER_INSTRUCTIONS)

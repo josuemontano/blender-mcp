@@ -16,6 +16,29 @@ logger = logging.getLogger("BlenderMCPServer")
 AssetType = Literal["hdris", "textures", "models", "all"]
 
 
+def _polyhaven_changed(asset_type: str, result: dict) -> tuple[list[str], list[str]]:
+    """
+    Split a Polyhaven import result into (changed_objects, changed_resources) by asset type.
+
+    Args:
+        asset_type: The asset_type the import was requested with (`hdris`, `textures`, or `models`).
+        result: The raw dict returned by the Blender-side Polyhaven import handler.
+
+    Returns:
+        tuple[list[str], list[str]]: (changed_objects, changed_resources) - never puts the Polyhaven
+        asset ID itself into either list.
+
+    """
+    if asset_type == "models":
+        return result.get("imported_objects", []), []
+    if asset_type == "textures":
+        resources = ([result["material"]] if result.get("material") else []) + list(result.get("maps", []))
+        return [], resources
+    if asset_type == "hdris":
+        return [], [result["image_name"]] if result.get("image_name") else []
+    return [], []
+
+
 @mcp.tool()
 async def get_polyhaven_categories(ctx: Context, asset_type: AssetType = "hdris") -> dict:
     """
@@ -119,7 +142,10 @@ async def import_polyhaven_asset(
             GLTF/FBX for models.
 
     Returns:
-        dict: Result produced by the operation.
+        a "message" string, plus asset_type-specific fields: for `models`, "imported_objects" (also reported in
+        this response's changed_objects); for `textures`, "material" and "maps" (also reported in
+        changed_resources); for `hdris`, "image_name" (also reported in changed_resources, and set as the
+        active scene world). changed_objects/changed_resources never contain the Polyhaven asset_id itself.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -140,8 +166,8 @@ async def import_polyhaven_asset(
             raise ToolError(result["error"])
         if not result.get("success"):
             raise ToolError(f"Failed to download asset: {result.get('message', 'Unknown error')}")
-        changed = [asset_id] if asset_type in {"textures", "models"} else []
-        return ok(result, changed_objects=changed)
+        changed_objects, changed_resources = _polyhaven_changed(asset_type, result)
+        return ok(result, changed_objects=changed_objects, changed_resources=changed_resources)
     except ToolError:
         raise
     except Exception as e:
@@ -159,8 +185,12 @@ async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: st
         object_name: Name of the object to apply the texture to
         texture_id: Polyhaven texture ID; it must have been downloaded first.
 
+    Note: this replaces all of the object's existing material slots with the single new textured material -
+    it is not an additive assignment.
+
     Returns:
-        dict: Result produced by the operation.
+        a "message" string, "material" (the new material's name), "maps" (texture map names used), and
+        "material_info" (node setup details). "material" and "maps" are also reported in changed_resources.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -173,7 +203,8 @@ async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: st
             raise ToolError(result["error"])
         if not result.get("success"):
             raise ToolError(f"Failed to apply texture: {result.get('message', 'Unknown error')}")
-        return ok(result, changed_objects=[object_name])
+        resources = ([result["material"]] if result.get("material") else []) + list(result.get("maps", []))
+        return ok(result, changed_objects=[object_name], changed_resources=resources)
     except ToolError:
         raise
     except Exception as e:

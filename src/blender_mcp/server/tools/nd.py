@@ -59,6 +59,9 @@ async def nd_boolean(
         cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
         mode: One of UNION, DIFFERENCE, INTERSECT.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged.
+
     Returns:
         the target and cutter object names and updated vertex/edge/polygon counts.
 
@@ -107,6 +110,9 @@ async def nd_mark_as_util(
         parent_to: Name of an object to reparent each marked object to, preserving world transform. Only valid when
             unmark is False.
 
+    Cancellation: unlike the other nd_* tools, this is a direct data mutation with no interactive/cancellable
+    step - it always returns ok:true with changed_objects set to object_names.
+
     Returns:
         the affected object names.
 
@@ -133,15 +139,22 @@ async def nd_clean_utils(ctx: Context, confirm: bool = False) -> dict:
 
     A true dry-run isn't feasible without reimplementing ND's own cleanup logic, so this
     always performs the cleanup - but reports exactly what was removed by diffing the
-    scene before and after. Returns "removed_objects" (names of deleted ND utility objects)
-    and "removed_modifiers" (each as {"object", "modifier", "type"}).
+    scene before and after.
+
+    The mutation transaction wraps this in a single named Blender undo step on success,
+    so Edit > Undo History can revert the whole cleanup as one action - but there is no
+    MCP-level rollback once this response has been returned.
+
+    Cancellation: this has no interactive/cancellable step of its own, but still uses the shared ND result
+    shape - it returns ok:false only if the underlying handler reports "cancelled" (not expected in normal use).
 
     Args:
         ctx: MCP request context.
         confirm: Must be True to run - this is scene-wide and destructive with no way to scope or preview it.
 
     Returns:
-        dict: Result produced by the operation.
+        "removed_objects" (names of deleted ND utility objects, also reported in changed_objects) and
+        "removed_modifiers" (each as {"object", "modifier", "type"}).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -171,8 +184,11 @@ async def nd_create_id_material(
         object_names: Names of the objects to assign the material to.
         material_name: Name of the ID material to create/reuse.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged.
+
     Returns:
-        dict: Result produced by the operation.
+        "names" (the affected object names) and "material_name".
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -199,8 +215,11 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
         ctx: MCP request context.
         object_names: Names of the objects to assign distinct ID materials to.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged.
+
     Returns:
-        dict: Result produced by the operation.
+        "names" (the affected object names).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -229,8 +248,11 @@ async def nd_set_lod_suffix(
         object_names: Names of the objects to rename.
         mode: One of HIGH, LOW.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged.
+
     Returns:
-        dict: Result produced by the operation.
+        "names" (the objects' new, renamed names).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -257,6 +279,9 @@ async def nd_single_vertex(
     Args:
         ctx: MCP request context.
         location: [x, y, z] world location for the new vertex object.
+
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged (no object is created).
 
     Returns:
         the new object's name and location.
@@ -289,8 +314,13 @@ async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
         ctx: MCP request context.
         object_names: Names of the objects to apply modifiers on.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged. This also changes topology on any object
+    whose modifiers were applied - indices from an earlier get_mesh_data call are no longer valid for those
+    objects afterward.
+
     Returns:
-        dict: Result produced by the operation.
+        "names" (the affected object names).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -320,8 +350,12 @@ async def nd_pulse_viewport_toggle(ctx: Context, toggle: PulseToggle) -> dict:
         ctx: MCP request context.
         toggle: One of CLEAR_VIEW, CUSTOM_VIEW, UTILS.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged. No objects/resources are ever reported as
+    changed - this toggles viewport display state only.
+
     Returns:
-        dict: Result produced by the operation.
+        "toggle" (the toggle that was pulsed).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -344,8 +378,12 @@ async def nd_capture_utils(ctx: Context) -> dict:
     Args:
         ctx: MCP request context.
 
+    Cancellation: if the user cancels this ND operator (Esc), this returns ok:false with an empty
+    changed_objects and a warning explaining the scene is unchanged. No objects/resources are ever reported as
+    changed - this only changes selection/display state.
+
     Returns:
-        dict: Result produced by the operation.
+        "status" ("captured" on success).
 
     Raises:
         ToolError: If the operation cannot be completed.

@@ -9,7 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from ._envelope import ok
+from ._envelope import STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -86,6 +86,11 @@ async def add_subdivision_surface_modifier(
         levels: Subdivision levels (viewport and render).
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
+    Note: this always calls shade_smooth on the object's base mesh, regardless of apply - so the base mesh's
+    shading changes even when apply=False and the modifier stays live. When apply=True, this also changes
+    topology - indices returned by an earlier get_mesh_data call are no longer valid afterward; call
+    get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -104,7 +109,8 @@ async def add_subdivision_surface_modifier(
                 "apply": apply,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error refining model: {e}")
         raise ToolError(f"Error refining model: {e}") from e
@@ -139,6 +145,10 @@ async def add_displace_modifier(
             topology exists for visible detail. It is only baked in when apply is also True - with apply=False both
             modifiers stay live.
 
+    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
+    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
+    base mesh (and its indices) are untouched.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -160,7 +170,8 @@ async def add_displace_modifier(
                 "subdivide": subdivide,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error adding procedural displacement: {e}")
         raise ToolError(f"Error adding procedural displacement: {e}") from e
@@ -186,6 +197,10 @@ async def model_mirror(
         clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
+    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
+    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
+    base mesh (and its indices) are untouched.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -206,7 +221,8 @@ async def model_mirror(
                 "apply": apply,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error mirroring model: {e}")
         raise ToolError(f"Error mirroring model: {e}") from e
@@ -230,6 +246,10 @@ async def model_array(
         relative_offset: [x, y, z] offset between copies, relative to the object's bounding box.
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
+    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
+    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
+    base mesh (and its indices) are untouched.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -249,7 +269,8 @@ async def model_array(
                 "apply": apply,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error arraying model: {e}")
         raise ToolError(f"Error arraying model: {e}") from e
@@ -287,6 +308,10 @@ async def model_radial_array(
         radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a parented object, the
             pivot is offset from its world-space location, not its local one.
 
+    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
+    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
+    base mesh (and its indices) are untouched.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -309,7 +334,8 @@ async def model_radial_array(
                 "radius": radius,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error creating radial array: {e}")
         raise ToolError(f"Error creating radial array: {e}") from e
@@ -325,7 +351,7 @@ async def sync_data_name(ctx: Context, object_names: list[str]) -> dict:
         object_names: Names of the objects to sync.
 
     Returns:
-        dict: Result produced by the operation.
+        "names": the object names that were synced (data-block renamed to match object name).
 
     Raises:
         ToolError: If the operation cannot be completed.

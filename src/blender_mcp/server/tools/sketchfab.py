@@ -13,6 +13,28 @@ from ._envelope import ok
 logger = logging.getLogger("BlenderMCPServer")
 
 
+def _preview_metadata(result: dict, uid: str) -> dict:
+    """
+    Build the metadata dict for a Sketchfab preview result, alongside its Image content item.
+
+    Args:
+        result: The raw dict returned by the Blender-side Sketchfab preview handler.
+        uid: The model UID the preview was requested for.
+
+    Returns:
+        dict: "uid", "model_name", "author", "thumbnail_width", "thumbnail_height" (the latter two None if
+        the handler didn't report them).
+
+    """
+    return {
+        "uid": uid,
+        "model_name": result.get("model_name", "Unknown"),
+        "author": result.get("author", "Unknown"),
+        "thumbnail_width": result.get("thumbnail_width"),
+        "thumbnail_height": result.get("thumbnail_height"),
+    }
+
+
 @mcp.tool()
 async def search_sketchfab_models(
     ctx: Context,
@@ -65,19 +87,24 @@ async def search_sketchfab_models(
         raise ToolError(f"Error searching Sketchfab models: {e}") from e
 
 
-@mcp.tool()
-async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
+@mcp.tool(structured_output=False)
+async def get_sketchfab_model_preview(ctx: Context, uid: str) -> list[Image | dict]:
     """
     Return a Sketchfab model's thumbnail for visual review before import.
 
     Use this to visually confirm a model before downloading.
+
+    Unlike other tools, this returns two content items instead of one dict: the
+    thumbnail image itself, followed by an ok() envelope carrying its metadata - read
+    both.
 
     Args:
         ctx: MCP request context.
         uid: Model UID returned by `search_sketchfab_models`.
 
     Returns:
-        the model's thumbnail as an Image for visual confirmation.
+        [Image, dict]: the thumbnail image, then an envelope whose data has "uid", "model_name", "author",
+        "thumbnail_width", "thumbnail_height".
 
     Raises:
         Exception: If the operation cannot be completed.
@@ -99,12 +126,10 @@ async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
         image_data = base64.b64decode(result["image_data"])
         img_format = result.get("format", "jpeg")
 
-        # Log model info
-        model_name = result.get("model_name", "Unknown")
-        author = result.get("author", "Unknown")
-        logger.info(f"Preview retrieved for '{model_name}' by {author}")
+        metadata = _preview_metadata(result, uid)
+        logger.info(f"Preview retrieved for '{metadata['model_name']}' by {metadata['author']}")
 
-        return Image(data=image_data, format=img_format)
+        return [Image(data=image_data, format=img_format), ok(metadata)]
 
     except Exception as e:
         logger.error(f"Error getting Sketchfab preview: {e!s}")

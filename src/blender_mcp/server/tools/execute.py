@@ -23,10 +23,14 @@ async def execute_blender_code(ctx: Context, code: str) -> dict:
 
     Args:
         ctx: MCP request context.
-        code: Python source to run in Blender, typically using the `bpy` API.
+        code: Python source to run in Blender, typically using the `bpy` API. Values are not returned directly -
+            `print()` anything you need back; only captured stdout is returned. There is no persistent namespace
+            between calls and no execution timeout.
 
     Returns:
-        dict: Result produced by the operation.
+        the captured stdout text produced by running code (empty string if it printed nothing). No
+        changed_objects/changed_resources are reported - arbitrary code can mutate anything, and this tool
+        cannot know what changed.
 
     Raises:
         ToolError: If the operation cannot be completed.

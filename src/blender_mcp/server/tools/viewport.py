@@ -25,11 +25,13 @@ async def list_scene_objects(ctx: Context, limit: int = 25, offset: int = 0) -> 
         ctx: MCP request context.
         limit: Maximum number of objects to return in this page (default 25, capped at 200).
         offset: Index of the first object to return, for paging through a scene with more objects than fit in one page.
-            The result includes "object_count" (the true total), "returned_count", "truncated", and "next_offset" -
-            when "truncated" is true, call again with offset=next_offset to see the rest of the scene's objects.
 
     Returns:
-        dict: Result produced by the operation.
+        "name" (scene name), "materials_count", "objects" (this page's list of {"name", "type", "location"}
+        entries - location rounded to 2 decimals, local/object-space), "object_count" (the scene's true total),
+        "offset"/"limit" (the effective page bounds used), "returned_count" (length of this page), "truncated"
+        (True if more objects remain), and "next_offset" (pass as offset to fetch the next page while truncated
+        is True).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -61,7 +63,7 @@ async def viewport_overlay_toggle(ctx: Context, toggle: ViewportOverlay, enabled
         enabled: Desired on/off state.
 
     Returns:
-        dict: Result produced by the operation.
+        "toggle" (the resolved overlay name) and "enabled" (the state it was set to).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -94,7 +96,10 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
             topology and invalidate prior indices.
 
     Returns:
-        dict: Result produced by the operation.
+        "name", "type", "location"/"rotation"/"scale" (local transform - see the Note above for reading
+        "rotation" against "rotation_mode"), "visible", "materials" (assigned material names), "modifiers"
+        (each as {"name", "type", "show_viewport", "show_render"}), and for mesh objects, "world_bounding_box"
+        (world-space AABB) and "mesh" ({"vertices", "edges", "polygons"} base-mesh counts).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -148,7 +153,9 @@ async def get_mesh_data(
             when "truncated" is true, call again with offset=next_offset to see the rest.
 
     Returns:
-        dict: Result produced by the operation.
+        "name" (object name), "element_type", "total", "total_unfiltered", "offset"/"limit" (effective page
+        bounds used), "returned_count", "truncated", "next_offset", and "elements" (this page's list of
+        per-element dicts, shaped per element_type as described in the element_type Args entry above).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -172,17 +179,39 @@ async def get_mesh_data(
         raise ToolError(f"Error getting mesh data: {e}") from e
 
 
-@mcp.tool()
-def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
+def _screenshot_metadata(result: dict) -> dict:
+    """
+    Build the metadata dict for a viewport screenshot result, alongside its Image content item.
+
+    Args:
+        result: The raw dict returned by the Blender-side screenshot handler.
+
+    Returns:
+        dict: "width", "height", "method" ("offscreen" or "window_grab", indicating how the capture was taken).
+
+    """
+    return {
+        "width": result.get("width"),
+        "height": result.get("height"),
+        "method": result.get("method"),
+    }
+
+
+@mcp.tool(structured_output=False)
+def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> list[Image | dict]:
     """
     Capture the current Blender 3D viewport as an image for visual inspection.
+
+    Unlike other tools, this returns two content items instead of one dict: the
+    screenshot image itself, followed by an ok() envelope carrying its metadata - read
+    both.
 
     Args:
         ctx: MCP request context.
         max_size: Maximum pixel length of the image's largest dimension; defaults to 1000.
 
     Returns:
-        the screenshot as an Image.
+        [Image, dict]: the screenshot, then an envelope whose data has "width", "height", "method".
 
     Raises:
         Exception: If the operation cannot be completed.
@@ -213,7 +242,7 @@ def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
         # Delete the temp file
         os.remove(temp_path)
 
-        return Image(data=image_bytes, format="png")
+        return [Image(data=image_bytes, format="png"), ok(_screenshot_metadata(result))]
 
     except Exception as e:
         logger.error(f"Error capturing screenshot: {e!s}")
