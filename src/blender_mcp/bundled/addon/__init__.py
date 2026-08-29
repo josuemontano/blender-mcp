@@ -24,11 +24,9 @@ bl_info = {
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
 ADDON_PROTOCOL_VERSION = 4
 
-from .edit_capture import _unregister_edit_capture_handlers  # noqa: E402
 from .server_core import BlenderMCPServer  # noqa: E402
 from .ui import (  # noqa: E402
     BLENDERMCP_AddonPreferences,
-    BLENDERMCP_OT_OpenTerms,
     BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey,
     BLENDERMCP_OT_StartServer,
     BLENDERMCP_OT_StopServer,
@@ -176,7 +174,6 @@ def register():
     bpy.utils.register_class(BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey)
     bpy.utils.register_class(BLENDERMCP_OT_StartServer)
     bpy.utils.register_class(BLENDERMCP_OT_StopServer)
-    bpy.utils.register_class(BLENDERMCP_OT_OpenTerms)
 
     # Auto-start the server so the MCP client can connect without manual UI interaction
     scene = getattr(bpy.context, "scene", None)
@@ -202,8 +199,6 @@ def register():
 
 
 def unregister():
-    _unregister_edit_capture_handlers()
-
     # Stop the server if it's running
     if hasattr(bpy.types, "blendermcp_server") and bpy.types.blendermcp_server:
         bpy.types.blendermcp_server.stop()
@@ -213,7 +208,6 @@ def unregister():
     bpy.utils.unregister_class(BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey)
     bpy.utils.unregister_class(BLENDERMCP_OT_StartServer)
     bpy.utils.unregister_class(BLENDERMCP_OT_StopServer)
-    bpy.utils.unregister_class(BLENDERMCP_OT_OpenTerms)
     bpy.utils.unregister_class(BLENDERMCP_AddonPreferences)
 
     del bpy.types.Scene.blendermcp_port

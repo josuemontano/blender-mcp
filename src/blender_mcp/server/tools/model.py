@@ -4,7 +4,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -12,7 +11,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@trajectory_tool("model_match_reference")
 async def model_match_reference(
     ctx: Context,
     object_name: str,
@@ -54,7 +52,6 @@ async def model_match_reference(
 
 
 @mcp.tool()
-@trajectory_tool("model_blockout")
 async def model_blockout(
     ctx: Context,
     name: str,
@@ -93,7 +90,6 @@ async def model_blockout(
 
 
 @mcp.tool()
-@trajectory_tool("model_refine")
 async def model_refine(
     ctx: Context,
     object_name: str,
@@ -129,7 +125,6 @@ async def model_refine(
 
 
 @mcp.tool()
-@trajectory_tool("model_detail")
 async def model_detail(
     ctx: Context,
     object_name: str,
@@ -171,7 +166,6 @@ async def model_detail(
 
 
 @mcp.tool()
-@trajectory_tool("model_symmetrize")
 async def model_symmetrize(
     ctx: Context,
     object_name: str,
@@ -204,7 +198,6 @@ async def model_symmetrize(
 
 
 @mcp.tool()
-@trajectory_tool("model_mirror")
 async def model_mirror(
     ctx: Context,
     object_name: str,
@@ -243,7 +236,6 @@ async def model_mirror(
 
 
 @mcp.tool()
-@trajectory_tool("model_array")
 async def model_array(
     ctx: Context,
     object_name: str,
@@ -282,7 +274,6 @@ async def model_array(
 
 
 @mcp.tool()
-@trajectory_tool("model_radial_array")
 async def model_radial_array(
     ctx: Context,
     object_name: str,

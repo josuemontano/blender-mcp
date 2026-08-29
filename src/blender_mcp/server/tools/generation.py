@@ -17,7 +17,6 @@ from typing import Any
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 from .hyper3d import _process_bbox
@@ -227,7 +226,6 @@ async def _select_3d_provider(blender, provider: str) -> str:
 
 
 @mcp.tool()
-@trajectory_tool("model_from_reference")
 async def model_from_reference(
     ctx: Context,
     image_path_or_url: str,
@@ -284,7 +282,6 @@ async def model_from_reference(
 
 
 @mcp.tool()
-@trajectory_tool("model_generate_from_description")
 async def model_generate_from_description(
     ctx: Context,
     text_prompt: str,

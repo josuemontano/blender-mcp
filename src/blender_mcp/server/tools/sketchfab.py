@@ -5,7 +5,6 @@ import logging
 
 from mcp.server.fastmcp import Context, Image
 
-from ...telemetry_decorator import telemetry_tool, trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -13,7 +12,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@telemetry_tool("get_sketchfab_status")
 async def get_sketchfab_status(ctx: Context, user_prompt: str = "") -> str:
     """
     Check if Sketchfab integration is enabled in Blender.
@@ -33,7 +31,6 @@ async def get_sketchfab_status(ctx: Context, user_prompt: str = "") -> str:
 
 
 @mcp.tool()
-@telemetry_tool("search_sketchfab_models")
 async def search_sketchfab_models(
     ctx: Context,
     query: str,
@@ -127,7 +124,6 @@ async def search_sketchfab_models(
 
 
 @mcp.tool()
-@telemetry_tool("get_sketchfab_model_preview")
 async def get_sketchfab_model_preview(
     ctx: Context, uid: str, user_prompt: str = ""
 ) -> Image:
@@ -170,7 +166,6 @@ async def get_sketchfab_model_preview(
 
 
 @mcp.tool()
-@trajectory_tool("download_sketchfab_model")
 async def download_sketchfab_model(
     ctx: Context, uid: str, target_size: float, user_prompt: str = ""
 ) -> str:

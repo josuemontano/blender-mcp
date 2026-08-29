@@ -4,7 +4,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import telemetry_tool, trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -12,7 +11,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@trajectory_tool("nd_boolean")
 async def nd_boolean(
     ctx: Context,
     object_name: str,
@@ -49,7 +47,6 @@ async def nd_boolean(
 
 
 @mcp.tool()
-@trajectory_tool("nd_mark_as_util")
 async def nd_mark_as_util(
     ctx: Context,
     object_names: list[str],
@@ -80,7 +77,6 @@ async def nd_mark_as_util(
 
 
 @mcp.tool()
-@trajectory_tool("nd_clean_utils")
 async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> str:
     """
     Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
@@ -98,7 +94,6 @@ async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> str:
 
 
 @mcp.tool()
-@trajectory_tool("nd_create_id_material")
 async def nd_create_id_material(
     ctx: Context,
     object_names: list[str],
@@ -126,7 +121,6 @@ async def nd_create_id_material(
 
 
 @mcp.tool()
-@trajectory_tool("nd_bulk_create_id_materials")
 async def nd_bulk_create_id_materials(
     ctx: Context, object_names: list[str], user_prompt: str = ""
 ) -> str:
@@ -149,7 +143,6 @@ async def nd_bulk_create_id_materials(
 
 
 @mcp.tool()
-@trajectory_tool("nd_clear_materials")
 async def nd_clear_materials(
     ctx: Context, object_names: list[str], user_prompt: str = ""
 ) -> str:
@@ -172,7 +165,6 @@ async def nd_clear_materials(
 
 
 @mcp.tool()
-@trajectory_tool("nd_set_lod_suffix")
 async def nd_set_lod_suffix(
     ctx: Context,
     object_names: list[str],
@@ -199,7 +191,6 @@ async def nd_set_lod_suffix(
 
 
 @mcp.tool()
-@trajectory_tool("nd_name_sync")
 async def nd_name_sync(
     ctx: Context, object_names: list[str], user_prompt: str = ""
 ) -> str:
@@ -220,7 +211,6 @@ async def nd_name_sync(
 
 
 @mcp.tool()
-@trajectory_tool("nd_single_vertex")
 async def nd_single_vertex(
     ctx: Context,
     location: list[float] = (0, 0, 0),
@@ -245,7 +235,6 @@ async def nd_single_vertex(
 
 
 @mcp.tool()
-@trajectory_tool("nd_clear_edge_marks")
 async def nd_clear_edge_marks(
     ctx: Context, object_name: str, user_prompt: str = ""
 ) -> str:
@@ -268,7 +257,6 @@ async def nd_clear_edge_marks(
 
 
 @mcp.tool()
-@trajectory_tool("nd_clear_vertex_groups")
 async def nd_clear_vertex_groups(
     ctx: Context, object_name: str, user_prompt: str = ""
 ) -> str:
@@ -291,7 +279,6 @@ async def nd_clear_vertex_groups(
 
 
 @mcp.tool()
-@trajectory_tool("nd_apply_modifiers")
 async def nd_apply_modifiers(
     ctx: Context, object_names: list[str], user_prompt: str = ""
 ) -> str:
@@ -317,7 +304,6 @@ async def nd_apply_modifiers(
 
 
 @mcp.tool()
-@trajectory_tool("nd_viewport_toggle")
 async def nd_viewport_toggle(ctx: Context, toggle: str, user_prompt: str = "") -> str:
     """
     Toggle an ND viewport display setting.
@@ -337,7 +323,6 @@ async def nd_viewport_toggle(ctx: Context, toggle: str, user_prompt: str = "") -
 
 
 @mcp.tool()
-@trajectory_tool("nd_capture_utils")
 async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> str:
     """
     Display and select all ND utility objects in the scene.
@@ -355,7 +340,6 @@ async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> str:
 
 
 @mcp.tool()
-@telemetry_tool("get_nd_status")
 async def get_nd_status(ctx: Context, user_prompt: str = "") -> str:
     """
     Check if ND (HugeMenace) non-destructive workflow integration is enabled in Blender.

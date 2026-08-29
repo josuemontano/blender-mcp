@@ -4,7 +4,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import telemetry_tool, trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -12,7 +11,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@telemetry_tool("get_polyhaven_categories")
 async def get_polyhaven_categories(
     ctx: Context, asset_type: str = "hdris", user_prompt: str = ""
 ) -> str:
@@ -52,7 +50,6 @@ async def get_polyhaven_categories(
 
 
 @mcp.tool()
-@telemetry_tool("search_polyhaven_assets")
 async def search_polyhaven_assets(
     ctx: Context, asset_type: str = "all", categories: str = None, user_prompt: str = ""
 ) -> str:
@@ -112,7 +109,6 @@ async def search_polyhaven_assets(
 
 
 @mcp.tool()
-@trajectory_tool("download_polyhaven_asset")
 async def download_polyhaven_asset(
     ctx: Context,
     asset_id: str,
@@ -174,7 +170,6 @@ async def download_polyhaven_asset(
 
 
 @mcp.tool()
-@trajectory_tool("set_texture")
 async def set_texture(
     ctx: Context, object_name: str, texture_id: str, user_prompt: str = ""
 ) -> str:
@@ -233,7 +228,6 @@ async def set_texture(
 
 
 @mcp.tool()
-@telemetry_tool("get_polyhaven_status")
 async def get_polyhaven_status(ctx: Context, user_prompt: str = "") -> str:
     """
     Check if PolyHaven integration is enabled in Blender.

@@ -442,7 +442,7 @@ def handshake_addon(blender_connection) -> AddonHandshake:
                 f"expected {EXPECTED_ADDON_PROTOCOL_VERSION}. "
                 "Run `blender-mcp install-addon` to update it, then "
                 "restart Blender or disable/enable 'Interface: Blender MCP', "
-                "then Start MCP Server. Trajectory still works via fallbacks."
+                "then Start MCP Server."
             )
         return AddonHandshake(
             up_to_date=up_to_date,

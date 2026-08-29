@@ -4,7 +4,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -12,7 +11,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@trajectory_tool("execute_blender_code", capture_code=True)
 async def execute_blender_code(ctx: Context, code: str, user_prompt: str = "") -> str:
     """
     Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.

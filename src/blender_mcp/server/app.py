@@ -8,7 +8,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..addon_manager import check_addon_status_on_startup, format_handshake_log
-from ..telemetry import record_startup
 from .connection import disconnect_blender, get_blender_connection, get_last_handshake
 
 logger = logging.getLogger("BlenderMCPServer")
@@ -33,12 +32,6 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
         except Exception as e:
             logger.debug(f"Addon status check skipped: {e}")
 
-        # Record startup event for telemetry
-        try:
-            record_startup()
-        except Exception as e:
-            logger.debug(f"Failed to record startup telemetry: {e}")
-
         # Try to connect to Blender on startup to verify it's available
         try:
             # This will initialize the global connection if needed
@@ -56,14 +49,6 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
         # Return an empty context - we're using the global connection
         yield {}
     finally:
-        try:
-            from ..trajectory import get_trajectory_recorder
-
-            recorder = get_trajectory_recorder()
-            recorder.close_episode("session_end")
-            recorder.flush(2.0)
-        except Exception as e:
-            logger.debug(f"Episode close on shutdown skipped: {e}")
         # Clean up the global connection on shutdown
         disconnect_blender()
         logger.info("BlenderMCP server shut down")

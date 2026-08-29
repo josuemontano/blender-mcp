@@ -4,7 +4,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -12,7 +11,6 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-@trajectory_tool("mesh_create_primitive")
 async def mesh_create_primitive(
     ctx: Context,
     primitive_type: str,
@@ -54,7 +52,6 @@ async def mesh_create_primitive(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_extrude")
 async def mesh_extrude(
     ctx: Context,
     object_name: str,
@@ -90,7 +87,6 @@ async def mesh_extrude(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_inset")
 async def mesh_inset(
     ctx: Context,
     object_name: str,
@@ -129,7 +125,6 @@ async def mesh_inset(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_bevel")
 async def mesh_bevel(
     ctx: Context,
     object_name: str,
@@ -175,7 +170,6 @@ async def mesh_bevel(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_bridge")
 async def mesh_bridge(
     ctx: Context, object_name: str, edge_indices: list[int], user_prompt: str = ""
 ) -> str:
@@ -205,7 +199,6 @@ async def mesh_bridge(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_boolean")
 async def mesh_boolean(
     ctx: Context,
     object_name: str,
@@ -244,7 +237,6 @@ async def mesh_boolean(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_subdivide")
 async def mesh_subdivide(
     ctx: Context,
     object_name: str,
@@ -280,7 +272,6 @@ async def mesh_subdivide(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_remesh")
 async def mesh_remesh(
     ctx: Context, object_name: str, voxel_size: float = 0.1, user_prompt: str = ""
 ) -> str:
@@ -310,7 +301,6 @@ async def mesh_remesh(
 
 
 @mcp.tool()
-@trajectory_tool("mesh_solidify")
 async def mesh_solidify(
     ctx: Context,
     object_name: str,

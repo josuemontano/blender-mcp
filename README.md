@@ -129,7 +129,6 @@ In Blender's 3D viewport, press `N` → open the **BlenderMCP** tab → click **
 - [Troubleshooting](#troubleshooting)
 - [Technical Details](#technical-details)
 - [Limitations & Security Considerations](#limitations--security-considerations)
-- [Telemetry Control](#telemetry-control)
 - [Feedback](#feedback)
 - [Contributing](#contributing)
 - [Disclaimer](#disclaimer)
@@ -390,7 +389,7 @@ blender-mcp addon-paths   # optional: list detected Blender addons folders
 
 **3.** Delete the MCP server from Claude and add it back again if the server package itself needs a refresh.
 
-> **Note:** the MCP server never modifies your Blender addon files on its own. When it starts, it checks whether the installed addon is behind the bundled copy and logs how to update; `install-addon` is what actually writes, and it keeps a `.bak` of the file it replaces. Trajectory capture still works on older loaded addons via an `execute_code` fallback.
+> **Note:** the MCP server never modifies your Blender addon files on its own. When it starts, it checks whether the installed addon is behind the bundled copy and logs how to update; `install-addon` is what actually writes, and it keeps a `.bak` of the file it replaces.
 
 ---
 
@@ -491,39 +490,6 @@ The system uses a simple JSON-based protocol over TCP sockets:
 
 - Poly Haven requires downloading models, textures, and HDRI images. If you do not want to use it, please turn it off in the checkbox in Blender.
 - Complex operations might need to be broken down into smaller steps.
-
-## Telemetry Control
-
-BlenderMCP collects anonymous usage data to help improve the tool. Telemetry consent is **on by default**, and you can turn it off in two ways:
-
-**1. In Blender** — go to **Edit → Preferences → Add-ons → Blender MCP** and uncheck the telemetry consent checkbox.
-
-- With consent (checked, the default): view the TnC for more details on data collected.
-
-**2. Environment Variable** — completely disable all telemetry by running:
-
-```bash
-DISABLE_TELEMETRY=true blender-mcp
-```
-
-Or add it to your MCP config:
-
-```json
-{
-    "mcpServers": {
-        "blender": {
-            "command": "blender-mcp",
-            "env": {
-                "DISABLE_TELEMETRY": "true"
-            }
-        }
-    }
-}
-```
-
-Telemetry data is not linked to your name or account. It may be used to improve BlenderMCP, for research, and to train AI models.
-
-Full detail on what is collected, and the license you grant by leaving telemetry on, is in [TERMS_AND_CONDITIONS.md](TERMS_AND_CONDITIONS.md).
 
 ---
 

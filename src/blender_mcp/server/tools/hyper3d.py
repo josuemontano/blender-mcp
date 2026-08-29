@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import telemetry_tool, trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -31,7 +30,6 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
 
 
 @mcp.tool()
-@telemetry_tool("get_hyper3d_status")
 async def get_hyper3d_status(ctx: Context, user_prompt: str = "") -> str:
     """
     Check if Hyper3D Rodin integration is enabled in Blender.
@@ -51,7 +49,6 @@ async def get_hyper3d_status(ctx: Context, user_prompt: str = "") -> str:
 
 
 @mcp.tool()
-@trajectory_tool("generate_hyper3d_model_via_text")
 async def generate_hyper3d_model_via_text(
     ctx: Context,
     text_prompt: str,
@@ -96,7 +93,6 @@ async def generate_hyper3d_model_via_text(
 
 
 @mcp.tool()
-@trajectory_tool("generate_hyper3d_model_via_images")
 async def generate_hyper3d_model_via_images(
     ctx: Context,
     input_image_paths: list[str] = None,
@@ -161,7 +157,6 @@ async def generate_hyper3d_model_via_images(
 
 
 @mcp.tool()
-@telemetry_tool("poll_rodin_job_status")
 async def poll_rodin_job_status(
     ctx: Context,
     subscription_key: str = None,
@@ -206,7 +201,6 @@ async def poll_rodin_job_status(
 
 
 @mcp.tool()
-@trajectory_tool("import_generated_asset")
 async def import_generated_asset(
     ctx: Context,
     name: str,

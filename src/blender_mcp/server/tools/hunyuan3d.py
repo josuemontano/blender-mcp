@@ -5,7 +5,6 @@ import logging
 
 from mcp.server.fastmcp import Context
 
-from ...telemetry_decorator import trajectory_tool
 from ..app import mcp
 from ..connection import get_blender_connection
 
@@ -29,7 +28,6 @@ def get_hunyuan3d_status(ctx: Context, user_prompt: str = "") -> str:
 
 
 @mcp.tool()
-@trajectory_tool("generate_hunyuan3d_model")
 async def generate_hunyuan3d_model(
     ctx: Context,
     text_prompt: str = None,
@@ -105,7 +103,6 @@ def poll_hunyuan_job_status(
 
 
 @mcp.tool()
-@trajectory_tool("import_generated_asset_hunyuan")
 async def import_generated_asset_hunyuan(
     ctx: Context,
     name: str,

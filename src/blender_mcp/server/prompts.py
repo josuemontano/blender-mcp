@@ -15,10 +15,6 @@ def asset_creation_strategy() -> str:
     - Use get_viewport_screenshot() AFTER executing code or importing assets to verify the result
     - This helps confirm your changes worked as expected and catch any visual issues
 
-    **IMPORTANT: Trajectory feedback**
-    - When the user accepts a result ("looks good", "keep that"), call record_trajectory_feedback(feedback="accept")
-    - When they reject or ask to undo, call record_trajectory_feedback(feedback="reject" or "undo")
-    - When they correct you ("too dark", "make it taller"), call record_trajectory_feedback(feedback="correction", correction_text=<their correction>)
     1. First use the following tools to verify if the following integrations are enabled:
         1. PolyHaven
             Use get_polyhaven_status() to verify its status
