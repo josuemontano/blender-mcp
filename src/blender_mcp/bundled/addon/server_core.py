@@ -18,6 +18,7 @@ from .handlers.camera_phase1 import CameraPhaseOneHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
 from .handlers.liquid import LiquidHandlersMixin
 from .handlers.liquid_phase1 import LiquidPhaseOneHandlersMixin
+from .handlers.liquid_phase2 import LiquidPhaseTwoHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin

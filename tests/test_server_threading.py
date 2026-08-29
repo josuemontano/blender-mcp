@@ -76,6 +76,7 @@ def _load_server_class():
         "MeshHandlersMixin",
         "ModelHandlersMixin",
         "ClothHandlersMixin",
+        "LiquidPhaseTwoHandlersMixin",
         "LiquidPhaseOneHandlersMixin",
         "LiquidHandlersMixin",
         "NDHandlersMixin",

@@ -7,6 +7,7 @@ from . import core as core
 from . import execute as execute
 from . import liquid as liquid
 from . import liquid_phase1 as liquid_phase1
+from . import liquid_phase2 as liquid_phase2
 from . import mesh as mesh
 from . import model as model
 from . import nd as nd
