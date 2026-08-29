@@ -17,13 +17,26 @@ BooleanMode = Literal["UNION", "DIFFERENCE", "INTERSECT"]
 LodMode = Literal["HIGH", "LOW"]
 PulseToggle = Literal["CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"]
 
-_CANCELLED_WARNING = "ND operator was cancelled - the scene may be unchanged"
+_CANCELLED_WARNING = "ND operator was cancelled - the scene is unchanged"
 
 
-def _cancelled_warnings(result) -> list[str] | None:
+def _nd_outcome(result, changed_objects: list[str] | None = None) -> dict:
+    """
+    Build the tool envelope for an ND operator result, gating success and
+    changed_objects on the handler's `cancelled` flag instead of optimistically
+    reporting the objects the tool targeted.
+
+    Args:
+        result: The raw dict returned by the Blender-side ND handler.
+        changed_objects: Object names to report as changed when the operator was not cancelled.
+
+    Returns:
+        dict: The envelope produced by `ok()`.
+
+    """
     if isinstance(result, dict) and result.get("cancelled"):
-        return [_CANCELLED_WARNING]
-    return None
+        return ok(result, success=False, changed_objects=[], warnings=[_CANCELLED_WARNING])
+    return ok(result, changed_objects=changed_objects)
 
 
 @mcp.tool()

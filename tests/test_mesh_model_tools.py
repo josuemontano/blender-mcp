@@ -98,11 +98,17 @@ class FakeVector:
     def to_quaternion(self):
         return _euler_to_quat(self)
 
+    def __neg__(self):
+        return FakeVector(-self.x, -self.y, -self.z)
+
     def __iter__(self):
         return iter((self.x, self.y, self.z))
 
     def __eq__(self, other):
         return tuple(self) == tuple(other)
+
+
+_EULER_ORDERS = {"XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"}
 
 
 class FakeQuaternion:
@@ -125,6 +131,8 @@ class FakeQuaternion:
         return FakeQuaternion((self.w, self.x, self.y, self.z))
 
     def to_euler(self, order="XYZ"):
+        if order not in _EULER_ORDERS:
+            raise ValueError(f"Euler order {order!r} not in {sorted(_EULER_ORDERS)}")
         return _quat_to_euler(self, order)
 
     def to_axis_angle(self):
@@ -145,7 +153,10 @@ class FakeMatrix:
     def decompose(self):
         return self.loc.copy(), self.rot.copy(), self.scale.copy()
 
-    def __matmul__(self, point):
+    def __matmul__(self, other):
+        if isinstance(other, FakeMatrix):
+            return _compose(self, other)
+        point = other
         scaled = FakeVector(point.x * self.scale.x, point.y * self.scale.y, point.z * self.scale.z)
         rotated = _quat_rotate_vec(self.rot, scaled)
         return FakeVector(rotated.x + self.loc.x, rotated.y + self.loc.y, rotated.z + self.loc.z)
@@ -153,6 +164,15 @@ class FakeMatrix:
     @staticmethod
     def LocRotScale(loc, rot, scale):
         return FakeMatrix(loc, rot, scale)
+
+    @staticmethod
+    def Translation(vec):
+        return FakeMatrix(FakeVector(vec.x, vec.y, vec.z), FakeQuaternion(), FakeVector(1.0, 1.0, 1.0))
+
+    @staticmethod
+    def Rotation(angle, size, axis):
+        axis_vec = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}[axis]
+        return FakeMatrix(FakeVector(0.0, 0.0, 0.0), FakeQuaternion(axis_vec, angle), FakeVector(1.0, 1.0, 1.0))
 
 
 class FakeVertex:
@@ -482,7 +502,11 @@ def _load_addon(monkeypatch):
     mathutils = types.ModuleType("mathutils")
     mathutils.Vector = lambda seq: FakeVector(*seq)
     mathutils.Quaternion = FakeQuaternion
-    mathutils.Matrix = types.SimpleNamespace(LocRotScale=FakeMatrix.LocRotScale)
+    mathutils.Matrix = types.SimpleNamespace(
+        LocRotScale=FakeMatrix.LocRotScale,
+        Translation=FakeMatrix.Translation,
+        Rotation=FakeMatrix.Rotation,
+    )
 
     monkeypatch.setitem(sys.modules, "bpy", bpy)
     monkeypatch.setitem(sys.modules, "bpy.props", props)
@@ -736,7 +760,7 @@ def test_copy_object_transform_local_space_copies_quaternion_directly(monkeypatc
     ref.rotation_mode = "QUATERNION"
     ref.rotation_quaternion = FakeQuaternion((0.5, 0.5, 0.5, 0.5))
 
-    server.copy_object_transform(
+    result = server.copy_object_transform(
         object_name="A",
         reference_object_name="B",
         match_location=False,
@@ -746,6 +770,57 @@ def test_copy_object_transform_local_space_copies_quaternion_directly(monkeypatc
     )
 
     assert obj.rotation_quaternion == FakeQuaternion((0.5, 0.5, 0.5, 0.5))
+    # Regression: formatting the result used to call to_euler("QUATERNION"),
+    # which real Blender rejects - it must return the native [w, x, y, z] form.
+    assert result["rotation_mode"] == "QUATERNION"
+    assert result["rotation"] == pytest.approx([0.5, 0.5, 0.5, 0.5])
+
+
+def test_copy_object_transform_world_space_returns_native_rotation_for_quaternion_mode(
+    monkeypatch,
+) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_mesh_object(bpy, "A")
+    obj.rotation_mode = "QUATERNION"
+    ref = _new_mesh_object(bpy, "B")
+    ref.rotation_mode = "QUATERNION"
+    ref.rotation_quaternion = FakeQuaternion((0.5, 0.5, 0.5, 0.5))
+
+    # Regression: the WORLD branch recomposes matrix_world via LocRotScale,
+    # then reused the same to_euler(obj.rotation_mode) formatting - the crash
+    # reproduces on this path too, not just LOCAL.
+    result = server.copy_object_transform(
+        object_name="A",
+        reference_object_name="B",
+        match_rotation=True,
+        space="WORLD",
+    )
+
+    assert result["rotation_mode"] == "QUATERNION"
+    assert result["rotation"] == pytest.approx([0.5, 0.5, 0.5, 0.5])
+
+
+def test_copy_object_transform_returns_native_rotation_for_axis_angle_mode(monkeypatch) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_mesh_object(bpy, "A")
+    obj.rotation_mode = "AXIS_ANGLE"
+    ref = _new_mesh_object(bpy, "B")
+    ref.rotation_mode = "AXIS_ANGLE"
+    ref.rotation_axis_angle = (1.2, 0.0, 0.0, 1.0)
+
+    result = server.copy_object_transform(
+        object_name="A",
+        reference_object_name="B",
+        match_location=False,
+        match_rotation=True,
+        match_scale=False,
+        space="LOCAL",
+    )
+
+    assert result["rotation_mode"] == "AXIS_ANGLE"
+    assert result["rotation"] == pytest.approx([1.2, 0.0, 0.0, 1.0])
 
 
 def test_copy_object_transform_world_space_differs_from_local_across_parenting(
@@ -781,6 +856,9 @@ def test_copy_object_transform_world_space_differs_from_local_across_parenting(
     # The returned/local location differs from world location because of the
     # parent offset - this is the whole point of matching in WORLD space.
     assert result["location"] == pytest.approx([-95, 5, 5])
+    # The new world_location field labels the world-space equivalent, so a
+    # caller doesn't have to guess which space "location" is in.
+    assert result["world_location"] == pytest.approx([5, 5, 5])
 
 
 def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(monkeypatch) -> None:
@@ -892,10 +970,20 @@ def test_model_radial_array_rejects_multiple_pivot_options(monkeypatch) -> None:
         server.model_radial_array(object_name="R", count=4, radius=2.0, pivot_location=(1, 0, 0))
 
 
+def _pivot_rotation_matrix(pivot, axis, angle):
+    return FakeMatrix.Translation(pivot) @ FakeMatrix.Rotation(angle, 4, axis) @ FakeMatrix.Translation(-pivot)
+
+
+def _assert_matrices_close(a, b) -> None:
+    assert (a.loc.x, a.loc.y, a.loc.z) == pytest.approx((b.loc.x, b.loc.y, b.loc.z))
+    assert (a.rot.w, a.rot.x, a.rot.y, a.rot.z) == pytest.approx((b.rot.w, b.rot.x, b.rot.y, b.rot.z))
+    assert (a.scale.x, a.scale.y, a.scale.z) == pytest.approx((b.scale.x, b.scale.y, b.scale.z))
+
+
 def test_model_radial_array_with_radius_offsets_pivot(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R")
+    obj = _new_mesh_object(bpy, "R")
 
     result = server.model_radial_array(object_name="R", count=4, axis="Z", radius=3.0)
 
@@ -903,8 +991,10 @@ def test_model_radial_array_with_radius_offsets_pivot(monkeypatch) -> None:
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
     # axis="Z" offsets along its perpendicular axis, X (see _RADIAL_AXIS_PERP).
-    assert empty.location.x == pytest.approx(-3.0)
-    assert empty.rotation_euler.z == pytest.approx(2 * math.pi / 4)
+    pivot = FakeVector(-3.0, 0.0, 0.0)
+    angle = 2 * math.pi / 4
+    expected = _pivot_rotation_matrix(pivot, "Z", angle) @ obj.matrix_world
+    _assert_matrices_close(empty.matrix_world, expected)
 
 
 def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_object(
@@ -926,32 +1016,62 @@ def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_obje
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
-    assert empty.location.x == pytest.approx(97.0)
-    assert empty.location.y == pytest.approx(0.0)
+    pivot = FakeVector(97.0, 0.0, 0.0)
+    angle = 2 * math.pi / 4
+    expected = _pivot_rotation_matrix(pivot, "Z", angle) @ obj.matrix_world
+    _assert_matrices_close(empty.matrix_world, expected)
 
 
 def test_model_radial_array_with_explicit_pivot_location(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R")
+    obj = _new_mesh_object(bpy, "R")
 
     server.model_radial_array(object_name="R", count=6, axis="Z", pivot_location=(5, 5, 5))
 
     empty = bpy.data.objects.get("R_radial_pivot")
-    assert (empty.location.x, empty.location.y, empty.location.z) == (5, 5, 5)
+    assert empty is not None
+    pivot = FakeVector(5, 5, 5)
+    angle = 2 * math.pi / 6
+    expected = _pivot_rotation_matrix(pivot, "Z", angle) @ obj.matrix_world
+    _assert_matrices_close(empty.matrix_world, expected)
 
 
 def test_model_radial_array_with_pivot_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R")
-    pivot = _new_mesh_object(bpy, "Pivot")
-    pivot.location = FakeVector(1, 2, 3)
+    obj = _new_mesh_object(bpy, "R")
+    pivot_obj = _new_mesh_object(bpy, "Pivot")
+    pivot_obj.location = FakeVector(1, 2, 3)
 
     server.model_radial_array(object_name="R", count=6, pivot_object_name="Pivot")
 
     empty = bpy.data.objects.get("R_radial_pivot")
-    assert (empty.location.x, empty.location.y, empty.location.z) == (1, 2, 3)
+    assert empty is not None
+    pivot = FakeVector(1, 2, 3)
+    angle = 2 * math.pi / 6
+    expected = _pivot_rotation_matrix(pivot, "Z", angle) @ obj.matrix_world
+    _assert_matrices_close(empty.matrix_world, expected)
+
+
+def test_model_radial_array_rotates_a_rotated_scaled_object_about_an_arbitrary_pivot(
+    monkeypatch,
+) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_mesh_object(bpy, "R")
+    obj.location = FakeVector(10, 0, 0)
+    obj.rotation_euler = FakeVector(0.0, 0.0, math.radians(30))
+    obj.scale = FakeVector(2.0, 2.0, 2.0)
+
+    server.model_radial_array(object_name="R", count=4, axis="Z", pivot_location=(0, 0, 0))
+
+    empty = bpy.data.objects.get("R_radial_pivot")
+    assert empty is not None
+    pivot = FakeVector(0.0, 0.0, 0.0)
+    angle = 2 * math.pi / 4
+    expected = _pivot_rotation_matrix(pivot, "Z", angle) @ obj.matrix_world
+    _assert_matrices_close(empty.matrix_world, expected)
 
 
 def test_model_radial_array_rejects_unknown_pivot_object(monkeypatch) -> None:

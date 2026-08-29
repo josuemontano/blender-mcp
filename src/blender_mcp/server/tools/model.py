@@ -42,7 +42,10 @@ async def copy_object_transform(
             local location/rotation/scale properties instead.
 
     Returns:
-        the object's name and resulting location/rotation/scale.
+        the object's name; "location"/"rotation"/"scale" (obj's local properties after the match, rotation in
+        obj's own rotation_mode representation - a 3-float Euler triple, a 4-float [w,x,y,z] quaternion, or a
+        4-float [angle,x,y,z] axis-angle); "rotation_mode"; and "world_location"/"world_rotation_quaternion"/
+        "world_scale" (the world-space equivalents, rotation always as a quaternion).
 
     Raises:
         ToolError: If the operation cannot be completed.

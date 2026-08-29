@@ -1,3 +1,5 @@
+import math
+
 import bpy
 import mathutils
 
@@ -6,7 +8,9 @@ from ..helpers import (
     get_mesh_object,
     get_rotation_quaternion,
     modifier_result,
+    pivot_rotation_matrix,
     preserve_mode_and_selection,
+    rotation_as_native_list,
     set_active,
     set_rotation_quaternion,
 )
@@ -43,7 +47,12 @@ class ModelHandlersMixin:
             space: Value for space.
 
         Returns:
-            Result produced by the operation.
+            location/rotation/scale: obj's local properties after the match
+                (rotation in obj's own rotation_mode representation, regardless
+                of which space was used to perform the match).
+            world_location/world_rotation_quaternion/world_scale: obj's
+                matrix_world decomposed - the world-space equivalents, with
+                rotation always as a quaternion.
 
         Raises:
             ValueError: If the operation cannot be completed.
@@ -74,14 +83,16 @@ class ModelHandlersMixin:
             new_scale = ref_scale if match_scale else obj_scale
             obj.matrix_world = mathutils.Matrix.LocRotScale(new_loc, new_rot, new_scale)
 
-        rotation_quat = get_rotation_quaternion(obj)
-        euler = rotation_quat.to_euler(obj.rotation_mode)
+        world_loc, world_rot, world_scale = obj.matrix_world.decompose()
         return {
             "name": obj.name,
             "location": [obj.location.x, obj.location.y, obj.location.z],
-            "rotation": [euler.x, euler.y, euler.z],
+            "rotation": rotation_as_native_list(obj),
             "rotation_mode": obj.rotation_mode,
             "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
+            "world_location": [world_loc.x, world_loc.y, world_loc.z],
+            "world_rotation_quaternion": [world_rot.w, world_rot.x, world_rot.y, world_rot.z],
+            "world_scale": [world_scale.x, world_scale.y, world_scale.z],
         }
 
     def add_subdivision_surface_modifier(self, object_name, levels=1, apply=False):
@@ -274,9 +285,8 @@ class ModelHandlersMixin:
 
         empty = bpy.data.objects.new(f"{object_name}_radial_pivot", None)
         bpy.context.collection.objects.link(empty)
-        empty.location = pivot_loc
-        angle = (2 * 3.141592653589793) / count
-        setattr(empty.rotation_euler, axis.lower(), angle)
+        angle = (2 * math.pi) / count
+        empty.matrix_world = pivot_rotation_matrix(pivot_loc, axis, angle) @ obj.matrix_world
         mod = obj.modifiers.new(name="Array", type="ARRAY")
         mod.count = count
         mod.use_relative_offset = False

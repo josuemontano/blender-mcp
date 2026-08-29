@@ -367,6 +367,53 @@ def set_rotation_quaternion(obj, quat) -> None:
         obj.rotation_euler = quat.to_euler(obj.rotation_mode)
 
 
+def rotation_as_native_list(obj):
+    """
+    Read obj's rotation in whatever representation its rotation_mode natively uses.
+
+    Returns [x, y, z] for Euler modes, [w, x, y, z] for QUATERNION, or
+    [angle, x, y, z] for AXIS_ANGLE - avoiding to_euler(), whose order
+    argument only accepts the six Euler order strings, not QUATERNION/AXIS_ANGLE.
+
+    Args:
+        obj: Value for obj.
+
+    Returns:
+        Result produced by the operation.
+
+    """
+    if obj.rotation_mode == "QUATERNION":
+        q = obj.rotation_quaternion
+        return [q.w, q.x, q.y, q.z]
+    if obj.rotation_mode == "AXIS_ANGLE":
+        return list(obj.rotation_axis_angle)
+    e = obj.rotation_euler
+    return [e.x, e.y, e.z]
+
+
+def pivot_rotation_matrix(pivot, axis, angle):
+    """
+    Build a world-space matrix that rotates by angle around axis, pivoting at pivot.
+
+    Matrix.Rotation alone only rotates around the world origin - conjugating
+    it with Translation(pivot)/Translation(-pivot) shifts the pivot to an
+    arbitrary world point: Translate(pivot) @ Rotate(angle, axis) @ Translate(-pivot).
+
+    Args:
+        pivot: World-space point to rotate around.
+        axis: 'X', 'Y', or 'Z'.
+        angle: Rotation angle in radians.
+
+    Returns:
+        Result produced by the operation.
+
+    """
+    translate_to_pivot = mathutils.Matrix.Translation(pivot)
+    rotate = mathutils.Matrix.Rotation(angle, 4, axis)
+    translate_back = mathutils.Matrix.Translation(-pivot)
+    return translate_to_pivot @ rotate @ translate_back
+
+
 def select_objects(names, active_name=None):
     """
     Deselect everything, select the named objects, and set the active object.

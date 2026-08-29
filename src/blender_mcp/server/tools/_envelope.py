@@ -6,11 +6,12 @@ from typing import Any
 def ok(
     data: Any = None,
     *,
+    success: bool = True,
     warnings: list[str] | None = None,
     changed_objects: list[str] | None = None,
 ) -> dict:
     return {
-        "ok": True,
+        "ok": success,
         "data": data,
         "error": None,
         "warnings": warnings or [],
