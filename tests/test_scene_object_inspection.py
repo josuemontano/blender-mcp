@@ -102,8 +102,12 @@ class FakeObjectsCollection(dict):
             type="MESH" if data is not None else "EMPTY",
             location=FakeVector(),
             rotation_euler=FakeVector(),
+            rotation_mode="XYZ",
+            rotation_quaternion=types.SimpleNamespace(w=1.0, x=0.0, y=0.0, z=0.0),
+            rotation_axis_angle=(0.0, 0.0, 0.0, 1.0),
             scale=FakeVector(1.0, 1.0, 1.0),
             material_slots=[],
+            modifiers=[],
             data=data,
             editmode_sync_calls=0,
         )
@@ -425,6 +429,60 @@ def test_get_object_info_syncs_from_editmode_before_reading(monkeypatch) -> None
     server.get_object_info("empty_obj")
 
     assert obj.editmode_sync_calls == 1
+
+
+def test_get_object_info_reports_default_euler_rotation(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    _new_empty_object(bpy, "empty_obj")
+
+    info = server.get_object_info("empty_obj")
+
+    assert info["rotation_mode"] == "XYZ"
+    assert info["rotation"] == [0.0, 0.0, 0.0]
+
+
+def test_get_object_info_reports_quaternion_rotation(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_empty_object(bpy, "empty_obj")
+    obj.rotation_mode = "QUATERNION"
+    obj.rotation_quaternion = types.SimpleNamespace(w=0.5, x=0.5, y=0.5, z=0.5)
+
+    info = server.get_object_info("empty_obj")
+
+    assert info["rotation_mode"] == "QUATERNION"
+    assert info["rotation"] == [0.5, 0.5, 0.5, 0.5]
+
+
+def test_get_object_info_reports_axis_angle_rotation(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_empty_object(bpy, "empty_obj")
+    obj.rotation_mode = "AXIS_ANGLE"
+    obj.rotation_axis_angle = (1.2, 0.0, 0.0, 1.0)
+
+    info = server.get_object_info("empty_obj")
+
+    assert info["rotation_mode"] == "AXIS_ANGLE"
+    assert info["rotation"] == [1.2, 0.0, 0.0, 1.0]
+
+
+def test_get_object_info_reports_modifiers(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_empty_object(bpy, "empty_obj")
+    obj.modifiers = [
+        types.SimpleNamespace(name="Bevel", type="BEVEL", show_viewport=True, show_render=False),
+        types.SimpleNamespace(name="Subsurf", type="SUBSURF", show_viewport=True, show_render=True),
+    ]
+
+    info = server.get_object_info("empty_obj")
+
+    assert info["modifiers"] == [
+        {"name": "Bevel", "type": "BEVEL", "show_viewport": True, "show_render": False},
+        {"name": "Subsurf", "type": "SUBSURF", "show_viewport": True, "show_render": True},
+    ]
 
 
 # endregion

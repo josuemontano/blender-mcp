@@ -568,6 +568,21 @@ class BlenderMCPServer(
         """
         Get detailed information about a specific object.
 
+        `location`/`rotation`/`scale` are the object's local (parent-relative)
+        transform; `world_bounding_box` (mesh objects only) is the world-space
+        AABB computed via `matrix_world` (see `get_aabb`) - the two live in
+        different spaces and are not directly comparable for a parented or
+        transformed object.
+
+        `rotation_mode` names how to read `rotation`: one of the six Euler
+        orders ("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX") means
+        `[x, y, z]` radians in that order; "QUATERNION" means `[w, x, y, z]`;
+        "AXIS_ANGLE" means `[angle, x, y, z]`. Reading `rotation` without
+        checking `rotation_mode` will misinterpret non-Euler objects.
+
+        `mesh.vertices`/`edges`/`polygons` are base-mesh (pre-modifier)
+        counts, same caveat as `get_mesh_data`.
+
         Args:
             name: Name to assign or look up.
 
@@ -583,19 +598,34 @@ class BlenderMCPServer(
             raise ValueError(f"Object not found: {name}")
         sync_from_editmode(obj)
 
+        if obj.rotation_mode == "QUATERNION":
+            q = obj.rotation_quaternion
+            rotation = [q.w, q.x, q.y, q.z]
+        elif obj.rotation_mode == "AXIS_ANGLE":
+            angle, x, y, z = obj.rotation_axis_angle
+            rotation = [angle, x, y, z]
+        else:
+            rotation = [obj.rotation_euler.x, obj.rotation_euler.y, obj.rotation_euler.z]
+
         # Basic object info
         obj_info = {
             "name": obj.name,
             "type": obj.type,
             "location": [obj.location.x, obj.location.y, obj.location.z],
-            "rotation": [
-                obj.rotation_euler.x,
-                obj.rotation_euler.y,
-                obj.rotation_euler.z,
-            ],
+            "rotation_mode": obj.rotation_mode,
+            "rotation": rotation,
             "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
             "visible": obj.visible_get(),
             "materials": [],
+            "modifiers": [
+                {
+                    "name": m.name,
+                    "type": m.type,
+                    "show_viewport": m.show_viewport,
+                    "show_render": m.show_render,
+                }
+                for m in obj.modifiers
+            ],
         }
 
         if obj.type == "MESH":
@@ -655,6 +685,11 @@ class BlenderMCPServer(
         Prerequisite for index-based edits: mesh_extrude/mesh_inset/mesh_bevel/
         mesh_bridge/mesh_subdivide take raw indices with no way to discover them
         otherwise, since get_object_info only reports element counts.
+
+        Coordinates and normals come from the object's base mesh (`obj.data`)
+        in local (object-space) coordinates - modifiers are not evaluated. To
+        get world-space positions, transform by the object's `matrix_world`
+        (see `get_object_info`).
 
         Args:
             object_name: Name of the Blender object to operate on.

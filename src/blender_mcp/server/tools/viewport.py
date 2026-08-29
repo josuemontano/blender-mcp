@@ -81,11 +81,17 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
     """
     Inspect an object's transform, type, materials, modifiers, and summary geometry data.
 
+    "location"/"rotation"/"scale" are the object's local (parent-relative) transform; "world_bounding_box" (mesh
+    objects only) is the world-space AABB - the two live in different spaces and aren't directly comparable for a
+    parented or transformed object. "rotation_mode" names how to read "rotation": one of the six Euler orders means
+    "[x, y, z]" radians in that order; "QUATERNION" means "[w, x, y, z]"; "AXIS_ANGLE" means "[angle, x, y, z]".
+
     Args:
         ctx: MCP request context.
-        object_name: Object name to inspect. For meshes, this returns only vertex/edge/polygon counts; use
-            `get_mesh_data` for element coordinates, normals, indices, or selection state before calling index-based
-            editing tools - and again afterward, since those tools change topology and invalidate prior indices.
+        object_name: Object name to inspect. For meshes, this returns only vertex/edge/polygon counts (base-mesh,
+            pre-modifier, same as `get_mesh_data`); use `get_mesh_data` for element coordinates, normals, indices, or
+            selection state before calling index-based editing tools - and again afterward, since those tools change
+            topology and invalidate prior indices.
 
     Returns:
         dict: Result produced by the operation.
@@ -122,6 +128,10 @@ async def get_mesh_data(
     modifier) before reusing indices - those operations rebuild the mesh's vertex/edge/face
     arrays, so previously fetched indices are no longer guaranteed to refer to the same
     elements.
+
+    Coordinates and normals come from the object's base mesh in local (object-space)
+    coordinates - modifiers are not evaluated. To get world-space positions, transform by
+    the object's `matrix_world` (see `get_object_info`).
 
     Args:
         ctx: MCP request context.
