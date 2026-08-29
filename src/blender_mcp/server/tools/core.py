@@ -1,19 +1,20 @@
 """Core/meta tools: addon status."""
 
-import json
 import logging
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ...addon_manager import EXPECTED_ADDON_PROTOCOL_VERSION
 from ..app import mcp
 from ..connection import force_addon_handshake, get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def get_addon_status(ctx: Context, user_prompt: str = "") -> str:
+async def get_addon_status(ctx: Context, user_prompt: str = "") -> dict:
     """
     Check whether the connected Blender addon matches this MCP server version.
 
@@ -24,7 +25,7 @@ async def get_addon_status(ctx: Context, user_prompt: str = "") -> str:
         blender = get_blender_connection()
         result = force_addon_handshake(blender)
         if result is None:
-            return "Could not determine addon status."
+            raise ToolError("Could not determine addon status.")
         payload = {
             "up_to_date": result.up_to_date,
             "protocol_version": result.protocol_version,
@@ -40,6 +41,9 @@ async def get_addon_status(ctx: Context, user_prompt: str = "") -> str:
                 "disable/enable 'Interface: Blender MCP', or restart Blender, then Start MCP Server."
             ),
         }
-        return json.dumps(payload, indent=2)
+        return ok(payload)
+    except ToolError:
+        raise
     except Exception as e:
-        return f"Error checking addon status: {e}"
+        logger.error(f"Error checking addon status: {e}")
+        raise ToolError(f"Error checking addon status: {e}") from e

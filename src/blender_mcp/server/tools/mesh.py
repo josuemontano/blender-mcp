@@ -1,30 +1,35 @@
 """Direct mesh-editing tools."""
 
 import logging
+from typing import Literal
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
+
+PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
 
 
 @mcp.tool()
 async def mesh_create_primitive(
     ctx: Context,
-    primitive_type: str,
-    name: str = None,
-    location: list[float] = (0, 0, 0),
-    rotation: list[float] = (0, 0, 0),
+    primitive_type: PrimitiveType,
+    name: str | None = None,
+    location: tuple[float, float, float] = (0, 0, 0),
+    rotation: tuple[float, float, float] = (0, 0, 0),
     size: float = 1.0,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Create a primitive mesh or curve object in the scene.
 
     Parameters:
-    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE (case-insensitive).
+    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
     - name: Optional name for the created object. Defaults to Blender's auto-generated name.
     - location: [x, y, z] location for the new object.
     - rotation: [x, y, z] rotation in radians for the new object.
@@ -45,20 +50,21 @@ async def mesh_create_primitive(
                 "size": size,
             },
         )
-        return result
+        changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
+        return ok(result, changed_objects=changed)
     except Exception as e:
-        logger.error(f"Error creating primitive: {str(e)}")
-        return f"Error creating primitive: {str(e)}"
+        logger.error(f"Error creating primitive: {e}")
+        raise ToolError(f"Error creating primitive: {e}") from e
 
 
 @mcp.tool()
 async def mesh_extrude(
     ctx: Context,
     object_name: str,
-    offset: list[float] = (0, 0, 1),
-    face_indices: list[int] = None,
+    offset: tuple[float, float, float] = (0, 0, 1),
+    face_indices: list[int] | None = None,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Extrude the selected faces of a mesh object along an offset vector.
 
@@ -80,10 +86,10 @@ async def mesh_extrude(
                 "face_indices": face_indices,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error extruding mesh: {str(e)}")
-        return f"Error extruding mesh: {str(e)}"
+        logger.error(f"Error extruding mesh: {e}")
+        raise ToolError(f"Error extruding mesh: {e}") from e
 
 
 @mcp.tool()
@@ -92,9 +98,9 @@ async def mesh_inset(
     object_name: str,
     thickness: float = 0.05,
     depth: float = 0.0,
-    face_indices: list[int] = None,
+    face_indices: list[int] | None = None,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
 
@@ -118,10 +124,10 @@ async def mesh_inset(
                 "face_indices": face_indices,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error insetting mesh faces: {str(e)}")
-        return f"Error insetting mesh faces: {str(e)}"
+        logger.error(f"Error insetting mesh faces: {e}")
+        raise ToolError(f"Error insetting mesh faces: {e}") from e
 
 
 @mcp.tool()
@@ -130,11 +136,11 @@ async def mesh_bevel(
     object_name: str,
     offset: float = 0.05,
     segments: int = 1,
-    affect: str = "EDGES",
-    edge_indices: list[int] = None,
-    vertex_indices: list[int] = None,
+    affect: Literal["EDGES", "VERTICES"] = "EDGES",
+    edge_indices: list[int] | None = None,
+    vertex_indices: list[int] | None = None,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Bevel the selected edges or vertices of a mesh object.
 
@@ -163,16 +169,16 @@ async def mesh_bevel(
                 "vertex_indices": vertex_indices,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error beveling mesh: {str(e)}")
-        return f"Error beveling mesh: {str(e)}"
+        logger.error(f"Error beveling mesh: {e}")
+        raise ToolError(f"Error beveling mesh: {e}") from e
 
 
 @mcp.tool()
 async def mesh_bridge(
     ctx: Context, object_name: str, edge_indices: list[int], user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Bridge two open edge loops of a mesh object with new faces.
 
@@ -192,10 +198,10 @@ async def mesh_bridge(
                 "edge_indices": edge_indices,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error bridging mesh edge loops: {str(e)}")
-        return f"Error bridging mesh edge loops: {str(e)}"
+        logger.error(f"Error bridging mesh edge loops: {e}")
+        raise ToolError(f"Error bridging mesh edge loops: {e}") from e
 
 
 @mcp.tool()
@@ -203,10 +209,10 @@ async def mesh_boolean(
     ctx: Context,
     object_name: str,
     cutter_object_name: str,
-    operation: str = "DIFFERENCE",
+    operation: Literal["UNION", "DIFFERENCE", "INTERSECT"] = "DIFFERENCE",
     keep_target: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Apply a boolean operation between two mesh objects.
 
@@ -230,10 +236,11 @@ async def mesh_boolean(
                 "keep_target": keep_target,
             },
         )
-        return result
+        changed = [object_name] + ([cutter_object_name] if keep_target else [])
+        return ok(result, changed_objects=changed)
     except Exception as e:
-        logger.error(f"Error applying mesh boolean: {str(e)}")
-        return f"Error applying mesh boolean: {str(e)}"
+        logger.error(f"Error applying mesh boolean: {e}")
+        raise ToolError(f"Error applying mesh boolean: {e}") from e
 
 
 @mcp.tool()
@@ -241,9 +248,9 @@ async def mesh_subdivide(
     ctx: Context,
     object_name: str,
     cuts: int = 1,
-    face_indices: list[int] = None,
+    face_indices: list[int] | None = None,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Subdivide the selected faces of a mesh object, adding more geometry.
 
@@ -265,16 +272,16 @@ async def mesh_subdivide(
                 "face_indices": face_indices,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error subdividing mesh: {str(e)}")
-        return f"Error subdividing mesh: {str(e)}"
+        logger.error(f"Error subdividing mesh: {e}")
+        raise ToolError(f"Error subdividing mesh: {e}") from e
 
 
 @mcp.tool()
 async def mesh_remesh(
     ctx: Context, object_name: str, voxel_size: float = 0.1, user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
 
@@ -294,10 +301,10 @@ async def mesh_remesh(
                 "voxel_size": voxel_size,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error remeshing mesh: {str(e)}")
-        return f"Error remeshing mesh: {str(e)}"
+        logger.error(f"Error remeshing mesh: {e}")
+        raise ToolError(f"Error remeshing mesh: {e}") from e
 
 
 @mcp.tool()
@@ -307,7 +314,7 @@ async def mesh_solidify(
     thickness: float = 0.01,
     apply: bool = True,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Give a mesh's surface thickness via a Solidify modifier.
 
@@ -329,7 +336,7 @@ async def mesh_solidify(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error solidifying mesh: {str(e)}")
-        return f"Error solidifying mesh: {str(e)}"
+        logger.error(f"Error solidifying mesh: {e}")
+        raise ToolError(f"Error solidifying mesh: {e}") from e

@@ -1,39 +1,39 @@
 """Hunyuan3D AI 3D-generation integration tools."""
 
-import json
 import logging
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-def get_hunyuan3d_status(ctx: Context, user_prompt: str = "") -> str:
+def get_hunyuan3d_status(ctx: Context, user_prompt: str = "") -> dict:
     """
     Check if Hunyuan3D integration is enabled in Blender.
-    Returns a message indicating whether Hunyuan3D features are available.
+    Returns whether Hunyuan3D features are available.
     """
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_hunyuan3d_status")
-        message = result.get("message", "")
-        return message
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error checking Hunyuan3D status: {str(e)}")
-        return f"Error checking Hunyuan3D status: {str(e)}"
+        logger.error(f"Error checking Hunyuan3D status: {e}")
+        raise ToolError(f"Error checking Hunyuan3D status: {e}") from e
 
 
 @mcp.tool()
 async def generate_hunyuan3d_model(
     ctx: Context,
-    text_prompt: str = None,
-    input_image_url: str = None,
+    text_prompt: str | None = None,
+    input_image_url: str | None = None,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Generate 3D asset using Hunyuan3D by providing either text description, image reference,
     or both for the desired asset, and import the asset into Blender.
@@ -44,10 +44,7 @@ async def generate_hunyuan3d_model(
     - input_image_url: (Optional) The local or remote url of the input image. Accepts None if only using text prompt.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns:
-    - When successful, returns a JSON with job_id (format: "job_xxx") indicating the task is in progress
-    - When the job completes, the status will change to "DONE" indicating the model has been imported
-    - Returns error message if the operation fails
+    Returns a job_id (format: "job_xxx") indicating the task is in progress; poll with poll_hunyuan_job_status.
     """
     try:
         blender = get_blender_connection()
@@ -60,23 +57,19 @@ async def generate_hunyuan3d_model(
         )
         if "JobId" in result.get("Response", {}):
             job_id = result["Response"]["JobId"]
-            formatted_job_id = f"job_{job_id}"
-            return json.dumps(
-                {
-                    "job_id": formatted_job_id,
-                }
-            )
-        return json.dumps(result)
+            return ok({"job_id": f"job_{job_id}"})
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
+        logger.error(f"Error generating Hunyuan3D task: {e}")
+        raise ToolError(f"Error generating Hunyuan3D task: {e}") from e
 
 
 @mcp.tool()
 def poll_hunyuan_job_status(
     ctx: Context,
-    job_id: str = None,
-):
+    job_id: str | None = None,
+    user_prompt: str = "",
+) -> dict:
     """
     Check if the Hunyuan3D generation task is completed.
 
@@ -89,17 +82,16 @@ def poll_hunyuan_job_status(
         If status is "DONE", returns ResultFile3Ds with one or more downloadable model URLs.
         Prefer a .glb URL when present (self-contained with materials); otherwise use a .zip/.obj asset URL.
         This is a polling API, so only proceed if the status are finally determined ("DONE" or some failed state).
+
+    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
-        kwargs = {
-            "job_id": job_id,
-        }
-        result = blender.send_command("poll_hunyuan_job_status", kwargs)
-        return result
+        result = blender.send_command("poll_hunyuan_job_status", {"job_id": job_id})
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
+        logger.error(f"Error polling Hunyuan3D job status: {e}")
+        raise ToolError(f"Error polling Hunyuan3D job status: {e}") from e
 
 
 @mcp.tool()
@@ -107,23 +99,23 @@ async def import_generated_asset_hunyuan(
     ctx: Context,
     name: str,
     zip_file_url: str,
-):
+    user_prompt: str = "",
+) -> dict:
     """
     Import the asset generated by Hunyuan3D after the generation task is completed.
 
     Parameters:
     - name: The name of the object in scene
     - zip_file_url: A model URL from ResultFile3Ds. Prefer a .glb URL when available; .zip/.obj URLs still work as a fallback.
-
-    Return if the asset has been imported successfully.
+    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
-        kwargs = {"name": name}
-        if zip_file_url:
-            kwargs["zip_file_url"] = zip_file_url
-        result = blender.send_command("import_generated_asset_hunyuan", kwargs)
-        return result
+        result = blender.send_command(
+            "import_generated_asset_hunyuan",
+            {"name": name, "zip_file_url": zip_file_url},
+        )
+        return ok(result, changed_objects=[name])
     except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
+        logger.error(f"Error importing Hunyuan3D asset: {e}")
+        raise ToolError(f"Error importing Hunyuan3D asset: {e}") from e

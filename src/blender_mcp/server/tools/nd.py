@@ -1,13 +1,22 @@
 """ND (HugeMenace) non-destructive hard-surface workflow tools."""
 
 import logging
+from typing import Literal
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
+
+BooleanMode = Literal["UNION", "DIFFERENCE", "INTERSECT"]
+LodMode = Literal["HIGH", "LOW"]
+ViewportToggle = Literal[
+    "CAVITY", "WIREFRAMES", "FACE_ORIENTATION", "CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"
+]
 
 
 @mcp.tool()
@@ -15,9 +24,9 @@ async def nd_boolean(
     ctx: Context,
     object_name: str,
     cutter_object_name: str,
-    mode: str = "DIFFERENCE",
+    mode: BooleanMode = "DIFFERENCE",
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     ND non-destructive boolean: live Boolean modifier on object_name, with cutter_object_name
     converted into a wireframe ND utility object parented to it (not deleted, unlike mesh_boolean).
@@ -40,10 +49,10 @@ async def nd_boolean(
                 "mode": mode,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name, cutter_object_name])
     except Exception as e:
-        logger.error(f"Error applying ND boolean: {str(e)}")
-        return f"Error applying ND boolean: {str(e)}"
+        logger.error(f"Error applying ND boolean: {e}")
+        raise ToolError(f"Error applying ND boolean: {e}") from e
 
 
 @mcp.tool()
@@ -52,7 +61,7 @@ async def nd_mark_as_util(
     object_names: list[str],
     unmark: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Mark/unmark objects as ND utility objects (wireframe display, hidden from render and most
     viewport visibility categories).
@@ -70,14 +79,14 @@ async def nd_mark_as_util(
             "nd_mark_as_util",
             {"object_names": object_names, "unmark": unmark},
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error marking ND utility objects: {str(e)}")
-        return f"Error marking ND utility objects: {str(e)}"
+        logger.error(f"Error marking ND utility objects: {e}")
+        raise ToolError(f"Error marking ND utility objects: {e}") from e
 
 
 @mcp.tool()
-async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> str:
+async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> dict:
     """
     Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
@@ -87,10 +96,10 @@ async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> str:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_clean_utils", {})
-        return result
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error cleaning ND utility objects: {str(e)}")
-        return f"Error cleaning ND utility objects: {str(e)}"
+        logger.error(f"Error cleaning ND utility objects: {e}")
+        raise ToolError(f"Error cleaning ND utility objects: {e}") from e
 
 
 @mcp.tool()
@@ -99,7 +108,7 @@ async def nd_create_id_material(
     object_names: list[str],
     material_name: str,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Create/assign a single ND ID material to the given mesh/curve objects.
 
@@ -114,16 +123,16 @@ async def nd_create_id_material(
             "nd_create_id_material",
             {"object_names": object_names, "material_name": material_name},
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error creating ND ID material: {str(e)}")
-        return f"Error creating ND ID material: {str(e)}"
+        logger.error(f"Error creating ND ID material: {e}")
+        raise ToolError(f"Error creating ND ID material: {e}") from e
 
 
 @mcp.tool()
 async def nd_bulk_create_id_materials(
     ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Assign a random distinct ND ID material to each given mesh/curve object.
 
@@ -136,16 +145,16 @@ async def nd_bulk_create_id_materials(
         result = blender.send_command(
             "nd_bulk_create_id_materials", {"object_names": object_names}
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error bulk-creating ND ID materials: {str(e)}")
-        return f"Error bulk-creating ND ID materials: {str(e)}"
+        logger.error(f"Error bulk-creating ND ID materials: {e}")
+        raise ToolError(f"Error bulk-creating ND ID materials: {e}") from e
 
 
 @mcp.tool()
 async def nd_clear_materials(
     ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Remove all material slots from the given mesh/curve objects.
 
@@ -158,19 +167,19 @@ async def nd_clear_materials(
         result = blender.send_command(
             "nd_clear_materials", {"object_names": object_names}
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error clearing ND materials: {str(e)}")
-        return f"Error clearing ND materials: {str(e)}"
+        logger.error(f"Error clearing ND materials: {e}")
+        raise ToolError(f"Error clearing ND materials: {e}") from e
 
 
 @mcp.tool()
 async def nd_set_lod_suffix(
     ctx: Context,
     object_names: list[str],
-    mode: str = "HIGH",
+    mode: LodMode = "HIGH",
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Suffix object (and data-block) names with _high or _low, replacing any existing LOD suffix.
 
@@ -184,16 +193,16 @@ async def nd_set_lod_suffix(
         result = blender.send_command(
             "nd_set_lod_suffix", {"object_names": object_names, "mode": mode}
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error setting ND LOD suffix: {str(e)}")
-        return f"Error setting ND LOD suffix: {str(e)}"
+        logger.error(f"Error setting ND LOD suffix: {e}")
+        raise ToolError(f"Error setting ND LOD suffix: {e}") from e
 
 
 @mcp.tool()
 async def nd_name_sync(
     ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Sync each object's data-block name to match its object name.
 
@@ -204,18 +213,18 @@ async def nd_name_sync(
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_name_sync", {"object_names": object_names})
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error syncing ND names: {str(e)}")
-        return f"Error syncing ND names: {str(e)}"
+        logger.error(f"Error syncing ND names: {e}")
+        raise ToolError(f"Error syncing ND names: {e}") from e
 
 
 @mcp.tool()
 async def nd_single_vertex(
     ctx: Context,
-    location: list[float] = (0, 0, 0),
+    location: tuple[float, float, float] = (0, 0, 0),
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Create an ND single-vertex sketch object at location, left in Object mode.
 
@@ -228,16 +237,17 @@ async def nd_single_vertex(
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_single_vertex", {"location": list(location)})
-        return result
+        changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
+        return ok(result, changed_objects=changed)
     except Exception as e:
-        logger.error(f"Error creating ND single vertex: {str(e)}")
-        return f"Error creating ND single vertex: {str(e)}"
+        logger.error(f"Error creating ND single vertex: {e}")
+        raise ToolError(f"Error creating ND single vertex: {e}") from e
 
 
 @mcp.tool()
 async def nd_clear_edge_marks(
     ctx: Context, object_name: str, user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Remove sharp/seam/freestyle edge marks from a mesh object.
 
@@ -250,16 +260,16 @@ async def nd_clear_edge_marks(
         result = blender.send_command(
             "nd_clear_edge_marks", {"object_name": object_name}
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error clearing ND edge marks: {str(e)}")
-        return f"Error clearing ND edge marks: {str(e)}"
+        logger.error(f"Error clearing ND edge marks: {e}")
+        raise ToolError(f"Error clearing ND edge marks: {e}") from e
 
 
 @mcp.tool()
 async def nd_clear_vertex_groups(
     ctx: Context, object_name: str, user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Remove all vertex groups from a mesh object.
 
@@ -272,16 +282,16 @@ async def nd_clear_vertex_groups(
         result = blender.send_command(
             "nd_clear_vertex_groups", {"object_name": object_name}
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error clearing ND vertex groups: {str(e)}")
-        return f"Error clearing ND vertex groups: {str(e)}"
+        logger.error(f"Error clearing ND vertex groups: {e}")
+        raise ToolError(f"Error clearing ND vertex groups: {e}") from e
 
 
 @mcp.tool()
 async def nd_apply_modifiers(
     ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> str:
+) -> dict:
     """
     Apply modifiers on the given objects via ND. Always runs ND's default REGULAR apply mode
     (selective, with ND's built-in exclusions for bevel/weighted-normals/etc.) - the
@@ -297,14 +307,16 @@ async def nd_apply_modifiers(
         result = blender.send_command(
             "nd_apply_modifiers", {"object_names": object_names}
         )
-        return result
+        return ok(result, changed_objects=object_names)
     except Exception as e:
-        logger.error(f"Error applying ND modifiers: {str(e)}")
-        return f"Error applying ND modifiers: {str(e)}"
+        logger.error(f"Error applying ND modifiers: {e}")
+        raise ToolError(f"Error applying ND modifiers: {e}") from e
 
 
 @mcp.tool()
-async def nd_viewport_toggle(ctx: Context, toggle: str, user_prompt: str = "") -> str:
+async def nd_viewport_toggle(
+    ctx: Context, toggle: ViewportToggle, user_prompt: str = ""
+) -> dict:
     """
     Toggle an ND viewport display setting.
 
@@ -316,14 +328,14 @@ async def nd_viewport_toggle(ctx: Context, toggle: str, user_prompt: str = "") -
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_viewport_toggle", {"toggle": toggle})
-        return result
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error toggling ND viewport setting: {str(e)}")
-        return f"Error toggling ND viewport setting: {str(e)}"
+        logger.error(f"Error toggling ND viewport setting: {e}")
+        raise ToolError(f"Error toggling ND viewport setting: {e}") from e
 
 
 @mcp.tool()
-async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> str:
+async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> dict:
     """
     Display and select all ND utility objects in the scene.
 
@@ -333,22 +345,22 @@ async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> str:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_capture_utils", {})
-        return result
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error capturing ND utility objects: {str(e)}")
-        return f"Error capturing ND utility objects: {str(e)}"
+        logger.error(f"Error capturing ND utility objects: {e}")
+        raise ToolError(f"Error capturing ND utility objects: {e}") from e
 
 
 @mcp.tool()
-async def get_nd_status(ctx: Context, user_prompt: str = "") -> str:
+async def get_nd_status(ctx: Context, user_prompt: str = "") -> dict:
     """
     Check if ND (HugeMenace) non-destructive workflow integration is enabled in Blender.
-    Returns a message indicating whether ND features are available.
+    Returns whether ND features are available.
     """
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_nd_status")
-        return result.get("message", "")
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error checking ND status: {str(e)}")
-        return f"Error checking ND status: {str(e)}"
+        logger.error(f"Error checking ND status: {e}")
+        raise ToolError(f"Error checking ND status: {e}") from e

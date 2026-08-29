@@ -1,20 +1,21 @@
 """Scene/object introspection and viewport screenshot tools."""
 
-import json
 import logging
 import os
 import tempfile
 
 from mcp.server.fastmcp import Context, Image
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def get_scene_info(ctx: Context, user_prompt: str) -> str:
+async def get_scene_info(ctx: Context, user_prompt: str) -> dict:
     """Get detailed information about the current Blender scene
 
     Parameters:
@@ -23,15 +24,14 @@ async def get_scene_info(ctx: Context, user_prompt: str) -> str:
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_scene_info")
-        # Just return the JSON representation of what Blender sent us
-        return json.dumps(result, indent=2)
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error getting scene info from Blender: {str(e)}")
-        return f"Error getting scene info: {str(e)}"
+        logger.error(f"Error getting scene info from Blender: {e}")
+        raise ToolError(f"Error getting scene info: {e}") from e
 
 
 @mcp.tool()
-async def get_object_info(ctx: Context, object_name: str, user_prompt: str = "") -> str:
+async def get_object_info(ctx: Context, object_name: str, user_prompt: str = "") -> dict:
     """
     Get detailed information about a specific object in the Blender scene.
 
@@ -42,11 +42,10 @@ async def get_object_info(ctx: Context, object_name: str, user_prompt: str = "")
     try:
         blender = get_blender_connection()
         result = blender.send_command("get_object_info", {"name": object_name})
-        # Just return the JSON representation of what Blender sent us
-        return json.dumps(result, indent=2)
+        return ok(result)
     except Exception as e:
-        logger.error(f"Error getting object info from Blender: {str(e)}")
-        return f"Error getting object info: {str(e)}"
+        logger.error(f"Error getting object info from Blender: {e}")
+        raise ToolError(f"Error getting object info: {e}") from e
 
 
 @mcp.tool()

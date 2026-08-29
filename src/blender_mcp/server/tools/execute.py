@@ -3,15 +3,17 @@
 import logging
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def execute_blender_code(ctx: Context, code: str, user_prompt: str = "") -> str:
+async def execute_blender_code(ctx: Context, code: str, user_prompt: str = "") -> dict:
     """
     Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.
 
@@ -23,7 +25,7 @@ async def execute_blender_code(ctx: Context, code: str, user_prompt: str = "") -
         # Get the global connection
         blender = get_blender_connection()
         result = blender.send_command("execute_code", {"code": code})
-        return f"Code executed successfully: {result.get('result', '')}"
+        return ok(result.get("result", ""))
     except Exception as e:
-        logger.error(f"Error executing code: {str(e)}")
-        return f"Error executing code: {str(e)}"
+        logger.error(f"Error executing code: {e}")
+        raise ToolError(f"Error executing code: {e}") from e

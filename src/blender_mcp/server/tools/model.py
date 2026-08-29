@@ -1,13 +1,27 @@
 """Higher-level modeling tools built on top of mesh modifiers/operations."""
 
 import logging
+from typing import Literal
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
+
+PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
+SymmetrizeDirection = Literal[
+    "NEGATIVE_X_TO_POSITIVE_X",
+    "POSITIVE_X_TO_NEGATIVE_X",
+    "NEGATIVE_Y_TO_POSITIVE_Y",
+    "POSITIVE_Y_TO_NEGATIVE_Y",
+    "NEGATIVE_Z_TO_POSITIVE_Z",
+    "POSITIVE_Z_TO_NEGATIVE_Z",
+]
+Axis = Literal["X", "Y", "Z"]
 
 
 @mcp.tool()
@@ -19,7 +33,7 @@ async def model_match_reference(
     match_rotation: bool = True,
     match_scale: bool = True,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Align an object's transform to another object's transform in the scene.
 
@@ -45,27 +59,27 @@ async def model_match_reference(
                 "match_scale": match_scale,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error matching reference transform: {str(e)}")
-        return f"Error matching reference transform: {str(e)}"
+        logger.error(f"Error matching reference transform: {e}")
+        raise ToolError(f"Error matching reference transform: {e}") from e
 
 
 @mcp.tool()
 async def model_blockout(
     ctx: Context,
     name: str,
-    primitive_type: str = "CUBE",
-    size: list[float] = (1, 1, 1),
-    location: list[float] = (0, 0, 0),
+    primitive_type: PrimitiveType = "CUBE",
+    size: tuple[float, float, float] = (1, 1, 1),
+    location: tuple[float, float, float] = (0, 0, 0),
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Create a simple placeholder primitive scaled to size, tagged as a blockout proxy for later refinement.
 
     Parameters:
     - name: Name for the created blockout object.
-    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE (case-insensitive).
+    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
     - size: [x, y, z] scale applied to the primitive.
     - location: [x, y, z] location for the new object.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
@@ -83,10 +97,10 @@ async def model_blockout(
                 "location": list(location),
             },
         )
-        return result
+        return ok(result, changed_objects=[name])
     except Exception as e:
-        logger.error(f"Error creating blockout: {str(e)}")
-        return f"Error creating blockout: {str(e)}"
+        logger.error(f"Error creating blockout: {e}")
+        raise ToolError(f"Error creating blockout: {e}") from e
 
 
 @mcp.tool()
@@ -96,7 +110,7 @@ async def model_refine(
     levels: int = 1,
     apply: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
 
@@ -118,10 +132,10 @@ async def model_refine(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error refining model: {str(e)}")
-        return f"Error refining model: {str(e)}"
+        logger.error(f"Error refining model: {e}")
+        raise ToolError(f"Error refining model: {e}") from e
 
 
 @mcp.tool()
@@ -133,7 +147,7 @@ async def model_detail(
     texture_type: str = "NOISE",
     apply: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
 
@@ -159,19 +173,19 @@ async def model_detail(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error adding model detail: {str(e)}")
-        return f"Error adding model detail: {str(e)}"
+        logger.error(f"Error adding model detail: {e}")
+        raise ToolError(f"Error adding model detail: {e}") from e
 
 
 @mcp.tool()
 async def model_symmetrize(
     ctx: Context,
     object_name: str,
-    direction: str = "NEGATIVE_X_TO_POSITIVE_X",
+    direction: SymmetrizeDirection = "NEGATIVE_X_TO_POSITIVE_X",
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
 
@@ -191,21 +205,21 @@ async def model_symmetrize(
                 "direction": direction,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error symmetrizing model: {str(e)}")
-        return f"Error symmetrizing model: {str(e)}"
+        logger.error(f"Error symmetrizing model: {e}")
+        raise ToolError(f"Error symmetrizing model: {e}") from e
 
 
 @mcp.tool()
 async def model_mirror(
     ctx: Context,
     object_name: str,
-    axis: str = "X",
+    axis: Axis = "X",
     merge: bool = True,
     apply: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Add a Mirror modifier to an object across the given axis.
 
@@ -229,10 +243,10 @@ async def model_mirror(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error mirroring model: {str(e)}")
-        return f"Error mirroring model: {str(e)}"
+        logger.error(f"Error mirroring model: {e}")
+        raise ToolError(f"Error mirroring model: {e}") from e
 
 
 @mcp.tool()
@@ -240,10 +254,10 @@ async def model_array(
     ctx: Context,
     object_name: str,
     count: int = 2,
-    relative_offset: list[float] = (1, 0, 0),
+    relative_offset: tuple[float, float, float] = (1, 0, 0),
     apply: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Add a linear Array modifier to an object, duplicating it along an offset direction.
 
@@ -267,10 +281,10 @@ async def model_array(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error arraying model: {str(e)}")
-        return f"Error arraying model: {str(e)}"
+        logger.error(f"Error arraying model: {e}")
+        raise ToolError(f"Error arraying model: {e}") from e
 
 
 @mcp.tool()
@@ -278,10 +292,10 @@ async def model_radial_array(
     ctx: Context,
     object_name: str,
     count: int = 6,
-    axis: str = "Z",
+    axis: Axis = "Z",
     apply: bool = False,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Duplicate an object radially around its origin, evenly spaced about an axis.
 
@@ -305,7 +319,7 @@ async def model_radial_array(
                 "apply": apply,
             },
         )
-        return result
+        return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error creating radial array: {str(e)}")
-        return f"Error creating radial array: {str(e)}"
+        logger.error(f"Error creating radial array: {e}")
+        raise ToolError(f"Error creating radial array: {e}") from e

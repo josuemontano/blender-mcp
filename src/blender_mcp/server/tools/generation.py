@@ -8,20 +8,23 @@ whichever provider is enabled in Blender.
 
 import asyncio
 import base64
-import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
+from ._envelope import ok
 from .hyper3d import _process_bbox
 
 logger = logging.getLogger("BlenderMCPServer")
+
+Provider = Literal["auto", "hyper3d", "hunyuan3d"]
 
 
 def _rodin_extract_job_ids(result: dict[str, Any]) -> dict[str, str]:
@@ -72,10 +75,10 @@ async def _rodin_wait_until_done(
 async def _generate_hyper3d_and_import(
     blender,
     *,
-    name: str = None,
-    text_prompt: str = None,
-    images: list = None,
-    bbox_condition: list = None,
+    name: str | None = None,
+    text_prompt: str | None = None,
+    images: list | None = None,
+    bbox_condition: tuple[float, float, float] | None = None,
     timeout_s: float,
 ) -> dict[str, Any]:
     result = blender.send_command(
@@ -97,7 +100,11 @@ async def _generate_hyper3d_and_import(
         raise ValueError(
             f"Hyper3D import failed: {import_result.get('error', import_result)}"
         )
-    return {"provider": "hyper3d", "import_result": import_result}
+    return {
+        "provider": "hyper3d",
+        "import_result": import_result,
+        "name": import_kwargs["name"],
+    }
 
 
 def _find_urls(value) -> list:
@@ -160,9 +167,9 @@ async def _hunyuan_wait_for_model_url(blender, job_id: str, timeout_s: float) ->
 async def _generate_hunyuan_and_import(
     blender,
     *,
-    name: str = None,
-    text_prompt: str = None,
-    image: str = None,
+    name: str | None = None,
+    text_prompt: str | None = None,
+    image: str | None = None,
     timeout_s: float,
 ) -> dict[str, Any]:
     result = blender.send_command(
@@ -187,10 +194,18 @@ async def _generate_hunyuan_and_import(
                 "zip_file_url": model_url,
             },
         )
-        return {"provider": "hunyuan3d", "import_result": import_result}
+        return {
+            "provider": "hunyuan3d",
+            "import_result": import_result,
+            "name": name or "GeneratedModel",
+        }
     if result.get("status") == "DONE":
         # LOCAL_API mode generates and imports synchronously within create_hunyuan_job.
-        return {"provider": "hunyuan3d", "import_result": result}
+        return {
+            "provider": "hunyuan3d",
+            "import_result": result,
+            "name": name or "GeneratedModel",
+        }
     raise ValueError(f"Unexpected response from Hunyuan3D: {result}")
 
 
@@ -229,11 +244,11 @@ async def _select_3d_provider(blender, provider: str) -> str:
 async def model_from_reference(
     ctx: Context,
     image_path_or_url: str,
-    name: str = None,
-    provider: str = "auto",
+    name: str | None = None,
+    provider: Provider = "auto",
     timeout_s: float = 180,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Generate a 3D model from a reference image and import it into the scene.
     Auto-selects an enabled AI provider (Hyper3D Rodin or Hunyuan3D), collapsing the
@@ -242,11 +257,11 @@ async def model_from_reference(
     Parameters:
     - image_path_or_url: Absolute local file path or http(s) URL of the reference image.
     - name: Optional name for the imported object. Defaults to a generic generated name.
-    - provider: "auto" (default, prefers Hyper3D if enabled), "hyper3d", or "hunyuan3d".
+    - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
     - timeout_s: Maximum seconds to wait for generation to finish before giving up.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the import result, or an error if no provider is enabled or generation fails.
+    Returns the import result.
     """
     try:
         blender = get_blender_connection()
@@ -275,22 +290,22 @@ async def model_from_reference(
                 image=image_path_or_url,
                 timeout_s=timeout_s,
             )
-        return json.dumps(result)
+        return ok(result, changed_objects=[result["name"]])
     except Exception as e:
-        logger.error(f"Error generating model from reference: {str(e)}")
-        return f"Error generating model from reference: {str(e)}"
+        logger.error(f"Error generating model from reference: {e}")
+        raise ToolError(f"Error generating model from reference: {e}") from e
 
 
 @mcp.tool()
 async def model_generate_from_description(
     ctx: Context,
     text_prompt: str,
-    bbox_condition: list[float] = None,
-    name: str = None,
-    provider: str = "auto",
+    bbox_condition: tuple[float, float, float] | None = None,
+    name: str | None = None,
+    provider: Provider = "auto",
     timeout_s: float = 180,
     user_prompt: str = "",
-) -> str:
+) -> dict:
     """
     Generate a 3D model from a text description and import it into the scene.
     Auto-selects an enabled AI provider (Hyper3D Rodin or Hunyuan3D), collapsing the
@@ -298,13 +313,13 @@ async def model_generate_from_description(
 
     Parameters:
     - text_prompt: A short description of the desired model in English.
-    - bbox_condition: Optional list of floats of length 3 controlling the [Length, Width, Height] ratio (Hyper3D only).
+    - bbox_condition: Optional [Length, Width, Height] ratio for the model (Hyper3D only).
     - name: Optional name for the imported object. Defaults to a generic generated name.
-    - provider: "auto" (default, prefers Hyper3D if enabled), "hyper3d", or "hunyuan3d".
+    - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
     - timeout_s: Maximum seconds to wait for generation to finish before giving up.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the import result, or an error if no provider is enabled or generation fails.
+    Returns the import result.
     """
     try:
         blender = get_blender_connection()
@@ -324,7 +339,7 @@ async def model_generate_from_description(
                 text_prompt=text_prompt,
                 timeout_s=timeout_s,
             )
-        return json.dumps(result)
+        return ok(result, changed_objects=[result["name"]])
     except Exception as e:
-        logger.error(f"Error generating model from description: {str(e)}")
-        return f"Error generating model from description: {str(e)}"
+        logger.error(f"Error generating model from description: {e}")
+        raise ToolError(f"Error generating model from description: {e}") from e
