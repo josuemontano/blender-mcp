@@ -71,7 +71,7 @@ async def mesh_extrude(
     Parameters:
     - object_name: Name of the mesh object to edit.
     - offset: [x, y, z] translation applied to the extruded geometry.
-    - face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded.
+    - face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
@@ -108,7 +108,7 @@ async def mesh_inset(
     - object_name: Name of the mesh object to edit.
     - thickness: Inset thickness.
     - depth: Inset depth (pushes the inset faces along their normal).
-    - face_indices: Optional list of face indices to inset. If omitted, all faces are inset.
+    - face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
@@ -149,8 +149,8 @@ async def mesh_bevel(
     - offset: Bevel width.
     - segments: Number of bevel segments.
     - affect: "EDGES" or "VERTICES".
-    - edge_indices: Optional list of edge indices to bevel.
-    - vertex_indices: Optional list of vertex indices to bevel.
+    - edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
+    - vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name, element_type="vertices") to discover valid indices.
     - If neither edge_indices nor vertex_indices is given, the whole mesh is selected.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
@@ -184,7 +184,7 @@ async def mesh_bridge(
 
     Parameters:
     - object_name: Name of the mesh object to edit.
-    - edge_indices: Required list of edge indices forming the two loops to bridge.
+    - edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
@@ -257,7 +257,7 @@ async def mesh_subdivide(
     Parameters:
     - object_name: Name of the mesh object to edit.
     - cuts: Number of cuts per edge.
-    - face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided.
+    - face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.

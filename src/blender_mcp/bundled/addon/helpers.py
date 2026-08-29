@@ -83,6 +83,16 @@ def _exit_edit_mode():
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def _paginate(total, offset, limit, max_limit):
+    """Clamp offset/limit against total and return (start, end, truncated, next_offset)."""
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), max_limit))
+    start = min(offset, total)
+    end = min(start + limit, total)
+    truncated = end < total
+    return start, end, truncated, (end if truncated else None)
+
+
 def _mesh_counts(obj):
     return {
         "vertices": len(obj.data.vertices),
