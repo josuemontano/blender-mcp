@@ -1,4 +1,3 @@
-import hashlib
 import itertools
 import json
 import os
@@ -7,8 +6,7 @@ import socket
 import threading
 import time
 import traceback
-import uuid
-import zlib
+
 from contextlib import suppress
 
 import bpy
@@ -37,7 +35,7 @@ class BlenderMCPServer(
     SketchfabHandlersMixin,
     Hunyuan3DHandlersMixin,
 ):
-    def __init__(self, host="localhost", port=9876):
+    def __init__(self, host="localhost", port=9876) -> None:
         self.host = host
         self.port = port
         self.running = False
@@ -54,7 +52,8 @@ class BlenderMCPServer(
         self._clients_lock = threading.Lock()
 
     def _get_config_value(self, scene_attr, pref_attr=None, env_var=None):
-        """Read config in order: addon preferences -> scene -> env var.
+        """
+        Read config in order: addon preferences -> scene -> env var.
 
         Args:
             scene_attr: Value for scene attr.
@@ -63,6 +62,7 @@ class BlenderMCPServer(
 
         Returns:
             Result produced by the operation.
+
         """
         prefs = get_blendermcp_addon_preferences()
         if prefs and pref_attr:
@@ -123,7 +123,7 @@ class BlenderMCPServer(
             or "http://localhost:8081"
         )
 
-    def start(self):
+    def start(self) -> None:
         if bpy.app.background:
             print(
                 "BlenderMCP: cannot start server in background mode (blender -b) - commands would never execute\n"
@@ -159,10 +159,10 @@ class BlenderMCPServer(
 
             print(f"BlenderMCP server started on {self.host}:{self.port}")
         except Exception as e:
-            print(f"Failed to start server: {str(e)}")
+            print(f"Failed to start server: {e!s}")
             self.stop()
 
-    def stop(self):
+    def stop(self) -> None:
         self.running = False
 
         try:
@@ -208,9 +208,8 @@ class BlenderMCPServer(
 
         print("BlenderMCP server stopped")
 
-    def _server_loop(self):
-        """Main server loop in a separate thread
-        """
+    def _server_loop(self) -> None:
+        """Main server loop in a separate thread."""
         print("Server thread started")
         self.socket.settimeout(1.0)  # Timeout to allow for stopping
 
@@ -222,33 +221,33 @@ class BlenderMCPServer(
                     print(f"Connected to client: {address}")
 
                     # Handle client in a separate thread
-                    client_thread = threading.Thread(
-                        target=self._handle_client, args=(client,)
-                    )
+                    client_thread = threading.Thread(target=self._handle_client, args=(client,))
                     client_thread.daemon = True
                     client_thread.start()
                 except TimeoutError:
                     # Just check running condition
                     continue
                 except Exception as e:
-                    print(f"Error accepting connection: {str(e)}")
+                    print(f"Error accepting connection: {e!s}")
                     time.sleep(0.5)
             except Exception as e:
-                print(f"Error in server loop: {str(e)}")
+                print(f"Error in server loop: {e!s}")
                 if not self.running:
                     break
                 time.sleep(0.5)
 
         print("Server thread stopped")
 
-    def _drain_command_queue(self):
-        """Run queued commands on Blender's main thread.
+    def _drain_command_queue(self) -> float | None:
+        """
+        Run queued commands on Blender's main thread.
 
         Registered once by start(); returns the poll interval so Blender keeps
         calling it. All bpy access happens here, on the main thread.
 
         Returns:
             Result produced by the operation.
+
         """
         if not self.running:
             return None
@@ -263,7 +262,7 @@ class BlenderMCPServer(
                 response = self.execute_command(command)
                 response_json = json.dumps(response)
             except Exception as e:
-                print(f"Error executing command: {str(e)}")
+                print(f"Error executing command: {e!s}")
                 traceback.print_exc()
                 response_json = json.dumps({"status": "error", "message": str(e)})
 
@@ -274,11 +273,13 @@ class BlenderMCPServer(
 
         return 0.05
 
-    def _handle_client(self, client):
-        """Handle connected client
+    def _handle_client(self, client) -> None:
+        """
+        Handle connected client.
 
         Args:
             client: Value for client.
+
         """
         print("Client handler started")
         # A finite timeout keeps this loop responsive to self.running instead
@@ -318,10 +319,10 @@ class BlenderMCPServer(
                     # Expected; loop round and re-check self.running.
                     continue
                 except Exception as e:
-                    print(f"Error receiving data: {str(e)}")
+                    print(f"Error receiving data: {e!s}")
                     break
         except Exception as e:
-            print(f"Error in client handler: {str(e)}")
+            print(f"Error in client handler: {e!s}")
         finally:
             with self._clients_lock:
                 self._clients.discard(client)
@@ -330,29 +331,33 @@ class BlenderMCPServer(
             print("Client handler stopped")
 
     def execute_command(self, command):
-        """Execute a command in the main Blender thread
+        """
+        Execute a command in the main Blender thread.
 
         Args:
             command: Command requested by the client.
 
         Returns:
             Result produced by the operation.
+
         """
         try:
             return self._execute_command_internal(command)
         except Exception as e:
-            print(f"Error executing command: {str(e)}")
+            print(f"Error executing command: {e!s}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
     def _build_command_handlers(self):
-        """Build the cmd_type -> handler map, including conditionally-enabled providers.
+        """
+        Build the cmd_type -> handler map, including conditionally-enabled providers.
 
         Shared by _execute_command_internal (dispatch) and get_addon_info
         (advertised capabilities), so the two can never drift apart.
 
         Returns:
             Result produced by the operation.
+
         """
         # Base handlers that are always available
         handlers = {
@@ -444,13 +449,15 @@ class BlenderMCPServer(
         return handlers
 
     def _execute_command_internal(self, command):
-        """Internal command execution with proper context
+        """
+        Internal command execution with proper context.
 
         Args:
             command: Command requested by the client.
 
         Returns:
             Result produced by the operation.
+
         """
         cmd_type = command.get("type")
         params = command.get("params", {})
@@ -478,32 +485,33 @@ class BlenderMCPServer(
                 print("Handler execution complete")
                 return {"status": "success", "result": result}
             except Exception as e:
-                print(f"Error in handler: {str(e)}")
+                print(f"Error in handler: {e!s}")
                 traceback.print_exc()
                 return {"status": "error", "message": str(e)}
         else:
             return {"status": "error", "message": f"Unknown command type: {cmd_type}"}
 
     def get_addon_info(self):
-        """Version/capability handshake for the MCP server (and install tooling).
+        """
+        Version/capability handshake for the MCP server (and install tooling).
 
         Returns:
             Result produced by the operation.
+
         """
         return {
             "name": bl_info.get("name", "Blender MCP"),
             "addon_version": list(bl_info.get("version", (0, 0))),
             "protocol_version": ADDON_PROTOCOL_VERSION,
-            "capabilities": sorted(
-                {"ping", "get_polyhaven_status", "get_nd_status", *self._build_command_handlers()}
-            ),
+            "capabilities": sorted({"ping", "get_polyhaven_status", "get_nd_status", *self._build_command_handlers()}),
             "blender_version": bpy.app.version_string,
         }
 
     _SCENE_INFO_MAX_LIMIT = 200
 
     def get_scene_info(self, limit=25, offset=0):
-        """Get information about the current Blender scene, paginated over its objects.
+        """
+        Get information about the current Blender scene, paginated over its objects.
 
         Args:
             limit: Maximum number of items to return.
@@ -511,14 +519,13 @@ class BlenderMCPServer(
 
         Returns:
             Result produced by the operation.
+
         """
         try:
             print("Getting scene info...")
             scene_objects = list(bpy.context.scene.objects)
             total = len(scene_objects)
-            start, end, truncated, next_offset = _paginate(
-                total, offset, limit, self._SCENE_INFO_MAX_LIMIT
-            )
+            start, end, truncated, next_offset = _paginate(total, offset, limit, self._SCENE_INFO_MAX_LIMIT)
 
             objects = []
             for obj in scene_objects[start:end]:
@@ -550,13 +557,14 @@ class BlenderMCPServer(
             print(f"Scene info collected: {len(objects)} of {total} objects")
             return scene_info
         except Exception as e:
-            print(f"Error in get_scene_info: {str(e)}")
+            print(f"Error in get_scene_info: {e!s}")
             traceback.print_exc()
             return {"error": str(e)}
 
     @staticmethod
     def _get_aabb(obj):
-        """Returns the world-space axis-aligned bounding box (AABB) of an object.
+        """
+        Returns the world-space axis-aligned bounding box (AABB) of an object.
 
         Args:
             obj: Value for obj.
@@ -566,6 +574,7 @@ class BlenderMCPServer(
 
         Raises:
             TypeError: If the operation cannot be completed.
+
         """
         if obj.type != "MESH":
             raise TypeError("Object must be a mesh")
@@ -574,18 +583,17 @@ class BlenderMCPServer(
         local_bbox_corners = [mathutils.Vector(corner) for corner in obj.bound_box]
 
         # Convert to world coordinates
-        world_bbox_corners = [
-            obj.matrix_world @ corner for corner in local_bbox_corners
-        ]
+        world_bbox_corners = [obj.matrix_world @ corner for corner in local_bbox_corners]
 
         # Compute axis-aligned min/max coordinates
-        min_corner = mathutils.Vector(map(min, zip(*world_bbox_corners)))
-        max_corner = mathutils.Vector(map(max, zip(*world_bbox_corners)))
+        min_corner = mathutils.Vector(map(min, zip(*world_bbox_corners, strict=False)))
+        max_corner = mathutils.Vector(map(max, zip(*world_bbox_corners, strict=False)))
 
         return [[*min_corner], [*max_corner]]
 
     def get_object_info(self, name):
-        """Get detailed information about a specific object
+        """
+        Get detailed information about a specific object.
 
         Args:
             name: Name to assign or look up.
@@ -595,6 +603,7 @@ class BlenderMCPServer(
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         obj = bpy.data.objects.get(name)
         if not obj:
@@ -665,10 +674,9 @@ class BlenderMCPServer(
             "material_index": f.material_index,
         }
 
-    def get_mesh_data(
-        self, object_name, element_type="vertices", limit=100, offset=0, selected_only=False
-    ):
-        """Paginated inspection of a mesh's vertices/edges/faces/loops (indices, coords, normals, selection).
+    def get_mesh_data(self, object_name, element_type="vertices", limit=100, offset=0, selected_only=False):
+        """
+        Paginated inspection of a mesh's vertices/edges/faces/loops (indices, coords, normals, selection).
 
         Prerequisite for index-based edits: mesh_extrude/mesh_inset/mesh_bevel/
         mesh_bridge/mesh_subdivide take raw indices with no way to discover them
@@ -686,12 +694,10 @@ class BlenderMCPServer(
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         if element_type not in self._MESH_DATA_ELEMENT_TYPES:
-            raise ValueError(
-                f"Invalid element_type: {element_type}. "
-                f"Must be one of {self._MESH_DATA_ELEMENT_TYPES}"
-            )
+            raise ValueError(f"Invalid element_type: {element_type}. Must be one of {self._MESH_DATA_ELEMENT_TYPES}")
         obj = _get_mesh_object(object_name)
         mesh = obj.data
 
@@ -733,15 +739,11 @@ class BlenderMCPServer(
         if selected_only:
             universe = [el for el in all_elements if el.select]
             total = len(universe)
-            start, end, truncated, next_offset = _paginate(
-                total, offset, limit, self._MESH_DATA_MAX_LIMIT
-            )
+            start, end, truncated, next_offset = _paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
             page = universe[start:end]
         else:
             total = total_unfiltered
-            start, end, truncated, next_offset = _paginate(
-                total, offset, limit, self._MESH_DATA_MAX_LIMIT
-            )
+            start, end, truncated, next_offset = _paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
             # islice avoids materializing the whole (possibly huge) collection
             # when the caller only asked for a small page of it.
             page = itertools.islice(all_elements, start, end)

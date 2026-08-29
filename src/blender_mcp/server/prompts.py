@@ -5,10 +5,12 @@ from .app import mcp
 
 @mcp.prompt()
 def asset_creation_strategy() -> str:
-    """Defines the preferred strategy for creating assets in Blender
+    """
+    Defines the preferred strategy for creating assets in Blender.
 
     Returns:
         str: Result produced by the operation.
+
     """
     return """When creating 3D content in Blender, always start by checking if integrations are available:
 

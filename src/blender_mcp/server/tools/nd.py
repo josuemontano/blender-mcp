@@ -1,6 +1,7 @@
 """ND (HugeMenace) non-destructive hard-surface workflow tools."""
 
 import logging
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context
@@ -24,7 +25,8 @@ async def nd_boolean(
     cutter_object_name: str,
     mode: BooleanMode = "DIFFERENCE",
 ) -> dict:
-    """Create a live ND Boolean modifier and retain the cutter as an ND utility object.
+    """
+    Create a live ND Boolean modifier and retain the cutter as an ND utility object.
 
     The cutter becomes a wireframe utility object parented to the target instead of
     being deleted, unlike `mesh_boolean`.
@@ -37,8 +39,10 @@ async def nd_boolean(
 
     Returns:
         the target and cutter object names and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -62,7 +66,8 @@ async def nd_mark_as_util(
     object_names: list[str],
     unmark: bool = False,
 ) -> dict:
-    """Mark objects as ND utilities, or restore previously marked objects.
+    """
+    Mark objects as ND utilities, or restore previously marked objects.
 
     Marked objects display as wireframes and are hidden from renders and most viewport
     visibility categories.
@@ -74,8 +79,10 @@ async def nd_mark_as_util(
 
     Returns:
         the affected object names.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -91,7 +98,8 @@ async def nd_mark_as_util(
 
 @mcp.tool()
 async def nd_clean_utils(ctx: Context) -> dict:
-    """Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
+    """
+    Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
     A true dry-run isn't feasible without reimplementing ND's own cleanup logic, so this
     always performs the cleanup - but reports exactly what was removed by diffing the
@@ -106,6 +114,7 @@ async def nd_clean_utils(ctx: Context) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -122,7 +131,8 @@ async def nd_create_id_material(
     object_names: list[str],
     material_name: str,
 ) -> dict:
-    """Create/assign a single ND ID material to the given mesh/curve objects.
+    """
+    Create/assign a single ND ID material to the given mesh/curve objects.
 
     Args:
         ctx: MCP request context.
@@ -134,6 +144,7 @@ async def nd_create_id_material(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -149,7 +160,8 @@ async def nd_create_id_material(
 
 @mcp.tool()
 async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> dict:
-    """Assign a random distinct ND ID material to each given mesh/curve object.
+    """
+    Assign a random distinct ND ID material to each given mesh/curve object.
 
     Args:
         ctx: MCP request context.
@@ -160,6 +172,7 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -172,7 +185,8 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
 
 @mcp.tool()
 async def nd_clear_materials(ctx: Context, object_names: list[str]) -> dict:
-    """Remove all material slots from the given mesh/curve objects.
+    """
+    Remove all material slots from the given mesh/curve objects.
 
     Args:
         ctx: MCP request context.
@@ -183,6 +197,7 @@ async def nd_clear_materials(ctx: Context, object_names: list[str]) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -199,7 +214,8 @@ async def nd_set_lod_suffix(
     object_names: list[str],
     mode: LodMode = "HIGH",
 ) -> dict:
-    """Suffix object (and data-block) names with _high or _low, replacing any existing LOD suffix.
+    """
+    Suffix object (and data-block) names with _high or _low, replacing any existing LOD suffix.
 
     Args:
         ctx: MCP request context.
@@ -211,6 +227,7 @@ async def nd_set_lod_suffix(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -223,7 +240,8 @@ async def nd_set_lod_suffix(
 
 @mcp.tool()
 async def nd_name_sync(ctx: Context, object_names: list[str]) -> dict:
-    """Sync each object's data-block name to match its object name.
+    """
+    Sync each object's data-block name to match its object name.
 
     Args:
         ctx: MCP request context.
@@ -234,6 +252,7 @@ async def nd_name_sync(ctx: Context, object_names: list[str]) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -249,7 +268,8 @@ async def nd_single_vertex(
     ctx: Context,
     location: tuple[float, float, float] = (0, 0, 0),
 ) -> dict:
-    """Create an ND single-vertex sketch object at location, left in Object mode.
+    """
+    Create an ND single-vertex sketch object at location, left in Object mode.
 
     Args:
         ctx: MCP request context.
@@ -257,8 +277,10 @@ async def nd_single_vertex(
 
     Returns:
         the new object's name and location.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -272,7 +294,8 @@ async def nd_single_vertex(
 
 @mcp.tool()
 async def nd_clear_edge_marks(ctx: Context, object_name: str) -> dict:
-    """Remove sharp/seam/freestyle edge marks from a mesh object.
+    """
+    Remove sharp/seam/freestyle edge marks from a mesh object.
 
     Args:
         ctx: MCP request context.
@@ -283,6 +306,7 @@ async def nd_clear_edge_marks(ctx: Context, object_name: str) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -295,7 +319,8 @@ async def nd_clear_edge_marks(ctx: Context, object_name: str) -> dict:
 
 @mcp.tool()
 async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
-    """Remove all vertex groups from a mesh object.
+    """
+    Remove all vertex groups from a mesh object.
 
     Args:
         ctx: MCP request context.
@@ -306,6 +331,7 @@ async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -318,7 +344,8 @@ async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
 
 @mcp.tool()
 async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
-    """Apply eligible modifiers on objects using ND's default REGULAR apply mode.
+    """
+    Apply eligible modifiers on objects using ND's default REGULAR apply mode.
 
     This mode is selective and preserves ND's built-in exclusions for bevel,
     weighted normals, and related modifiers. The
@@ -334,6 +361,7 @@ async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -346,7 +374,8 @@ async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
 
 @mcp.tool()
 async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool) -> dict:
-    """Set an ND-related viewport display toggle to an explicit on/off state.
+    """
+    Set an ND-related viewport display toggle to an explicit on/off state.
 
     For CAVITY, WIREFRAMES, and FACE_ORIENTATION this is a true idempotent setter backed
     by Blender's own viewport overlay properties - calling it again with the same `enabled`
@@ -364,6 +393,7 @@ async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -376,7 +406,8 @@ async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool
 
 @mcp.tool()
 async def nd_capture_utils(ctx: Context) -> dict:
-    """Display and select all ND utility objects in the scene.
+    """
+    Display and select all ND utility objects in the scene.
 
     Args:
         ctx: MCP request context.
@@ -386,6 +417,7 @@ async def nd_capture_utils(ctx: Context) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

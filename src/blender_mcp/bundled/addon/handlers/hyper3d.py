@@ -12,10 +12,12 @@ from ..constants import RODIN_FREE_TRIAL_KEY
 class Hyper3DHandlersMixin:
     # region Hyper3D
     def get_hyper3d_status(self):
-        """Get the current status of Hyper3D Rodin integration
+        """
+        Get the current status of Hyper3D Rodin integration.
 
         Returns:
             Result produced by the operation.
+
         """
         enabled = bpy.context.scene.blendermcp_use_hyper3d
         hyper3d_api_key = self._get_hyper3d_api_key()
@@ -55,8 +57,8 @@ class Hyper3DHandlersMixin:
 
     def create_rodin_job_main_site(
         self,
-        text_prompt: str = None,
-        images: list[tuple[str, str]] = None,
+        text_prompt: str | None = None,
+        images: list[tuple[str, str]] | None = None,
         bbox_condition=None,
     ):
         try:
@@ -99,8 +101,8 @@ class Hyper3DHandlersMixin:
 
     def create_rodin_job_fal_ai(
         self,
-        text_prompt: str = None,
-        images: list[tuple[str, str]] = None,
+        text_prompt: str | None = None,
+        images: list[tuple[str, str]] | None = None,
         bbox_condition=None,
     ):
         try:
@@ -139,13 +141,15 @@ class Hyper3DHandlersMixin:
                 return "Error: Unknown Hyper3D Rodin mode!"
 
     def poll_rodin_job_status_main_site(self, subscription_key: str):
-        """Call the job status API to get the job status
+        """
+        Call the job status API to get the job status.
 
         Args:
             subscription_key: Value for subscription key.
 
         Returns:
             Result produced by the operation.
+
         """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
@@ -163,13 +167,15 @@ class Hyper3DHandlersMixin:
         return {"status_list": [i["status"] for i in data["jobs"]]}
 
     def poll_rodin_job_status_fal_ai(self, request_id: str):
-        """Call the job status API to get the job status
+        """
+        Call the job status API to get the job status.
 
         Args:
             request_id: Identifier of the request.
 
         Returns:
             Result produced by the operation.
+
         """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
@@ -208,43 +214,34 @@ class Hyper3DHandlersMixin:
         if len(imported_objects) == 1 and imported_objects[0].type == "MESH":
             mesh_obj = imported_objects[0]
             print("Single mesh imported, no cleanup needed.")
-        else:
-            if len(imported_objects) == 2:
-                empty_objs = [i for i in imported_objects if i.type == "EMPTY"]
-                if len(empty_objs) != 1:
-                    print(
-                        "Error: Expected an empty node with one mesh child or a single mesh object."
-                    )
-                    return
-                parent_obj = empty_objs.pop()
-                if len(parent_obj.children) == 1:
-                    potential_mesh = parent_obj.children[0]
-                    if potential_mesh.type == "MESH":
-                        print(
-                            "GLB structure confirmed: Empty node with one mesh child."
-                        )
+        elif len(imported_objects) == 2:
+            empty_objs = [i for i in imported_objects if i.type == "EMPTY"]
+            if len(empty_objs) != 1:
+                print("Error: Expected an empty node with one mesh child or a single mesh object.")
+                return
+            parent_obj = empty_objs.pop()
+            if len(parent_obj.children) == 1:
+                potential_mesh = parent_obj.children[0]
+                if potential_mesh.type == "MESH":
+                    print("GLB structure confirmed: Empty node with one mesh child.")
 
-                        # Unparent the mesh from the empty node
-                        potential_mesh.parent = None
+                    # Unparent the mesh from the empty node
+                    potential_mesh.parent = None
 
-                        # Remove the empty node
-                        bpy.data.objects.remove(parent_obj)
-                        print("Removed empty node, keeping only the mesh.")
+                    # Remove the empty node
+                    bpy.data.objects.remove(parent_obj)
+                    print("Removed empty node, keeping only the mesh.")
 
-                        mesh_obj = potential_mesh
-                    else:
-                        print("Error: Child is not a mesh object.")
-                        return
+                    mesh_obj = potential_mesh
                 else:
-                    print(
-                        "Error: Expected an empty node with one mesh child or a single mesh object."
-                    )
+                    print("Error: Child is not a mesh object.")
                     return
             else:
-                print(
-                    "Error: Expected an empty node with one mesh child or a single mesh object."
-                )
+                print("Error: Expected an empty node with one mesh child or a single mesh object.")
                 return
+        else:
+            print("Error: Expected an empty node with one mesh child or a single mesh object.")
+            return
 
         # Rename the mesh if needed
         try:
@@ -268,7 +265,8 @@ class Hyper3DHandlersMixin:
                 return "Error: Unknown Hyper3D Rodin mode!"
 
     def import_generated_asset_main_site(self, task_uuid: str, name: str):
-        """Fetch the generated asset, import into blender
+        """
+        Fetch the generated asset, import into blender.
 
         Args:
             task_uuid: Value for task uuid.
@@ -276,6 +274,7 @@ class Hyper3DHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         api_key = self._get_hyper3d_api_key()
         if not api_key:
@@ -345,7 +344,8 @@ class Hyper3DHandlersMixin:
             return {"succeed": False, "error": str(e)}
 
     def import_generated_asset_fal_ai(self, request_id: str, name: str):
-        """Fetch the generated asset, import into blender
+        """
+        Fetch the generated asset, import into blender.
 
         Args:
             request_id: Identifier of the request.
@@ -353,6 +353,7 @@ class Hyper3DHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         api_key = self._get_hyper3d_api_key()
         if not api_key:

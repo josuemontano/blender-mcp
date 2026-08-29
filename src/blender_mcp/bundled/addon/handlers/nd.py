@@ -14,7 +14,8 @@ from ..helpers import (
 class NDHandlersMixin:
     # region ND (HugeMenace) non-destructive workflow tools
     def nd_boolean(self, object_name, cutter_object_name, mode="DIFFERENCE"):
-        """ND non-destructive boolean: live Boolean modifier on object_name, cutter_object_name becomes a wireframe utility parented to it.
+        """
+        ND non-destructive boolean: live Boolean modifier on object_name, cutter_object_name becomes a wireframe utility parented to it.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -26,12 +27,11 @@ class NDHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         mode = str(mode).upper()
         if mode not in {"UNION", "DIFFERENCE", "INTERSECT"}:
-            raise ValueError(
-                f"Invalid mode: {mode}. Must be one of UNION, DIFFERENCE, INTERSECT"
-            )
+            raise ValueError(f"Invalid mode: {mode}. Must be one of UNION, DIFFERENCE, INTERSECT")
         target = _get_mesh_object(object_name)
         cutter = _get_mesh_object(cutter_object_name)
         _select_objects([cutter.name, target.name], active_name=target.name)
@@ -41,7 +41,8 @@ class NDHandlersMixin:
         return {"name": target.name, "cutter_name": cutter.name, **_mesh_counts(target)}
 
     def nd_mark_as_util(self, object_names, unmark=False):
-        """Mark/unmark objects as ND utility objects (wireframe display, hidden from render).
+        """
+        Mark/unmark objects as ND utility objects (wireframe display, hidden from render).
 
         Args:
             object_names: Names of Blender objects to operate on.
@@ -52,6 +53,7 @@ class NDHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         if not object_names:
             raise ValueError("At least one object name is required")
@@ -65,7 +67,8 @@ class NDHandlersMixin:
         return {"names": names, "marked_as_util": not unmark}
 
     def nd_clean_utils(self):
-        """Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
+        """
+        Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
         Reports exactly what was removed by diffing bpy.data.objects (and each
         surviving object's modifiers) before and after the call - a true
@@ -73,11 +76,10 @@ class NDHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         before_objects = {obj.name for obj in bpy.data.objects}
-        before_modifiers = {
-            obj.name: [(mod.name, mod.type) for mod in obj.modifiers] for obj in bpy.data.objects
-        }
+        before_modifiers = {obj.name: [(mod.name, mod.type) for mod in obj.modifiers] for obj in bpy.data.objects}
         _nd_call("clean_utils", bpy.ops.nd.clean_utils, "INVOKE_DEFAULT")
         after_objects = {obj.name for obj in bpy.data.objects}
         removed_objects = sorted(before_objects - after_objects)
@@ -89,9 +91,7 @@ class NDHandlersMixin:
             after_mods = {(mod.name, mod.type) for mod in obj.modifiers}
             for mod_name, mod_type in mods:
                 if (mod_name, mod_type) not in after_mods:
-                    removed_modifiers.append(
-                        {"object": name, "modifier": mod_name, "type": mod_type}
-                    )
+                    removed_modifiers.append({"object": name, "modifier": mod_name, "type": mod_type})
         return {
             "status": "cleaned",
             "removed_objects": removed_objects,
@@ -99,7 +99,8 @@ class NDHandlersMixin:
         }
 
     def nd_create_id_material(self, object_names, material_name):
-        """Create/assign an ND ID material to the given mesh/curve objects.
+        """
+        Create/assign an ND ID material to the given mesh/curve objects.
 
         Args:
             object_names: Names of Blender objects to operate on.
@@ -107,6 +108,7 @@ class NDHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         objs = _select_objects(object_names)
         _nd_call(
@@ -117,33 +119,38 @@ class NDHandlersMixin:
         return {"names": [obj.name for obj in objs], "material_name": material_name}
 
     def nd_bulk_create_id_materials(self, object_names):
-        """Assign a random distinct ND ID material to each given mesh/curve object.
+        """
+        Assign a random distinct ND ID material to each given mesh/curve object.
 
         Args:
             object_names: Names of Blender objects to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         objs = _select_objects(object_names)
         _nd_call("bulk_create_id_materials", bpy.ops.nd.bulk_create_id_materials)
         return {"names": [obj.name for obj in objs]}
 
     def nd_clear_materials(self, object_names):
-        """Remove all material slots from the given mesh/curve objects.
+        """
+        Remove all material slots from the given mesh/curve objects.
 
         Args:
             object_names: Names of Blender objects to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         objs = _select_objects(object_names)
         _nd_call("clear_materials", bpy.ops.nd.clear_materials)
         return {"names": [obj.name for obj in objs]}
 
     def nd_set_lod_suffix(self, object_names, mode="HIGH"):
-        """Suffix object (and data) names with _high or _low, replacing any existing LOD suffix.
+        """
+        Suffix object (and data) names with _high or _low, replacing any existing LOD suffix.
 
         Args:
             object_names: Names of Blender objects to operate on.
@@ -154,6 +161,7 @@ class NDHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         mode = str(mode).upper()
         if mode not in {"HIGH", "LOW"}:
@@ -163,26 +171,30 @@ class NDHandlersMixin:
         return {"names": [obj.name for obj in objs]}
 
     def nd_name_sync(self, object_names):
-        """Sync each object's data-block name to match its object name.
+        """
+        Sync each object's data-block name to match its object name.
 
         Args:
             object_names: Names of Blender objects to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         objs = _select_objects(object_names)
         _nd_call("name_sync", bpy.ops.nd.name_sync)
         return {"names": [obj.name for obj in objs]}
 
     def nd_single_vertex(self, location=(0, 0, 0)):
-        """Create an ND single-vertex sketch object at location, left in Object mode.
+        """
+        Create an ND single-vertex sketch object at location, left in Object mode.
 
         Args:
             location: World-space location.
 
         Returns:
             Result produced by the operation.
+
         """
         prev_cursor = tuple(bpy.context.scene.cursor.location)
         bpy.context.scene.cursor.location = tuple(location)
@@ -198,13 +210,15 @@ class NDHandlersMixin:
         }
 
     def nd_clear_edge_marks(self, object_name):
-        """Remove sharp/seam/freestyle edge marks from a mesh object.
+        """
+        Remove sharp/seam/freestyle edge marks from a mesh object.
 
         Args:
             object_name: Name of the Blender object to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         _select_objects([obj.name])
@@ -212,13 +226,15 @@ class NDHandlersMixin:
         return {"name": obj.name}
 
     def nd_clear_vertex_groups(self, object_name):
-        """Remove all vertex groups from a mesh object.
+        """
+        Remove all vertex groups from a mesh object.
 
         Args:
             object_name: Name of the Blender object to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         _select_objects([obj.name])
@@ -226,13 +242,15 @@ class NDHandlersMixin:
         return {"name": obj.name}
 
     def nd_apply_modifiers(self, object_names):
-        """Apply modifiers on the given objects via ND (always REGULAR mode - SOFT/HARD/duplicate need real modifier keys, unreachable from a script).
+        """
+        Apply modifiers on the given objects via ND (always REGULAR mode - SOFT/HARD/duplicate need real modifier keys, unreachable from a script).
 
         Args:
             object_names: Names of Blender objects to operate on.
 
         Returns:
             Result produced by the operation.
+
         """
         objs = _select_objects(object_names)
         _nd_call("apply_modifiers", bpy.ops.nd.apply_modifiers, "INVOKE_DEFAULT")
@@ -245,7 +263,8 @@ class NDHandlersMixin:
     }
 
     def nd_viewport_toggle(self, toggle, enabled):
-        """Set an ND-related viewport display toggle to an explicit on/off state.
+        """
+        Set an ND-related viewport display toggle to an explicit on/off state.
 
         For CAVITY, WIREFRAMES, and FACE_ORIENTATION this bypasses ND entirely
         and sets Blender's own View3DOverlay properties directly, so it's a
@@ -267,6 +286,7 @@ class NDHandlersMixin:
         Raises:
             ValueError: If the operation cannot be completed.
             RuntimeError: If the operation cannot be completed.
+
         """
         toggle = str(toggle).upper()
         overlay_prop = self._NATIVE_OVERLAY_TOGGLES.get(toggle)
@@ -301,19 +321,23 @@ class NDHandlersMixin:
         return {"toggle": toggle, "enabled": None}
 
     def nd_capture_utils(self):
-        """Display and select all ND utility objects in the scene.
+        """
+        Display and select all ND utility objects in the scene.
 
         Returns:
             Result produced by the operation.
+
         """
         _nd_call("capture_utils", bpy.ops.nd.capture_utils, "INVOKE_DEFAULT")
         return {"status": "captured"}
 
     def get_nd_status(self):
-        """Get the current status of the ND (HugeMenace) non-destructive workflow integration
+        """
+        Get the current status of the ND (HugeMenace) non-destructive workflow integration.
 
         Returns:
             Result produced by the operation.
+
         """
         enabled = bpy.context.scene.blendermcp_use_nd
         nd_installed = hasattr(bpy.ops, "nd") and hasattr(bpy.ops.nd, "bool_vanilla")

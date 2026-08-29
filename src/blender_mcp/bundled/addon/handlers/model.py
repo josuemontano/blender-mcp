@@ -24,7 +24,8 @@ class ModelHandlersMixin:
         match_scale=True,
         space="WORLD",
     ):
-        """Align an object's transform to a reference object's transform.
+        """
+        Align an object's transform to a reference object's transform.
 
         space="WORLD" (default) matches visually across differently-parented
         objects by decomposing/recomposing matrix_world. space="LOCAL" copies
@@ -43,6 +44,7 @@ class ModelHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         space = str(space).upper()
         if space not in _SPACES:
@@ -80,7 +82,8 @@ class ModelHandlersMixin:
         }
 
     def model_refine(self, object_name, levels=1, apply=False):
-        """Smooth and increase effective resolution via a Subdivision Surface modifier.
+        """
+        Smooth and increase effective resolution via a Subdivision Surface modifier.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -89,6 +92,7 @@ class ModelHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Subdivision", type="SUBSURF")
@@ -109,7 +113,8 @@ class ModelHandlersMixin:
         apply=False,
         subdivide=False,
     ):
-        """Add fine procedural surface detail via a Displace modifier driven by a noise/voronoi texture.
+        """
+        Add fine procedural surface detail via a Displace modifier driven by a noise/voronoi texture.
 
         Displace only offsets existing vertices - it cannot create fine detail
         on a mesh that doesn't already have enough topology. Set subdivide=True
@@ -128,6 +133,7 @@ class ModelHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         if subdivide:
@@ -147,7 +153,8 @@ class ModelHandlersMixin:
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
     def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
-        """Add a Mirror modifier to an object across the given axis.
+        """
+        Add a Mirror modifier to an object across the given axis.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -161,6 +168,7 @@ class ModelHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         axis = str(axis).upper()
@@ -175,7 +183,8 @@ class ModelHandlersMixin:
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
     def model_array(self, object_name, count=2, relative_offset=(1, 0, 0), apply=False):
-        """Add a linear Array modifier to an object.
+        """
+        Add a linear Array modifier to an object.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -185,6 +194,7 @@ class ModelHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Array", type="ARRAY")
@@ -206,7 +216,8 @@ class ModelHandlersMixin:
         pivot_location=None,
         radius=None,
     ):
-        """Duplicate an object radially around a pivot using an Array modifier driven by a helper empty.
+        """
+        Duplicate an object radially around a pivot using an Array modifier driven by a helper empty.
 
         The array's visible spread is the distance between the object and the
         pivot - if the mesh is centered on its own origin, every rotated copy
@@ -228,6 +239,7 @@ class ModelHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         axis = str(axis).upper()
@@ -236,9 +248,7 @@ class ModelHandlersMixin:
         if count < 2:
             raise ValueError("count must be at least 2")
         if sum(p is not None for p in (pivot_object_name, pivot_location, radius)) > 1:
-            raise ValueError(
-                "Provide at most one of pivot_object_name, pivot_location, or radius"
-            )
+            raise ValueError("Provide at most one of pivot_object_name, pivot_location, or radius")
 
         if pivot_object_name:
             pivot_obj = bpy.data.objects.get(pivot_object_name)

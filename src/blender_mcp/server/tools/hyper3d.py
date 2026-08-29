@@ -3,6 +3,7 @@
 import base64
 import logging
 import os
+
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -34,7 +35,8 @@ async def generate_hyper3d_model_via_text(
     text_prompt: str,
     bbox_condition: tuple[float, float, float] | None = None,
 ) -> dict:
-    """Submit a Hyper3D Rodin text-to-3D generation job.
+    """
+    Submit a Hyper3D Rodin text-to-3D generation job.
 
     This call only starts the asynchronous job. Poll it with `poll_rodin_job_status`,
     then import the completed result with `import_generated_asset`. Generated assets
@@ -47,8 +49,10 @@ async def generate_hyper3d_model_via_text(
 
     Returns:
         the submitted job's task_uuid and subscription_key (or an error if submission fails).
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -82,7 +86,8 @@ async def generate_hyper3d_model_via_images(
     input_image_urls: list[str] | None = None,
     bbox_condition: tuple[float, float, float] | None = None,
 ) -> dict:
-    """Submit a Hyper3D Rodin image-to-3D generation job.
+    """
+    Submit a Hyper3D Rodin image-to-3D generation job.
 
     This call only starts the asynchronous job. Poll it with `poll_rodin_job_status`,
     then import the completed result with `import_generated_asset`. Generated assets
@@ -96,8 +101,10 @@ async def generate_hyper3d_model_via_images(
 
     Returns:
         the submitted job's task_uuid and subscription_key.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     if input_image_paths is not None and input_image_urls is not None:
         raise ToolError("Conflicting parameters given: pass only one of input_image_paths, input_image_urls.")
@@ -145,7 +152,8 @@ async def poll_rodin_job_status(
     subscription_key: str | None = None,
     request_id: str | None = None,
 ) -> dict:
-    """Get the current status of a Hyper3D Rodin generation job.
+    """
+    Get the current status of a Hyper3D Rodin generation job.
 
     Use the identifier returned by the corresponding submit tool. In MAIN_SITE mode,
     poll with `subscription_key`; in FAL_AI mode, poll with `request_id`. When the job
@@ -159,8 +167,10 @@ async def poll_rodin_job_status(
 
     Returns:
         the provider status. Continue polling only while it is non-terminal; import only after a terminal success status.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -187,7 +197,8 @@ async def import_generated_asset(
     task_uuid: str | None = None,
     request_id: str | None = None,
 ) -> dict:
-    """Import a completed Hyper3D Rodin generation job into the Blender scene.
+    """
+    Import a completed Hyper3D Rodin generation job into the Blender scene.
 
     Call this only after `poll_rodin_job_status` reports a terminal success state.
 
@@ -202,6 +213,7 @@ async def import_generated_asset(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

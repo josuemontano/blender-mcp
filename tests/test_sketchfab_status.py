@@ -3,6 +3,8 @@
 import sys
 import types
 
+from typing import Never
+
 from conftest import load_addon_package
 
 
@@ -71,12 +73,12 @@ def _scene(sketchfab_enabled):
     )
 
 
-def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch):
+def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(sketchfab_enabled=False))
     server = addon.BlenderMCPServer()
     monkeypatch.setattr(server, "_get_sketchfab_api_key", lambda: "saved-key")
 
-    def request_should_not_run(*_args, **_kwargs):
+    def request_should_not_run(*_args, **_kwargs) -> Never:
         raise AssertionError("must not validate a disabled integration")
 
     monkeypatch.setattr(
@@ -97,7 +99,7 @@ def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch):
     }
 
 
-def test_enabled_sketchfab_reports_a_valid_key_as_ready(monkeypatch):
+def test_enabled_sketchfab_reports_a_valid_key_as_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(sketchfab_enabled=True))
     server = addon.BlenderMCPServer()
     monkeypatch.setattr(server, "_get_sketchfab_api_key", lambda: "saved-key")
@@ -109,9 +111,7 @@ def test_enabled_sketchfab_reports_a_valid_key_as_ready(monkeypatch):
         def json():
             return {"username": "artist"}
 
-    monkeypatch.setattr(
-        addon.handlers.sketchfab.requests, "get", lambda *_args, **_kwargs: Response(), raising=False
-    )
+    monkeypatch.setattr(addon.handlers.sketchfab.requests, "get", lambda *_args, **_kwargs: Response(), raising=False)
 
     assert server.get_sketchfab_status() == {
         "enabled": True,

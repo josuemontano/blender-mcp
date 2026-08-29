@@ -14,7 +14,8 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @mcp.tool()
 async def execute_blender_code(ctx: Context, code: str) -> dict:
-    """Run arbitrary Python in the connected Blender session.
+    """
+    Run arbitrary Python in the connected Blender session.
 
     Use this only when no dedicated Blender MCP tool can perform the task. The code
     can modify the scene, files, and Blender settings; make each call small and
@@ -29,6 +30,7 @@ async def execute_blender_code(ctx: Context, code: str) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         # Get the global connection

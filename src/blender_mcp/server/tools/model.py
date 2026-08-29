@@ -1,6 +1,7 @@
 """Higher-level modeling tools built on top of mesh modifiers/operations."""
 
 import logging
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context
@@ -26,7 +27,8 @@ async def model_match_reference(
     match_scale: bool = True,
     space: Space = "WORLD",
 ) -> dict:
-    """Align an object's transform to another object's transform in the scene.
+    """
+    Align an object's transform to another object's transform in the scene.
 
     Args:
         ctx: MCP request context.
@@ -39,8 +41,10 @@ async def model_match_reference(
 
     Returns:
         the object's name and resulting location/rotation/scale.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -68,7 +72,8 @@ async def model_refine(
     levels: int = 1,
     apply: bool = False,
 ) -> dict:
-    """Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
+    """
+    Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
 
     Args:
         ctx: MCP request context.
@@ -78,8 +83,10 @@ async def model_refine(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -107,7 +114,8 @@ async def add_procedural_displacement(
     apply: bool = False,
     subdivide: bool = False,
 ) -> dict:
-    """Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
+    """
+    Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
 
     Displace only offsets existing vertices - it cannot produce fine detail on a mesh
     that doesn't already have enough topology. Set subdivide=True to add a Subdivision
@@ -124,8 +132,10 @@ async def add_procedural_displacement(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -155,7 +165,8 @@ async def model_mirror(
     clip: bool = True,
     apply: bool = False,
 ) -> dict:
-    """Add a Mirror modifier to an object across the given axis.
+    """
+    Add a Mirror modifier to an object across the given axis.
 
     Args:
         ctx: MCP request context.
@@ -167,8 +178,10 @@ async def model_mirror(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -196,7 +209,8 @@ async def model_array(
     relative_offset: tuple[float, float, float] = (1, 0, 0),
     apply: bool = False,
 ) -> dict:
-    """Add a linear Array modifier to an object, duplicating it along an offset direction.
+    """
+    Add a linear Array modifier to an object, duplicating it along an offset direction.
 
     Args:
         ctx: MCP request context.
@@ -207,8 +221,10 @@ async def model_array(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -238,7 +254,8 @@ async def model_radial_array(
     pivot_location: tuple[float, float, float] | None = None,
     radius: float | None = None,
 ) -> dict:
-    """Duplicate an object radially around a pivot, evenly spaced about an axis.
+    """
+    Duplicate an object radially around a pivot, evenly spaced about an axis.
 
     The array's visible spread is the distance between the object and the pivot - if
     the mesh is centered on its own origin, every rotated copy lands on top of the
@@ -258,8 +275,10 @@ async def model_radial_array(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

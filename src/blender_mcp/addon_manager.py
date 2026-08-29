@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import sys
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,7 +35,8 @@ _BL_INFO_NAME_RE = re.compile(r"""["']name["']\s*:\s*["']Blender MCP["']""")
 
 
 def _addon_init_file(path: Path) -> Path:
-    """Return the file that actually carries the addon's metadata for `path`.
+    """
+    Return the file that actually carries the addon's metadata for `path`.
 
     `path` may be a single-file legacy install or a package directory; in the
     latter case the metadata (bl_info, ADDON_PROTOCOL_VERSION) lives in its
@@ -45,18 +47,21 @@ def _addon_init_file(path: Path) -> Path:
 
     Returns:
         Path: Result produced by the operation.
+
     """
     return path / "__init__.py" if path.is_dir() else path
 
 
 def read_addon_protocol_version(path: Path) -> int | None:
-    """Parse ADDON_PROTOCOL_VERSION from an installed addon file or package dir.
+    """
+    Parse ADDON_PROTOCOL_VERSION from an installed addon file or package dir.
 
     Args:
         path: Filesystem path to inspect or update.
 
     Returns:
         int | None: Result produced by the operation.
+
     """
     try:
         text = _addon_init_file(path).read_text(encoding="utf-8", errors="ignore")
@@ -72,13 +77,15 @@ def read_addon_protocol_version(path: Path) -> int | None:
 
 
 def addon_file_needs_update(path: Path) -> bool:
-    """True if path is missing protocol metadata or behind the bundled addon.
+    """
+    True if path is missing protocol metadata or behind the bundled addon.
 
     Args:
         path: Filesystem path to inspect or update.
 
     Returns:
         bool: Result produced by the operation.
+
     """
     if not _addon_init_file(path).is_file():
         return True
@@ -111,7 +118,8 @@ _UPDATE_HINT = (
 
 
 def check_addon_status_on_startup() -> AddonStatusReport:
-    """Report whether the on-disk Blender addon is behind the bundled copy.
+    """
+    Report whether the on-disk Blender addon is behind the bundled copy.
 
     Deliberately read-only. Starting an MCP server is not a request to modify
     files in the user's Blender configuration, and a silent overwrite at an
@@ -121,6 +129,7 @@ def check_addon_status_on_startup() -> AddonStatusReport:
 
     Returns:
         AddonStatusReport: Result produced by the operation.
+
     """
     try:
         dirs = discover_blender_addon_dirs()
@@ -201,13 +210,15 @@ class AddonHandshake:
 
 
 def get_bundled_addon_path() -> Path:
-    """Resolve the addon package directory shipped with this package.
+    """
+    Resolve the addon package directory shipped with this package.
 
     Returns:
         Path: Result produced by the operation.
 
     Raises:
         FileNotFoundError: If the operation cannot be completed.
+
     """
     here = Path(__file__).resolve().parent
     candidate = here / "bundled" / "addon"
@@ -220,10 +231,12 @@ def get_bundled_addon_path() -> Path:
 
 
 def discover_blender_addon_dirs() -> list[Path]:
-    """Find Blender user scripts/addons directories across versions.
+    """
+    Find Blender user scripts/addons directories across versions.
 
     Returns:
         list[Path]: Result produced by the operation.
+
     """
     dirs: list[Path] = []
     home = Path.home()
@@ -265,7 +278,8 @@ def discover_blender_addon_dirs() -> list[Path]:
 
 
 def _is_blendermcp_addon_file(path: Path) -> bool:
-    """True only for a file whose bl_info declares it as the Blender MCP addon.
+    """
+    True only for a file whose bl_info declares it as the Blender MCP addon.
 
     Deliberately narrower than a substring search for "BlenderMCPServer": that
     also matches a user's own fork or a script that merely references the class,
@@ -276,6 +290,7 @@ def _is_blendermcp_addon_file(path: Path) -> bool:
 
     Returns:
         bool: Result produced by the operation.
+
     """
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -285,13 +300,15 @@ def _is_blendermcp_addon_file(path: Path) -> bool:
 
 
 def find_existing_addon_installs(addons_dirs: list[Path] | None = None) -> list[Path]:
-    """Locate already-installed Blender MCP addon files.
+    """
+    Locate already-installed Blender MCP addon files.
 
     Args:
         addons_dirs: Value for addons dirs.
 
     Returns:
         list[Path]: Result produced by the operation.
+
     """
     found: list[Path] = []
     for addons_dir in addons_dirs or discover_blender_addon_dirs():
@@ -308,7 +325,8 @@ def find_existing_addon_installs(addons_dirs: list[Path] | None = None) -> list[
 
 
 def _trees_equal(a: Path, b: Path) -> bool:
-    """Recursively compare two directory trees for identical content.
+    """
+    Recursively compare two directory trees for identical content.
 
     Args:
         a: Value for a.
@@ -316,6 +334,7 @@ def _trees_equal(a: Path, b: Path) -> bool:
 
     Returns:
         bool: Result produced by the operation.
+
     """
     cmp = filecmp.dircmp(a, b)
     if cmp.left_only or cmp.right_only or cmp.diff_files or cmp.funny_files:
@@ -324,7 +343,8 @@ def _trees_equal(a: Path, b: Path) -> bool:
 
 
 def _backup_addon_file(path: Path, source: Path | None = None) -> Path | None:
-    """Keep one .bak copy before overwriting, so local edits are recoverable.
+    """
+    Keep one .bak copy before overwriting, so local edits are recoverable.
 
     `path` may be a single-file legacy install or a package directory.
     Skipped when it already matches `source`: a repeat install would
@@ -338,6 +358,7 @@ def _backup_addon_file(path: Path, source: Path | None = None) -> Path | None:
 
     Returns:
         Path | None: Result produced by the operation.
+
     """
     if not path.exists():
         return None
@@ -368,7 +389,8 @@ def install_addon(
     *,
     create_dir: bool = True,
 ) -> AddonInstallResult:
-    """Copy the bundled addon into Blender's user addons folder.
+    """
+    Copy the bundled addon into Blender's user addons folder.
 
     Replaces known existing Blender MCP addon files in that directory.
     User must disable/enable the addon or restart Blender to load the new code.
@@ -379,6 +401,7 @@ def install_addon(
 
     Returns:
         AddonInstallResult: Result produced by the operation.
+
     """
     try:
         source = get_bundled_addon_path()
@@ -457,7 +480,8 @@ def install_addon(
 
 
 def handshake_addon(blender_connection) -> AddonHandshake:
-    """Query a connected Blender addon for protocol version.
+    """
+    Query a connected Blender addon for protocol version.
 
     Old addons without get_addon_info are treated as outdated (but still usable
     via execute_code fallbacks elsewhere).
@@ -467,6 +491,7 @@ def handshake_addon(blender_connection) -> AddonHandshake:
 
     Returns:
         AddonHandshake: Result produced by the operation.
+
     """
     try:
         info = blender_connection.send_command("get_addon_info")
@@ -546,13 +571,15 @@ def format_handshake_log(result: AddonHandshake) -> str:
 
 
 def run_cli(argv: list[str] | None = None) -> int:
-    """CLI entry for install-addon / addon-status. Returns process exit code.
+    """
+    CLI entry for install-addon / addon-status. Returns process exit code.
 
     Args:
         argv: Value for argv.
 
     Returns:
         int: Result produced by the operation.
+
     """
     import argparse
 

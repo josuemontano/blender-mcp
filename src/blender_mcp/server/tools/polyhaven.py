@@ -1,6 +1,7 @@
 """PolyHaven asset-library integration tools."""
 
 import logging
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context
@@ -17,7 +18,8 @@ AssetType = Literal["hdris", "textures", "models", "all"]
 
 @mcp.tool()
 async def get_polyhaven_categories(ctx: Context, asset_type: AssetType = "hdris") -> dict:
-    """List Polyhaven categories and asset counts for a selected asset type.
+    """
+    List Polyhaven categories and asset counts for a selected asset type.
 
     Args:
         ctx: MCP request context.
@@ -25,8 +27,10 @@ async def get_polyhaven_categories(ctx: Context, asset_type: AssetType = "hdris"
 
     Returns:
         the categories and their asset counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -52,7 +56,8 @@ async def search_polyhaven_assets(
     asset_type: AssetType = "all",
     categories: str | None = None,
 ) -> dict:
-    """List Polyhaven assets, optionally filtered by one or more categories.
+    """
+    List Polyhaven assets, optionally filtered by one or more categories.
 
     This catalog query has no free-text parameter; use `categories` to narrow the
     result set and `get_polyhaven_categories` to discover valid categories.
@@ -64,8 +69,10 @@ async def search_polyhaven_assets(
 
     Returns:
         matching assets with basic metadata and total/returned counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -97,7 +104,8 @@ async def download_polyhaven_asset(
     resolution: str = "1k",
     file_format: str | None = None,
 ) -> dict:
-    """Download a Polyhaven HDRI, texture, or model and make it available in Blender.
+    """
+    Download a Polyhaven HDRI, texture, or model and make it available in Blender.
 
     The exact result depends on `asset_type`; use `apply_polyhaven_texture` after
     downloading a texture to assign it to a specific object.
@@ -114,6 +122,7 @@ async def download_polyhaven_asset(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -130,7 +139,7 @@ async def download_polyhaven_asset(
             raise ToolError(result["error"])
         if not result.get("success"):
             raise ToolError(f"Failed to download asset: {result.get('message', 'Unknown error')}")
-        changed = [asset_id] if asset_type in ("textures", "models") else []
+        changed = [asset_id] if asset_type in {"textures", "models"} else []
         return ok(result, changed_objects=changed)
     except ToolError:
         raise
@@ -141,7 +150,8 @@ async def download_polyhaven_asset(
 
 @mcp.tool()
 async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: str) -> dict:
-    """Assign a previously downloaded Polyhaven texture to an object.
+    """
+    Assign a previously downloaded Polyhaven texture to an object.
 
     Args:
         ctx: MCP request context.
@@ -153,6 +163,7 @@ async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: st
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

@@ -28,10 +28,8 @@ class MeshHandlersMixin:
         "SPHERE": lambda size, location, rotation: bpy.ops.mesh.primitive_uv_sphere_add(
             radius=size, location=location, rotation=rotation
         ),
-        "CYLINDER": lambda size, location, rotation: (
-            bpy.ops.mesh.primitive_cylinder_add(
-                radius=size, depth=size * 2, location=location, rotation=rotation
-            )
+        "CYLINDER": lambda size, location, rotation: bpy.ops.mesh.primitive_cylinder_add(
+            radius=size, depth=size * 2, location=location, rotation=rotation
         ),
         "CONE": lambda size, location, rotation: bpy.ops.mesh.primitive_cone_add(
             radius1=size, depth=size * 2, location=location, rotation=rotation
@@ -45,10 +43,8 @@ class MeshHandlersMixin:
         "PLANE": lambda size, location, rotation: bpy.ops.mesh.primitive_plane_add(
             size=size, location=location, rotation=rotation
         ),
-        "CURVE": lambda size, location, rotation: (
-            bpy.ops.curve.primitive_bezier_curve_add(
-                radius=size, location=location, rotation=rotation
-            )
+        "CURVE": lambda size, location, rotation: bpy.ops.curve.primitive_bezier_curve_add(
+            radius=size, location=location, rotation=rotation
         ),
     }
 
@@ -62,7 +58,8 @@ class MeshHandlersMixin:
         dimensions=None,
         purpose=None,
     ):
-        """Create a mesh/curve primitive: cube, sphere, cylinder, cone, torus, plane, or curve.
+        """
+        Create a mesh/curve primitive: cube, sphere, cylinder, cone, torus, plane, or curve.
 
         dimensions, if given, sets the object's world-space bounding box after
         creation (overriding size for footprint) so the same dimensions mean the
@@ -83,13 +80,12 @@ class MeshHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         ptype = str(primitive_type).upper()
         op = self._PRIMITIVE_OPS.get(ptype)
         if not op:
-            raise ValueError(
-                f"Unknown primitive_type: {primitive_type}. Must be one of {sorted(self._PRIMITIVE_OPS)}"
-            )
+            raise ValueError(f"Unknown primitive_type: {primitive_type}. Must be one of {sorted(self._PRIMITIVE_OPS)}")
         if purpose is not None and purpose != "blockout":
             raise ValueError(f"Invalid purpose: {purpose}. Must be 'blockout' or omitted")
         op(size, tuple(location), tuple(rotation))
@@ -113,7 +109,8 @@ class MeshHandlersMixin:
         return result
 
     def mesh_extrude(self, object_name, offset=(0, 0, 1), face_indices=None):
-        """Extrude the selected (or all) faces of a mesh by offset.
+        """
+        Extrude the selected (or all) faces of a mesh by offset.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -125,20 +122,18 @@ class MeshHandlersMixin:
 
         Raises:
             RuntimeError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj, face_indices=face_indices):
-            result = bpy.ops.mesh.extrude_region_move(
-                TRANSFORM_OT_translate={"value": tuple(offset)}
-            )
+            result = bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": tuple(offset)})
             if "FINISHED" not in result:
-                raise RuntimeError(
-                    f"mesh.extrude_region_move did not finish (status: {result})"
-                )
+                raise RuntimeError(f"mesh.extrude_region_move did not finish (status: {result})")
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_inset(self, object_name, thickness=0.05, depth=0.0, face_indices=None):
-        """Inset the selected (or all) faces of a mesh.
+        """
+        Inset the selected (or all) faces of a mesh.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -151,6 +146,7 @@ class MeshHandlersMixin:
 
         Raises:
             RuntimeError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj, face_indices=face_indices):
@@ -168,7 +164,8 @@ class MeshHandlersMixin:
         edge_indices=None,
         vertex_indices=None,
     ):
-        """Bevel the selected (or all) edges/vertices of a mesh.
+        """
+        Bevel the selected (or all) edges/vertices of a mesh.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -183,6 +180,7 @@ class MeshHandlersMixin:
 
         Raises:
             RuntimeError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj, vert_indices=vertex_indices, edge_indices=edge_indices):
@@ -192,7 +190,8 @@ class MeshHandlersMixin:
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_bridge(self, object_name, edge_indices):
-        """Bridge two selected open edge loops of a mesh.
+        """
+        Bridge two selected open edge loops of a mesh.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -204,22 +203,20 @@ class MeshHandlersMixin:
         Raises:
             ValueError: If the operation cannot be completed.
             RuntimeError: If the operation cannot be completed.
+
         """
         if not edge_indices:
-            raise ValueError(
-                "edge_indices is required: select the edges forming the two loops to bridge"
-            )
+            raise ValueError("edge_indices is required: select the edges forming the two loops to bridge")
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj, edge_indices=edge_indices):
             result = bpy.ops.mesh.bridge_edge_loops()
             if "FINISHED" not in result:
-                raise RuntimeError(
-                    f"mesh.bridge_edge_loops did not finish (status: {result})"
-                )
+                raise RuntimeError(f"mesh.bridge_edge_loops did not finish (status: {result})")
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_symmetrize(self, object_name, direction="NEGATIVE_X"):
-        """Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
+        """
+        Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -231,12 +228,11 @@ class MeshHandlersMixin:
         Raises:
             ValueError: If the operation cannot be completed.
             RuntimeError: If the operation cannot be completed.
+
         """
         direction = str(direction).upper()
         if direction not in _SYMMETRIZE_DIRECTIONS:
-            raise ValueError(
-                f"Invalid direction: {direction}. Must be one of {sorted(_SYMMETRIZE_DIRECTIONS)}"
-            )
+            raise ValueError(f"Invalid direction: {direction}. Must be one of {sorted(_SYMMETRIZE_DIRECTIONS)}")
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj):
             result = bpy.ops.mesh.symmetrize(direction=direction)
@@ -244,10 +240,9 @@ class MeshHandlersMixin:
                 raise RuntimeError(f"mesh.symmetrize did not finish (status: {result})")
         return {"name": obj.name, **_mesh_counts(obj)}
 
-    def mesh_boolean(
-        self, object_name, cutter_object_name, operation="DIFFERENCE", keep_cutter=True
-    ):
-        """Apply a boolean modifier between two mesh objects, deleting the cutter unless keep_cutter.
+    def mesh_boolean(self, object_name, cutter_object_name, operation="DIFFERENCE", keep_cutter=True):
+        """
+        Apply a boolean modifier between two mesh objects, deleting the cutter unless keep_cutter.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -260,16 +255,13 @@ class MeshHandlersMixin:
 
         Raises:
             ValueError: If the operation cannot be completed.
+
         """
         operation = str(operation).upper()
         if operation not in {"UNION", "DIFFERENCE", "INTERSECT"}:
-            raise ValueError(
-                f"Invalid operation: {operation}. Must be one of UNION, DIFFERENCE, INTERSECT"
-            )
+            raise ValueError(f"Invalid operation: {operation}. Must be one of UNION, DIFFERENCE, INTERSECT")
         if object_name == cutter_object_name:
-            raise ValueError(
-                f"cutter_object_name must differ from object_name (both are '{object_name}')"
-            )
+            raise ValueError(f"cutter_object_name must differ from object_name (both are '{object_name}')")
         obj = _get_mesh_object(object_name)
         cutter = _get_mesh_object(cutter_object_name)
         mod = obj.modifiers.new(name="Boolean", type="BOOLEAN")
@@ -281,7 +273,8 @@ class MeshHandlersMixin:
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_subdivide(self, object_name, cuts=1, face_indices=None):
-        """Subdivide the selected (or all) faces of a mesh.
+        """
+        Subdivide the selected (or all) faces of a mesh.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -293,6 +286,7 @@ class MeshHandlersMixin:
 
         Raises:
             RuntimeError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         with _edit_mesh(obj, face_indices=face_indices):
@@ -302,7 +296,8 @@ class MeshHandlersMixin:
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_remesh(self, object_name, voxel_size=0.1):
-        """Voxel-remesh a mesh object, rebuilding its topology at the given voxel size.
+        """
+        Voxel-remesh a mesh object, rebuilding its topology at the given voxel size.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -313,6 +308,7 @@ class MeshHandlersMixin:
 
         Raises:
             RuntimeError: If the operation cannot be completed.
+
         """
         obj = _get_mesh_object(object_name)
         obj.data.remesh_voxel_size = voxel_size
@@ -323,7 +319,8 @@ class MeshHandlersMixin:
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_solidify(self, object_name, thickness=0.01, apply=False):
-        """Add thickness to a mesh's surface via a Solidify modifier.
+        """
+        Add thickness to a mesh's surface via a Solidify modifier.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -332,6 +329,7 @@ class MeshHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         obj = _get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Solidify", type="SOLIDIFY")

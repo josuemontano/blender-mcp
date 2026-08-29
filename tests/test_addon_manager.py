@@ -13,7 +13,7 @@ from blender_mcp.addon_manager import (
 )
 
 
-def test_bundled_addon_exists_and_has_protocol():
+def test_bundled_addon_exists_and_has_protocol() -> None:
     path = get_bundled_addon_path()
     assert path.is_dir()
     text = (path / "__init__.py").read_text(encoding="utf-8")
@@ -24,29 +24,25 @@ def test_bundled_addon_exists_and_has_protocol():
     assert "get_addon_info" in server_core
 
 
-def test_install_addon_copies_into_target_dir(tmp_path: Path):
+def test_install_addon_copies_into_target_dir(tmp_path: Path) -> None:
     addons = tmp_path / "scripts" / "addons"
     # Pre-existing oddly named install (what many users have)
     addons.mkdir(parents=True)
     legacy = addons / "addon.py"
-    legacy.write_text(
-        'bl_info = {\n    "name": "Blender MCP"\n}\n# old\n', encoding="utf-8"
-    )
+    legacy.write_text('bl_info = {\n    "name": "Blender MCP"\n}\n# old\n', encoding="utf-8")
 
     result = install_addon(addons)
     assert result.success is True
     assert result.target_path is not None
     installed = Path(result.target_path)
     assert installed.is_dir()
-    assert "ADDON_PROTOCOL_VERSION" in (installed / "__init__.py").read_text(
-        encoding="utf-8"
-    )
+    assert "ADDON_PROTOCOL_VERSION" in (installed / "__init__.py").read_text(encoding="utf-8")
     # The legacy single-file install is replaced by the package directory,
     # not left behind alongside it.
     assert not legacy.exists()
 
 
-def test_handshake_up_to_date():
+def test_handshake_up_to_date() -> None:
     blender = MagicMock()
     blender.send_command.return_value = {
         "protocol_version": EXPECTED_ADDON_PROTOCOL_VERSION,
@@ -60,19 +56,16 @@ def test_handshake_up_to_date():
     assert result.warning is None
 
 
-def test_handshake_missing_command_on_old_addon():
+def test_handshake_missing_command_on_old_addon() -> None:
     blender = MagicMock()
     blender.send_command.side_effect = Exception("Unknown command type: get_addon_info")
     result = handshake_addon(blender)
     assert result.up_to_date is False
     assert result.source == "missing"
-    assert (
-        "install-addon" in (result.warning or "").lower()
-        or "restart" in (result.warning or "").lower()
-    )
+    assert "install-addon" in (result.warning or "").lower() or "restart" in (result.warning or "").lower()
 
 
-def test_handshake_outdated_protocol():
+def test_handshake_outdated_protocol() -> None:
     blender = MagicMock()
     blender.send_command.return_value = {
         "protocol_version": 1,
@@ -86,7 +79,8 @@ def test_handshake_outdated_protocol():
 
 
 def _stale_addon_source() -> str:
-    """A stand-in for an old-style single-.py-file legacy install.
+    """
+    A stand-in for an old-style single-.py-file legacy install.
 
     The addon's bl_info and ADDON_PROTOCOL_VERSION marker both live in
     __init__.py, so its content alone is enough to be recognized as a
@@ -107,7 +101,7 @@ def _stale_addon_source() -> str:
     )
 
 
-def test_startup_check_never_writes(tmp_path: Path, monkeypatch):
+def test_startup_check_never_writes(tmp_path: Path, monkeypatch) -> None:
     """Starting the server must not modify the user's Blender files."""
     from blender_mcp import addon_manager as am
 
@@ -129,7 +123,7 @@ def test_startup_check_never_writes(tmp_path: Path, monkeypatch):
     assert sorted(p.name for p in addons.iterdir()) == listing_before
 
 
-def test_startup_check_reports_current(tmp_path: Path, monkeypatch):
+def test_startup_check_reports_current(tmp_path: Path, monkeypatch) -> None:
     from blender_mcp import addon_manager as am
 
     addons = tmp_path / "4.2" / "scripts" / "addons"
@@ -145,7 +139,7 @@ def test_startup_check_reports_current(tmp_path: Path, monkeypatch):
     assert report.reason == "already_current"
 
 
-def test_startup_check_reports_missing_install(tmp_path: Path, monkeypatch):
+def test_startup_check_reports_missing_install(tmp_path: Path, monkeypatch) -> None:
     from blender_mcp import addon_manager as am
 
     addons = tmp_path / "4.2" / "scripts" / "addons"
@@ -158,9 +152,7 @@ def test_startup_check_reports_missing_install(tmp_path: Path, monkeypatch):
     assert "install-addon" in report.message
 
 
-def test_install_updates_extensions_dir_when_addon_lives_there(
-    tmp_path: Path, monkeypatch
-):
+def test_install_updates_extensions_dir_when_addon_lives_there(tmp_path: Path, monkeypatch) -> None:
     """Blender 4.2+: update the loaded copy, don't add a second one."""
     from blender_mcp import addon_manager as am
 
@@ -172,23 +164,21 @@ def test_install_updates_extensions_dir_when_addon_lives_there(
     stale_install.write_text(_stale_addon_source(), encoding="utf-8")
 
     # discover_blender_addon_dirs lists scripts/addons first.
-    monkeypatch.setattr(
-        am, "discover_blender_addon_dirs", lambda: [scripts, extensions]
-    )
+    monkeypatch.setattr(am, "discover_blender_addon_dirs", lambda: [scripts, extensions])
     result = am.install_addon()
 
     assert result.success is True
     updated = extensions / "blender_mcp"
-    assert am.read_addon_protocol_version(updated) == (
-        am.EXPECTED_ADDON_PROTOCOL_VERSION
-    ), "the actually-loaded extensions copy was left stale"
+    assert am.read_addon_protocol_version(updated) == (am.EXPECTED_ADDON_PROTOCOL_VERSION), (
+        "the actually-loaded extensions copy was left stale"
+    )
     assert not stale_install.exists(), "old single-file install was left behind"
     assert not (scripts / "blender_mcp").exists(), (
         "installed a duplicate into scripts/addons instead of updating in place"
     )
 
 
-def test_repeat_install_preserves_original_backup(tmp_path: Path):
+def test_repeat_install_preserves_original_backup(tmp_path: Path) -> None:
     """A second install must not overwrite the .bak holding the user's edits."""
     from blender_mcp import addon_manager as am
 

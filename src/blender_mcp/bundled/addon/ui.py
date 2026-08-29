@@ -36,7 +36,7 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         name="Hunyuan3D API URL", description="Persistent Hunyuan3D API URL", default=""
     )
 
-    def draw(self, context):
+    def draw(self, context) -> None:
         layout = self.layout
 
         layout.label(text="Persistent API Credentials:", icon="LOCKED")
@@ -56,15 +56,13 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "BlenderMCP"
 
-    def draw(self, context):
+    def draw(self, context) -> None:
         layout = self.layout
         scene = context.scene
         prefs = get_blendermcp_addon_preferences(context)
 
         layout.prop(scene, "blendermcp_port")
-        layout.prop(
-            scene, "blendermcp_use_polyhaven", text="Use assets from Poly Haven"
-        )
+        layout.prop(scene, "blendermcp_use_polyhaven", text="Use assets from Poly Haven")
 
         layout.prop(
             scene,
@@ -101,12 +99,8 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                     layout.prop(prefs, "hunyuan3d_secret_id", text="SecretId")
                     layout.prop(prefs, "hunyuan3d_secret_key", text="SecretKey")
                 else:
-                    layout.prop(
-                        scene, "blendermcp_hunyuan3d_secret_id", text="SecretId"
-                    )
-                    layout.prop(
-                        scene, "blendermcp_hunyuan3d_secret_key", text="SecretKey"
-                    )
+                    layout.prop(scene, "blendermcp_hunyuan3d_secret_id", text="SecretId")
+                    layout.prop(scene, "blendermcp_hunyuan3d_secret_key", text="SecretKey")
             if scene.blendermcp_hunyuan3d_mode == "LOCAL_API":
                 if prefs:
                     layout.prop(prefs, "hunyuan3d_api_url", text="API URL")
@@ -122,12 +116,8 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                     "blendermcp_hunyuan3d_num_inference_steps",
                     text="Number of Inference Steps",
                 )
-                layout.prop(
-                    scene, "blendermcp_hunyuan3d_guidance_scale", text="Guidance Scale"
-                )
-                layout.prop(
-                    scene, "blendermcp_hunyuan3d_texture", text="Generate Texture"
-                )
+                layout.prop(scene, "blendermcp_hunyuan3d_guidance_scale", text="Guidance Scale")
+                layout.prop(scene, "blendermcp_hunyuan3d_texture", text="Generate Texture")
 
         layout.prop(
             scene,
@@ -162,10 +152,7 @@ class BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey(bpy.types.Operator):
     def execute(self, context):
         prefs = get_blendermcp_addon_preferences(context)
         if prefs:
-            if (
-                not prefs.hyper3d_api_key
-                or prefs.hyper3d_api_key == RODIN_FREE_TRIAL_KEY
-            ):
+            if not prefs.hyper3d_api_key or prefs.hyper3d_api_key == RODIN_FREE_TRIAL_KEY:
                 prefs.hyper3d_api_key = RODIN_FREE_TRIAL_KEY
             else:
                 self.report(
@@ -188,10 +175,7 @@ class BLENDERMCP_OT_StartServer(bpy.types.Operator):
         scene = context.scene
 
         # Create a new server instance
-        if (
-            not hasattr(bpy.types, "blendermcp_server")
-            or not bpy.types.blendermcp_server
-        ):
+        if not hasattr(bpy.types, "blendermcp_server") or not bpy.types.blendermcp_server:
             bpy.types.blendermcp_server = BlenderMCPServer(port=scene.blendermcp_port)
 
         # Start the server

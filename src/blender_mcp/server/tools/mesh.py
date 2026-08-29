@@ -1,6 +1,7 @@
 """Direct mesh-editing tools."""
 
 import logging
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context
@@ -27,7 +28,8 @@ async def mesh_create_primitive(
     dimensions: tuple[float, float, float] | None = None,
     purpose: PrimitivePurpose | None = None,
 ) -> dict:
-    """Create a primitive mesh or curve object in the scene.
+    """
+    Create a primitive mesh or curve object in the scene.
 
     Args:
         ctx: MCP request context.
@@ -41,8 +43,10 @@ async def mesh_create_primitive(
 
     Returns:
         the created object's name, type, location, and mesh counts (plus dimensions/scale when `dimensions` was given).
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -72,7 +76,8 @@ async def mesh_extrude(
     offset: tuple[float, float, float] = (0, 0, 1),
     face_indices: list[int] | None = None,
 ) -> dict:
-    """Extrude the selected faces of a mesh object along an offset vector.
+    """
+    Extrude the selected faces of a mesh object along an offset vector.
 
     Args:
         ctx: MCP request context.
@@ -82,8 +87,10 @@ async def mesh_extrude(
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -109,7 +116,8 @@ async def mesh_inset(
     depth: float = 0.0,
     face_indices: list[int] | None = None,
 ) -> dict:
-    """Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
+    """
+    Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
 
     Args:
         ctx: MCP request context.
@@ -120,8 +128,10 @@ async def mesh_inset(
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -150,7 +160,8 @@ async def mesh_bevel(
     edge_indices: list[int] | None = None,
     vertex_indices: list[int] | None = None,
 ) -> dict:
-    """Bevel the selected edges or vertices of a mesh object.
+    """
+    Bevel the selected edges or vertices of a mesh object.
 
     Args:
         ctx: MCP request context.
@@ -163,8 +174,10 @@ async def mesh_bevel(
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -187,7 +200,8 @@ async def mesh_bevel(
 
 @mcp.tool()
 async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -> dict:
-    """Bridge two open edge loops of a mesh object with new faces.
+    """
+    Bridge two open edge loops of a mesh object with new faces.
 
     Args:
         ctx: MCP request context.
@@ -196,8 +210,10 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -219,7 +235,8 @@ SymmetrizeDirection = Literal["NEGATIVE_X", "POSITIVE_X", "NEGATIVE_Y", "POSITIV
 
 @mcp.tool()
 async def mesh_symmetrize(ctx: Context, object_name: str, direction: SymmetrizeDirection = "NEGATIVE_X") -> dict:
-    """Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
+    """
+    Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
 
     Args:
         ctx: MCP request context.
@@ -228,8 +245,10 @@ async def mesh_symmetrize(ctx: Context, object_name: str, direction: SymmetrizeD
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -254,7 +273,8 @@ async def mesh_boolean(
     operation: Literal["UNION", "DIFFERENCE", "INTERSECT"] = "DIFFERENCE",
     keep_cutter: bool = True,
 ) -> dict:
-    """Apply a boolean operation between two mesh objects.
+    """
+    Apply a boolean operation between two mesh objects.
 
     Args:
         ctx: MCP request context.
@@ -265,8 +285,10 @@ async def mesh_boolean(
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -293,7 +315,8 @@ async def mesh_subdivide(
     cuts: int = 1,
     face_indices: list[int] | None = None,
 ) -> dict:
-    """Subdivide the selected faces of a mesh object, adding more geometry.
+    """
+    Subdivide the selected faces of a mesh object, adding more geometry.
 
     Args:
         ctx: MCP request context.
@@ -303,8 +326,10 @@ async def mesh_subdivide(
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -324,7 +349,8 @@ async def mesh_subdivide(
 
 @mcp.tool()
 async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -> dict:
-    """Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
+    """
+    Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
 
     Args:
         ctx: MCP request context.
@@ -333,8 +359,10 @@ async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -358,7 +386,8 @@ async def mesh_solidify(
     thickness: float = 0.01,
     apply: bool = False,
 ) -> dict:
-    """Give a mesh's surface thickness via a Solidify modifier.
+    """
+    Give a mesh's surface thickness via a Solidify modifier.
 
     Args:
         ctx: MCP request context.
@@ -368,8 +397,10 @@ async def mesh_solidify(
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

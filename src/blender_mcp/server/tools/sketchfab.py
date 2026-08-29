@@ -21,7 +21,8 @@ async def search_sketchfab_models(
     count: int = 20,
     downloadable: bool = True,
 ) -> dict:
-    """Search the Sketchfab catalog for models, optionally filtering by category and downloadability.
+    """
+    Search the Sketchfab catalog for models, optionally filtering by category and downloadability.
 
     Args:
         ctx: MCP request context.
@@ -32,8 +33,10 @@ async def search_sketchfab_models(
 
     Returns:
         matching model metadata, including UIDs for previewing or importing.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -64,7 +67,8 @@ async def search_sketchfab_models(
 
 @mcp.tool()
 async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
-    """Return a Sketchfab model's thumbnail for visual review before import.
+    """
+    Return a Sketchfab model's thumbnail for visual review before import.
 
     Use this to visually confirm a model before downloading.
 
@@ -74,8 +78,10 @@ async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
 
     Returns:
         the model's thumbnail as an Image for visual confirmation.
+
     Raises:
         Exception: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -101,13 +107,14 @@ async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
         return Image(data=image_data, format=img_format)
 
     except Exception as e:
-        logger.error(f"Error getting Sketchfab preview: {str(e)}")
-        raise Exception(f"Failed to get preview: {str(e)}") from e
+        logger.error(f"Error getting Sketchfab preview: {e!s}")
+        raise Exception(f"Failed to get preview: {e!s}") from e
 
 
 @mcp.tool()
 async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -> dict:
-    """Download and import a Sketchfab model, scaling its largest dimension to a chosen size.
+    """
+    Download and import a Sketchfab model, scaling its largest dimension to a chosen size.
 
     The model will be scaled so its largest dimension equals target_size.
 
@@ -118,8 +125,10 @@ async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -
 
     Returns:
         import details including object names, dimensions, and bounding box. The model must be downloadable and you must have proper access rights.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

@@ -3,6 +3,7 @@
 from contextlib import suppress
 
 import bpy
+
 from bpy.props import IntProperty
 
 # Split across submodules, __name__ resolves to this package's dotted module
@@ -24,8 +25,8 @@ bl_info = {
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
 ADDON_PROTOCOL_VERSION = 6
 
-from .server_core import BlenderMCPServer  # noqa: E402
-from .ui import (  # noqa: E402
+from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
+from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]
     BLENDERMCP_AddonPreferences,
     BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey,
     BLENDERMCP_OT_StartServer,
@@ -35,7 +36,7 @@ from .ui import (  # noqa: E402
 
 
 # Registration functions
-def register():
+def register() -> None:
     bpy.types.Scene.blendermcp_port = IntProperty(
         name="Port",
         description="Port for the BlenderMCP server",
@@ -44,9 +45,7 @@ def register():
         max=65535,
     )
 
-    bpy.types.Scene.blendermcp_server_running = bpy.props.BoolProperty(
-        name="Server Running", default=False
-    )
+    bpy.types.Scene.blendermcp_server_running = bpy.props.BoolProperty(name="Server Running", default=False)
 
     bpy.types.Scene.blendermcp_auto_start_server = bpy.props.BoolProperty(
         name="Auto-Start Server",
@@ -184,21 +183,17 @@ def register():
         port = 9876
         auto_start = True
 
-    if auto_start and (
-        not hasattr(bpy.types, "blendermcp_server") or not bpy.types.blendermcp_server
-    ):
+    if auto_start and (not hasattr(bpy.types, "blendermcp_server") or not bpy.types.blendermcp_server):
         bpy.types.blendermcp_server = BlenderMCPServer(port=port)
     if auto_start and not bpy.types.blendermcp_server.running:
         bpy.types.blendermcp_server.start()
         with suppress(AttributeError):
-            bpy.context.scene.blendermcp_server_running = (
-                bpy.types.blendermcp_server.running
-            )
+            bpy.context.scene.blendermcp_server_running = bpy.types.blendermcp_server.running
 
     print("BlenderMCP addon registered")
 
 
-def unregister():
+def unregister() -> None:
     # Stop the server if it's running
     if hasattr(bpy.types, "blendermcp_server") and bpy.types.blendermcp_server:
         bpy.types.blendermcp_server.stop()

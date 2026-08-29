@@ -1,4 +1,5 @@
-"""Regression coverage for split multi-byte UTF-8 sequences in the socket buffer.
+"""
+Regression coverage for split multi-byte UTF-8 sequences in the socket buffer.
 
 The bug: `_handle_client` accumulates `recv()` chunks into `buffer` and does
 `buffer.decode('utf-8')` before attempting `json.loads()`. Only
@@ -22,17 +23,18 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from test_server_threading import BlenderMCPServer
 
 
 class _ScriptedSocket:
     """Fake client socket returning pre-scripted recv() chunks, one per call."""
 
-    def __init__(self, chunks):
+    def __init__(self, chunks) -> None:
         self._chunks = list(chunks)
         self.sent = []
 
-    def settimeout(self, timeout):
+    def settimeout(self, timeout) -> None:
         pass
 
     def recv(self, bufsize):
@@ -40,10 +42,10 @@ class _ScriptedSocket:
             return self._chunks.pop(0)
         return b""
 
-    def sendall(self, data):
+    def sendall(self, data) -> None:
         self.sent.append(data)
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
@@ -54,7 +56,8 @@ def _make_server():
 
 
 def _split_after_lead_byte(payload: bytes) -> int:
-    """Index right after a multi-byte UTF-8 lead byte's first byte.
+    """
+    Index right after a multi-byte UTF-8 lead byte's first byte.
 
     Splitting there guarantees the first chunk ends mid-character, so
     decoding it alone as UTF-8 raises UnicodeDecodeError.
@@ -65,10 +68,8 @@ def _split_after_lead_byte(payload: bytes) -> int:
     raise AssertionError("payload has no multi-byte UTF-8 character to split")
 
 
-def test_split_multibyte_utf8_boundary_is_not_dropped():
-    payload = json.dumps(
-        {"type": "ping", "params": {"note": "café ☕ 日本語"}}, ensure_ascii=False
-    ).encode("utf-8")
+def test_split_multibyte_utf8_boundary_is_not_dropped() -> None:
+    payload = json.dumps({"type": "ping", "params": {"note": "café ☕ 日本語"}}, ensure_ascii=False).encode("utf-8")
     split_idx = _split_after_lead_byte(payload)
     chunk1, chunk2 = payload[:split_idx], payload[split_idx:]
 
@@ -91,22 +92,19 @@ def test_split_multibyte_utf8_boundary_is_not_dropped():
     assert command["params"]["note"] == "café ☕ 日本語"
 
 
-def test_split_multibyte_utf8_boundary_keeps_handler_loop_alive():
-    """A second command sent right after the split payload must still arrive.
+def test_split_multibyte_utf8_boundary_keeps_handler_loop_alive() -> None:
+    """
+    A second command sent right after the split payload must still arrive.
 
     If the split killed the loop, this second command would never be queued.
     """
-    first = json.dumps(
-        {"type": "ping", "params": {"note": "emoji test 🎨"}}, ensure_ascii=False
-    ).encode("utf-8")
+    first = json.dumps({"type": "ping", "params": {"note": "emoji test 🎨"}}, ensure_ascii=False).encode("utf-8")
     split_idx = _split_after_lead_byte(first)
     second = json.dumps({"type": "ping", "params": {}}).encode("utf-8")
 
     server = _make_server()
     server.running = True
-    server._handle_client(
-        _ScriptedSocket([first[:split_idx], first[split_idx:], second])
-    )
+    server._handle_client(_ScriptedSocket([first[:split_idx], first[split_idx:], second]))
 
     queued = []
     while not server.command_queue.empty():

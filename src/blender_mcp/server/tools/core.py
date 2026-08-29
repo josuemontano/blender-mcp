@@ -1,6 +1,7 @@
 """Core/meta tools: addon status and integration status."""
 
 import logging
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context
@@ -26,7 +27,8 @@ _STATUS_COMMANDS: dict[Provider, str] = {
 
 @mcp.tool()
 async def get_integration_status(ctx: Context, provider: Provider | None = None) -> dict:
-    """Check whether an optional third-party integration is enabled in Blender.
+    """
+    Check whether an optional third-party integration is enabled in Blender.
 
     Args:
         ctx: MCP request context.
@@ -37,6 +39,7 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -52,7 +55,8 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
 
 @mcp.tool()
 async def get_addon_status(ctx: Context) -> dict:
-    """Check whether the connected Blender addon matches this MCP server version.
+    """
+    Check whether the connected Blender addon matches this MCP server version.
 
     If outdated, tells the user how to update via `blender-mcp install-addon`
     (then restart or re-enable the addon in Blender).
@@ -65,6 +69,7 @@ async def get_addon_status(ctx: Context) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

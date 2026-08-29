@@ -19,17 +19,11 @@ def _install_bpy_stubs(monkeypatch, scene):
     )
     bpy.ops = types.SimpleNamespace(
         import_scene=types.SimpleNamespace(
-            gltf=lambda **_kwargs: (_ for _ in ()).throw(
-                AssertionError("unexpected gltf import")
-            ),
-            obj=lambda **_kwargs: (_ for _ in ()).throw(
-                AssertionError("unexpected obj import")
-            ),
+            gltf=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected gltf import")),
+            obj=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected obj import")),
         ),
         wm=types.SimpleNamespace(
-            obj_import=lambda **_kwargs: (_ for _ in ()).throw(
-                AssertionError("unexpected obj import")
-            ),
+            obj_import=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected obj import")),
         ),
     )
 
@@ -89,23 +83,23 @@ def _load_addon(monkeypatch):
 
 
 class _FakeResponse:
-    def __init__(self, content: bytes):
+    def __init__(self, content: bytes) -> None:
         self.content = content
         self.status_code = 200
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         return None
 
     def iter_content(self, chunk_size=8192):
         yield self.content
 
 
-def test_hunyuan_import_prefers_glb_urls(monkeypatch):
+def test_hunyuan_import_prefers_glb_urls(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     called = {"gltf": False}
 
-    def gltf_import(**_kwargs):
+    def gltf_import(**_kwargs) -> None:
         called["gltf"] = True
         mesh = types.SimpleNamespace(
             type="MESH",
@@ -135,7 +129,7 @@ def test_hunyuan_import_prefers_glb_urls(monkeypatch):
     assert result["name"] == "Chair"
 
 
-def test_hunyuan_zip_rejects_path_traversal(monkeypatch):
+def test_hunyuan_zip_rejects_path_traversal(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -158,7 +152,4 @@ def test_hunyuan_zip_rejects_path_traversal(monkeypatch):
     )
 
     assert result["succeed"] is False
-    assert (
-        "path traversal" in result["error"].lower()
-        or "directory traversal" in result["error"].lower()
-    )
+    assert "path traversal" in result["error"].lower() or "directory traversal" in result["error"].lower()

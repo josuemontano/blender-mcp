@@ -18,7 +18,8 @@ async def generate_hunyuan3d_model(
     text_prompt: str | None = None,
     input_image_url: str | None = None,
 ) -> dict:
-    """Submit a Hunyuan3D text- and/or image-to-3D generation job.
+    """
+    Submit a Hunyuan3D text- and/or image-to-3D generation job.
 
     This call only starts the asynchronous job. Poll it with `poll_hunyuan_job_status`,
     then import a completed result with `import_generated_asset_hunyuan`. Generated
@@ -31,8 +32,10 @@ async def generate_hunyuan3d_model(
 
     Returns:
         a job_id (format: "job_xxx") indicating the task is in progress; poll with poll_hunyuan_job_status.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -57,7 +60,8 @@ def poll_hunyuan_job_status(
     ctx: Context,
     job_id: str | None = None,
 ) -> dict:
-    """Get the current status and downloadable files for a Hunyuan3D generation job.
+    """
+    Get the current status and downloadable files for a Hunyuan3D generation job.
 
     Poll until the job reaches a terminal status. On `DONE`, choose a `ResultFile3Ds`
     URL (prefer `.glb`) and pass it to `import_generated_asset_hunyuan`.
@@ -68,8 +72,10 @@ def poll_hunyuan_job_status(
 
     Returns:
         the provider status and, on success, one or more downloadable model URLs.
+
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -86,7 +92,8 @@ async def import_generated_asset_hunyuan(
     name: str,
     zip_file_url: str,
 ) -> dict:
-    """Download and import a completed Hunyuan3D asset into the Blender scene.
+    """
+    Download and import a completed Hunyuan3D asset into the Blender scene.
 
     Args:
         ctx: MCP request context.
@@ -98,6 +105,7 @@ async def import_generated_asset_hunyuan(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()

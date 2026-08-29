@@ -10,13 +10,13 @@ from conftest import load_addon_package
 
 
 class _FakeModifier:
-    def __init__(self, name, type_):
+    def __init__(self, name, type_) -> None:
         self.name = name
         self.type = type_
 
 
 class _FakeObject:
-    def __init__(self, name, modifiers=None):
+    def __init__(self, name, modifiers=None) -> None:
         self.name = name
         self.modifiers = list(modifiers or [])
 
@@ -30,19 +30,17 @@ class _FakeObjectsCollection(dict):
 
 
 class _FakeOverlay:
-    def __init__(self):
+    def __init__(self) -> None:
         self.show_cavity = False
         self.show_wireframes = False
         self.show_face_orientation = False
 
 
 class _FakeArea:
-    def __init__(self):
+    def __init__(self) -> None:
         self.type = "VIEW_3D"
         self.regions = [types.SimpleNamespace(type="WINDOW")]
-        self.spaces = types.SimpleNamespace(
-            active=types.SimpleNamespace(overlay=_FakeOverlay())
-        )
+        self.spaces = types.SimpleNamespace(active=types.SimpleNamespace(overlay=_FakeOverlay()))
 
 
 @contextlib.contextmanager
@@ -132,7 +130,7 @@ def _scene(nd_enabled):
     )
 
 
-def test_disabled_nd_is_absent_from_dispatch(monkeypatch):
+def test_disabled_nd_is_absent_from_dispatch(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=True)
     server = addon.BlenderMCPServer()
 
@@ -147,7 +145,7 @@ def test_disabled_nd_is_absent_from_dispatch(monkeypatch):
     }
 
 
-def test_enabled_nd_without_addon_installed_is_reported_as_not_ready(monkeypatch):
+def test_enabled_nd_without_addon_installed_is_reported_as_not_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=False)
     server = addon.BlenderMCPServer()
 
@@ -157,7 +155,7 @@ def test_enabled_nd_without_addon_installed_is_reported_as_not_ready(monkeypatch
     assert "does not appear to be" in status["message"]
 
 
-def test_enabled_nd_with_addon_installed_is_ready(monkeypatch):
+def test_enabled_nd_with_addon_installed_is_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
 
@@ -169,7 +167,7 @@ def test_enabled_nd_with_addon_installed_is_ready(monkeypatch):
     }
 
 
-def test_nd_viewport_toggle_cavity_sets_overlay_property_idempotently(monkeypatch):
+def test_nd_viewport_toggle_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
     overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
@@ -185,7 +183,7 @@ def test_nd_viewport_toggle_cavity_sets_overlay_property_idempotently(monkeypatc
     assert overlay.show_cavity is True
 
 
-def test_nd_viewport_toggle_face_orientation_can_be_turned_off(monkeypatch):
+def test_nd_viewport_toggle_face_orientation_can_be_turned_off(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
     overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
@@ -199,7 +197,7 @@ def test_nd_viewport_toggle_face_orientation_can_be_turned_off(monkeypatch):
 
 def test_nd_viewport_toggle_clear_view_routes_through_nd_operator_and_ignores_enabled_state(
     monkeypatch,
-):
+) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
     calls = []
@@ -215,7 +213,7 @@ def test_nd_viewport_toggle_clear_view_routes_through_nd_operator_and_ignores_en
     assert calls == ["called"]
 
 
-def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch):
+def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
 
@@ -223,7 +221,7 @@ def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch):
         server.nd_viewport_toggle(toggle="SILHOUETTE", enabled=True)
 
 
-def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch):
+def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch) -> None:
     objects = _FakeObjectsCollection()
     kept = _FakeObject("Kept", modifiers=[_FakeModifier("Array", "ARRAY")])
     orphan = _FakeObject("UtilCutter")
@@ -235,9 +233,7 @@ def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch):
         kept.modifiers = []
         return {"FINISHED"}
 
-    addon = _load_addon(
-        monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects
-    )
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects)
     monkeypatch.setattr(sys.modules["bpy"].ops.nd, "clean_utils", fake_clean_utils)
     server = addon.BlenderMCPServer()
 
@@ -245,18 +241,14 @@ def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch):
 
     assert result["status"] == "cleaned"
     assert result["removed_objects"] == ["UtilCutter"]
-    assert result["removed_modifiers"] == [
-        {"object": "Kept", "modifier": "Array", "type": "ARRAY"}
-    ]
+    assert result["removed_modifiers"] == [{"object": "Kept", "modifier": "Array", "type": "ARRAY"}]
 
 
-def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monkeypatch):
+def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monkeypatch) -> None:
     objects = _FakeObjectsCollection()
     objects["Solo"] = _FakeObject("Solo", modifiers=[_FakeModifier("Bevel", "BEVEL")])
 
-    addon = _load_addon(
-        monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects
-    )
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects)
     server = addon.BlenderMCPServer()
 
     result = server.nd_clean_utils()

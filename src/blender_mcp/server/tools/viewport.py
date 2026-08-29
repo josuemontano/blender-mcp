@@ -3,6 +3,7 @@
 import logging
 import os
 import tempfile
+
 from typing import Literal
 
 from mcp.server.fastmcp import Context, Image
@@ -17,7 +18,8 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @mcp.tool()
 async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
-    """Inspect the current Blender scene and page through its objects.
+    """
+    Inspect the current Blender scene and page through its objects.
 
     Args:
         ctx: MCP request context.
@@ -29,6 +31,7 @@ async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -41,7 +44,8 @@ async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict
 
 @mcp.tool()
 async def get_object_info(ctx: Context, object_name: str) -> dict:
-    """Inspect an object's transform, type, materials, modifiers, and summary geometry data.
+    """
+    Inspect an object's transform, type, materials, modifiers, and summary geometry data.
 
     Args:
         ctx: MCP request context.
@@ -52,6 +56,7 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -71,7 +76,8 @@ async def get_mesh_data(
     offset: int = 0,
     selected_only: bool = False,
 ) -> dict:
-    """Paginated inspection of a mesh's topology: vertices, edges, faces, or loops.
+    """
+    Paginated inspection of a mesh's topology: vertices, edges, faces, or loops.
 
     Use this to discover valid indices (with coordinates, normals, and selection state)
     before calling index-based mesh tools such as mesh_extrude, mesh_inset, mesh_bevel,
@@ -90,6 +96,7 @@ async def get_mesh_data(
 
     Raises:
         ToolError: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -111,7 +118,8 @@ async def get_mesh_data(
 
 @mcp.tool()
 def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
-    """Capture the current Blender 3D viewport as an image for visual inspection.
+    """
+    Capture the current Blender 3D viewport as an image for visual inspection.
 
     Args:
         ctx: MCP request context.
@@ -119,8 +127,10 @@ def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
 
     Returns:
         the screenshot as an Image.
+
     Raises:
         Exception: If the operation cannot be completed.
+
     """
     try:
         blender = get_blender_connection()
@@ -150,5 +160,5 @@ def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
         return Image(data=image_bytes, format="png")
 
     except Exception as e:
-        logger.error(f"Error capturing screenshot: {str(e)}")
-        raise Exception(f"Screenshot failed: {str(e)}") from e
+        logger.error(f"Error capturing screenshot: {e!s}")
+        raise Exception(f"Screenshot failed: {e!s}") from e

@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+
 from contextlib import suppress
 from datetime import datetime
 
@@ -19,10 +20,12 @@ import requests
 class Hunyuan3DHandlersMixin:
     # region Hunyuan3D
     def get_hunyuan3d_status(self):
-        """Get the current status of Hunyuan3D integration
+        """
+        Get the current status of Hunyuan3D integration.
 
         Returns:
             Result produced by the operation.
+
         """
         enabled = bpy.context.scene.blendermcp_use_hunyuan3d
         hunyuan3d_mode = bpy.context.scene.blendermcp_hunyuan3d_mode
@@ -81,9 +84,10 @@ class Hunyuan3DHandlersMixin:
         region: str,
         secret_id: str,
         secret_key: str,
-        host: str = None,
+        host: str | None = None,
     ):
-        """Generate the signature header required for Tencent Cloud API requests headers
+        """
+        Generate the signature header required for Tencent Cloud API requests headers.
 
         Args:
             method: Value for method.
@@ -98,6 +102,7 @@ class Hunyuan3DHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         # Generate timestamp
         timestamp = int(time.time())
@@ -136,17 +141,9 @@ class Hunyuan3DHandlersMixin:
 
         # ************* Step 2: Construct the reception signature string *************
         credential_scope = f"{date}/{service}/tc3_request"
-        hashed_canonical_request = hashlib.sha256(
-            canonical_request.encode("utf-8")
-        ).hexdigest()
+        hashed_canonical_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
         string_to_sign = (
-            "TC3-HMAC-SHA256"
-            + "\n"
-            + str(timestamp)
-            + "\n"
-            + credential_scope
-            + "\n"
-            + hashed_canonical_request
+            "TC3-HMAC-SHA256" + "\n" + str(timestamp) + "\n" + credential_scope + "\n" + hashed_canonical_request
         )
 
         # ************* Step 3: Calculate the signature *************
@@ -156,9 +153,7 @@ class Hunyuan3DHandlersMixin:
         secret_date = sign(("TC3" + secret_key).encode("utf-8"), date)
         secret_service = sign(secret_date, service)
         secret_signing = sign(secret_service, "tc3_request")
-        signature = hmac.new(
-            secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
+        signature = hmac.new(secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
         # ************* Step 4: Connect Authorization *************
         authorization = (
@@ -198,7 +193,7 @@ class Hunyuan3DHandlersMixin:
             case _:
                 return "Error: Unknown Hunyuan3D mode!"
 
-    def create_hunyuan_job_main_site(self, text_prompt: str = None, image: str = None):
+    def create_hunyuan_job_main_site(self, text_prompt: str | None = None, image: str | None = None):
         try:
             secret_id = self._get_hunyuan3d_secret_id()
             secret_key = self._get_hunyuan3d_secret_key()
@@ -243,7 +238,7 @@ class Hunyuan3DHandlersMixin:
                             image_base64 = base64.b64encode(f.read()).decode("ascii")
                         data["ImageBase64"] = image_base64
                     except Exception as e:
-                        return {"error": f"Image encoding failed: {str(e)}"}
+                        return {"error": f"Image encoding failed: {e!s}"}
 
             # Get signed headers
             headers, endpoint = self.get_tencent_cloud_sign_headers(
@@ -254,19 +249,15 @@ class Hunyuan3DHandlersMixin:
 
             if response.status_code == 200:
                 return response.json()
-            return {
-                "error": f"API request failed with status {response.status_code}: {response}"
-            }
+            return {"error": f"API request failed with status {response.status_code}: {response}"}
         except Exception as e:
             return {"error": str(e)}
 
-    def create_hunyuan_job_local_site(self, text_prompt: str = None, image: str = None):
+    def create_hunyuan_job_local_site(self, text_prompt: str | None = None, image: str | None = None):
         try:
             base_url = self._get_hunyuan3d_api_url().rstrip("/")
             octree_resolution = bpy.context.scene.blendermcp_hunyuan3d_octree_resolution
-            num_inference_steps = (
-                bpy.context.scene.blendermcp_hunyuan3d_num_inference_steps
-            )
+            num_inference_steps = bpy.context.scene.blendermcp_hunyuan3d_num_inference_steps
             guidance_scale = bpy.context.scene.blendermcp_hunyuan3d_guidance_scale
             texture = bpy.context.scene.blendermcp_hunyuan3d_texture
 
@@ -297,9 +288,7 @@ class Hunyuan3DHandlersMixin:
                         image_base64 = base64.b64encode(resImg.content).decode("ascii")
                         data["image"] = image_base64
                     except Exception as e:
-                        return {
-                            "error": f"Failed to download or encode image: {str(e)}"
-                        }
+                        return {"error": f"Failed to download or encode image: {e!s}"}
                 else:
                     try:
                         # Convert to Base64 format
@@ -307,7 +296,7 @@ class Hunyuan3DHandlersMixin:
                             image_base64 = base64.b64encode(f.read()).decode("ascii")
                         data["image"] = image_base64
                     except Exception as e:
-                        return {"error": f"Image encoding failed: {str(e)}"}
+                        return {"error": f"Image encoding failed: {e!s}"}
 
             response = requests.post(
                 f"{base_url}/generate",
@@ -323,10 +312,9 @@ class Hunyuan3DHandlersMixin:
                 temp_file_name = temp_file.name
 
             # Import the GLB file in the main thread
-            def import_handler():
+            def import_handler() -> None:
                 bpy.ops.import_scene.gltf(filepath=temp_file_name)
                 os.unlink(temp_file.name)
-                return None
 
             bpy.app.timers.register(import_handler)
 
@@ -339,13 +327,15 @@ class Hunyuan3DHandlersMixin:
         return self.poll_hunyuan_job_status_ai(*args, **kwargs)
 
     def poll_hunyuan_job_status_ai(self, job_id: str):
-        """Call the job status API to get the job status
+        """
+        Call the job status API to get the job status.
 
         Args:
             job_id: Identifier of the job.
 
         Returns:
             Result produced by the operation.
+
         """
         print(job_id)
         try:
@@ -380,9 +370,7 @@ class Hunyuan3DHandlersMixin:
 
             if response.status_code == 200:
                 return response.json()
-            return {
-                "error": f"API request failed with status {response.status_code}: {response}"
-            }
+            return {"error": f"API request failed with status {response.status_code}: {response}"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -409,9 +397,7 @@ class Hunyuan3DHandlersMixin:
                     for chunk in glb_response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 bpy.ops.import_scene.gltf(filepath=glb_path)
-                imported_objs = [
-                    obj for obj in bpy.context.selected_objects if obj.type == "MESH"
-                ]
+                imported_objs = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
                 if not imported_objs:
                     return {
                         "succeed": False,
@@ -457,10 +443,7 @@ class Hunyuan3DHandlersMixin:
                     file_path = file_info.filename
                     target_path = os.path.join(temp_dir, os.path.normpath(file_path))
                     abs_target_path = os.path.abspath(target_path)
-                    if (
-                        not abs_target_path.startswith(abs_temp_dir + os.sep)
-                        and abs_target_path != abs_temp_dir
-                    ):
+                    if not abs_target_path.startswith(abs_temp_dir + os.sep) and abs_target_path != abs_temp_dir:
                         return {
                             "succeed": False,
                             "error": "Security issue: Zip contains files with path traversal attempt",
@@ -480,9 +463,7 @@ class Hunyuan3DHandlersMixin:
                     "error": "OBJ file not found after extraction",
                 }
             bpy.ops.wm.obj_import(filepath=obj_file_path)
-            imported_objs = [
-                obj for obj in bpy.context.selected_objects if obj.type == "MESH"
-            ]
+            imported_objs = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
             if not imported_objs:
                 return {"succeed": False, "error": "No mesh objects imported"}
             obj = imported_objs[0]

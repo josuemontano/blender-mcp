@@ -1,4 +1,5 @@
-"""Tests for the addon's socket server threading model (no Blender required).
+"""
+Tests for the addon's socket server threading model (no Blender required).
 
 server_core.py cannot be imported without bpy, so BlenderMCPServer is lifted
 out by AST and executed against stubs.
@@ -18,6 +19,7 @@ import socket
 import threading
 import time
 import types
+
 from contextlib import suppress
 
 from conftest import ROOT_ADDON
@@ -26,7 +28,8 @@ SERVER_CORE = ROOT_ADDON.parent / "server_core.py"
 
 
 def _load_server_class():
-    """Compile BlenderMCPServer from server_core.py against stub modules.
+    """
+    Compile BlenderMCPServer from server_core.py against stub modules.
 
     execute_command is overridden per-instance by every test in this file (see
     _make_server), so the real dispatch table and handler mixins are never
@@ -36,11 +39,7 @@ def _load_server_class():
     source = SERVER_CORE.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    body = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "BlenderMCPServer"
-    ]
+    body = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "BlenderMCPServer"]
     assert body, "BlenderMCPServer not found in server_core.py"
 
     main_thread = threading.current_thread()
@@ -49,14 +48,12 @@ def _load_server_class():
     class _Timers:
         """Stub that enforces the real bpy.app.timers main-thread constraint."""
 
-        def register(self, fn, first_interval=0.0, persistent=False):
+        def register(self, fn, first_interval=0.0, persistent=False) -> None:
             if threading.current_thread() is not main_thread:
-                raise AssertionError(
-                    "bpy.app.timers.register() called from a non-main thread"
-                )
+                raise AssertionError("bpy.app.timers.register() called from a non-main thread")
             registered[fn] = True
 
-        def unregister(self, fn):
+        def unregister(self, fn) -> None:
             registered.pop(fn, None)
 
         def is_registered(self, fn):
@@ -117,7 +114,7 @@ def _make_server():
     return server
 
 
-def _pump(server, deadline=3.0):
+def _pump(server, deadline=3.0) -> None:
     """Act as Blender's main loop, draining the queue until timeout."""
     end = time.time() + deadline
     while time.time() < end:
@@ -125,8 +122,9 @@ def _pump(server, deadline=3.0):
         time.sleep(0.01)
 
 
-def test_client_thread_never_registers_a_timer():
-    """The regression itself: dispatch must not touch bpy.app.timers off-thread.
+def test_client_thread_never_registers_a_timer() -> None:
+    """
+    The regression itself: dispatch must not touch bpy.app.timers off-thread.
 
     The _Timers stub raises if register() is called from a non-main thread, so
     the old per-command bpy.app.timers.register() would surface here.
@@ -149,7 +147,7 @@ def test_client_thread_never_registers_a_timer():
         server.stop()
 
 
-def test_command_is_queued_not_executed_on_client_thread():
+def test_command_is_queued_not_executed_on_client_thread() -> None:
     """Without a main-loop pump, the command waits in the queue - never lost."""
     server = _make_server()
     server.start()
@@ -173,8 +171,9 @@ def test_command_is_queued_not_executed_on_client_thread():
         server.stop()
 
 
-def test_stop_releases_client_threads():
-    """stop() must unblock handlers so they cannot outlive a restart.
+def test_stop_releases_client_threads() -> None:
+    """
+    stop() must unblock handlers so they cannot outlive a restart.
 
     Orphaned daemon threads parked in recv() were what produced the
     WinError 10054 after toggling the addon.
@@ -217,7 +216,7 @@ def bpy_timer_registered(server):
     return server._drain_command_queue in _registered
 
 
-def test_restart_rebinds_port_cleanly():
+def test_restart_rebinds_port_cleanly() -> None:
     """A stopped server must fully release the port for the next start()."""
     port = _free_port()
 

@@ -5,6 +5,7 @@ import sys
 import types
 
 import pytest
+
 from conftest import load_addon_package
 
 
@@ -76,23 +77,19 @@ def _quat_to_axis_angle(q):
 
 def _compose(a, b):
     """Compose two TRS matrices: a's transform applied to b (a is the outer/parent transform)."""
-    scaled_b_loc = _FakeVector(
-        b.loc.x * a.scale.x, b.loc.y * a.scale.y, b.loc.z * a.scale.z
-    )
+    scaled_b_loc = _FakeVector(b.loc.x * a.scale.x, b.loc.y * a.scale.y, b.loc.z * a.scale.z)
     rotated = _quat_rotate_vec(a.rot, scaled_b_loc)
-    new_loc = _FakeVector(
-        rotated.x + a.loc.x, rotated.y + a.loc.y, rotated.z + a.loc.z
-    )
+    new_loc = _FakeVector(rotated.x + a.loc.x, rotated.y + a.loc.y, rotated.z + a.loc.z)
     new_rot = _quat_mul(a.rot, b.rot)
-    new_scale = _FakeVector(
-        a.scale.x * b.scale.x, a.scale.y * b.scale.y, a.scale.z * b.scale.z
-    )
+    new_scale = _FakeVector(a.scale.x * b.scale.x, a.scale.y * b.scale.y, a.scale.z * b.scale.z)
     return _FakeMatrix(new_loc, new_rot, new_scale)
+
+
 # endregion
 
 
 class _FakeVector:
-    def __init__(self, x=0.0, y=0.0, z=0.0):
+    def __init__(self, x=0.0, y=0.0, z=0.0) -> None:
         self.x, self.y, self.z = x, y, z
 
     def copy(self):
@@ -109,7 +106,7 @@ class _FakeVector:
 
 
 class _FakeQuaternion:
-    def __init__(self, *args):
+    def __init__(self, *args) -> None:
         if not args:
             self.w, self.x, self.y, self.z = 1.0, 0.0, 0.0, 0.0
         elif len(args) == 1:
@@ -138,7 +135,7 @@ class _FakeQuaternion:
 
 
 class _FakeMatrix:
-    def __init__(self, loc, rot, scale):
+    def __init__(self, loc, rot, scale) -> None:
         self.loc, self.rot, self.scale = loc, rot, scale
 
     @property
@@ -149,13 +146,9 @@ class _FakeMatrix:
         return self.loc.copy(), self.rot.copy(), self.scale.copy()
 
     def __matmul__(self, point):
-        scaled = _FakeVector(
-            point.x * self.scale.x, point.y * self.scale.y, point.z * self.scale.z
-        )
+        scaled = _FakeVector(point.x * self.scale.x, point.y * self.scale.y, point.z * self.scale.z)
         rotated = _quat_rotate_vec(self.rot, scaled)
-        return _FakeVector(
-            rotated.x + self.loc.x, rotated.y + self.loc.y, rotated.z + self.loc.z
-        )
+        return _FakeVector(rotated.x + self.loc.x, rotated.y + self.loc.y, rotated.z + self.loc.z)
 
     @staticmethod
     def LocRotScale(loc, rot, scale):
@@ -163,12 +156,12 @@ class _FakeMatrix:
 
 
 class _FakeVertex:
-    def __init__(self, co):
+    def __init__(self, co) -> None:
         self.co = co
 
 
 class _FakeMeshData:
-    def __init__(self, n_verts=8, n_edges=12, n_polys=6):
+    def __init__(self, n_verts=8, n_edges=12, n_polys=6) -> None:
         self.vertices = [_FakeVertex(_FakeVector(float(i), 0.0, 0.0)) for i in range(n_verts)]
         self.edges = [object() for _ in range(n_edges)]
         self.polygons = [object() for _ in range(n_polys)]
@@ -176,7 +169,7 @@ class _FakeMeshData:
 
 
 class _FakeModifier:
-    def __init__(self, name, type):
+    def __init__(self, name, type) -> None:
         self.name = name
         self.type = type
 
@@ -192,7 +185,7 @@ class _FakeModifiers(list):
 
 
 class _FakeObject:
-    def __init__(self, name, obj_type):
+    def __init__(self, name, obj_type) -> None:
         self._name = name
         self._collection = None
         self.type = obj_type
@@ -228,7 +221,7 @@ class _FakeObject:
         return _compose(self.parent.matrix_world, local)
 
     @matrix_world.setter
-    def matrix_world(self, mat):
+    def matrix_world(self, mat) -> None:
         if self.parent is None:
             loc, rot, scale = mat.decompose()
         else:
@@ -254,7 +247,7 @@ class _FakeObject:
         return self._dimensions
 
     @dimensions.setter
-    def dimensions(self, value):
+    def dimensions(self, value) -> None:
         self._dimensions = _FakeVector(*value)
 
     @property
@@ -262,7 +255,7 @@ class _FakeObject:
         return self._name
 
     @name.setter
-    def name(self, value):
+    def name(self, value) -> None:
         if self._collection is not None and self._name in self._collection:
             del self._collection[self._name]
             self._collection[value] = self
@@ -271,13 +264,13 @@ class _FakeObject:
     def evaluated_get(self, _depsgraph):
         return self
 
-    def select_set(self, value):
+    def select_set(self, value) -> None:
         self.selected = value
 
-    def visible_get(self):
+    def visible_get(self) -> bool:
         return True
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value) -> None:
         self._custom[key] = value
 
     def __getitem__(self, key):
@@ -294,7 +287,7 @@ class _FakeObjectsCollection(dict):
         self[obj.name] = obj
         return obj
 
-    def remove(self, obj, do_unlink=True):
+    def remove(self, obj, do_unlink=True) -> None:
         self.pop(obj.name, None)
 
 
@@ -307,30 +300,30 @@ class _FakeTexturesCollection(dict):
         self[name] = tex
         return tex
 
-    def remove(self, tex, do_unlink=True):
+    def remove(self, tex, do_unlink=True) -> None:
         self.pop(tex.name, None)
 
 
 class _FakeBMElem:
-    def __init__(self):
+    def __init__(self) -> None:
         self.select = False
 
 
 class _FakeBMElemSeq(list):
-    def ensure_lookup_table(self):
+    def ensure_lookup_table(self) -> None:
         pass
 
 
 class _FakeBMesh:
-    def __init__(self, mesh_data):
+    def __init__(self, mesh_data) -> None:
         self.verts = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.vertices)
         self.edges = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.edges)
         self.faces = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.polygons)
 
-    def select_flush(self, _value):
+    def select_flush(self, _value) -> None:
         pass
 
-    def select_flush_mode(self):
+    def select_flush_mode(self) -> None:
         pass
 
 
@@ -366,16 +359,16 @@ def _load_addon(monkeypatch):
     def _noop(**_kwargs):
         return {"FINISHED"}
 
-    def _mode_set(mode):
+    def _mode_set(mode) -> None:
         pass
 
-    def _modifier_apply(modifier):
+    def _modifier_apply(modifier) -> None:
         obj = bpy.context.view_layer.objects.active
         mod = obj.modifiers.get(modifier)
         if mod is not None:
             obj.modifiers.remove(mod)
 
-    def _select_all(action="SELECT"):
+    def _select_all(action="SELECT") -> None:
         pass
 
     bpy = types.ModuleType("bpy")
@@ -387,10 +380,8 @@ def _load_addon(monkeypatch):
         scene=scene,
         view_layer=types.SimpleNamespace(objects=types.SimpleNamespace(active=None)),
         active_object=None,
-        collection=types.SimpleNamespace(
-            objects=types.SimpleNamespace(link=lambda _obj: None)
-        ),
-        evaluated_depsgraph_get=lambda: object(),
+        collection=types.SimpleNamespace(objects=types.SimpleNamespace(link=lambda _obj: None)),
+        evaluated_depsgraph_get=object,
         tool_settings=types.SimpleNamespace(mesh_select_mode=(True, False, False)),
     )
     bpy.types = types.SimpleNamespace(
@@ -415,9 +406,7 @@ def _load_addon(monkeypatch):
             symmetrize=_noop,
         ),
         curve=types.SimpleNamespace(
-            primitive_bezier_curve_add=_make_primitive_op(
-                "BezierCurve", obj_type="CURVE"
-            ),
+            primitive_bezier_curve_add=_make_primitive_op("BezierCurve", obj_type="CURVE"),
         ),
         object=types.SimpleNamespace(
             select_all=_select_all,
@@ -458,7 +447,7 @@ def _load_addon(monkeypatch):
     bpy.app = app
 
     bmesh = types.ModuleType("bmesh")
-    bmesh.from_edit_mesh = lambda mesh_data: _FakeBMesh(mesh_data)
+    bmesh.from_edit_mesh = _FakeBMesh
     bmesh.update_edit_mesh = lambda _mesh_data: None
 
     mathutils = types.ModuleType("mathutils")
@@ -505,21 +494,17 @@ def _new_empty_object(bpy, name):
         ("cube", "MESH"),
     ],
 )
-def test_create_primitive_dispatches_to_the_right_op(
-    monkeypatch, primitive_type, expected_obj_type
-):
+def test_create_primitive_dispatches_to_the_right_op(monkeypatch, primitive_type, expected_obj_type) -> None:
     addon, _bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
-    result = server.create_primitive(
-        primitive_type=primitive_type, name=f"obj_{primitive_type}"
-    )
+    result = server.create_primitive(primitive_type=primitive_type, name=f"obj_{primitive_type}")
 
     assert result["name"] == f"obj_{primitive_type}"
     assert result["type"] == expected_obj_type
 
 
-def test_create_primitive_rejects_unknown_type(monkeypatch):
+def test_create_primitive_rejects_unknown_type(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -545,7 +530,7 @@ MESH_HANDLER_CALLS = [
 
 
 @pytest.mark.parametrize("handler_name,extra_kwargs", MESH_HANDLER_CALLS)
-def test_mesh_handlers_reject_missing_object(monkeypatch, handler_name, extra_kwargs):
+def test_mesh_handlers_reject_missing_object(monkeypatch, handler_name, extra_kwargs) -> None:
     addon, _bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -554,7 +539,7 @@ def test_mesh_handlers_reject_missing_object(monkeypatch, handler_name, extra_kw
 
 
 @pytest.mark.parametrize("handler_name,extra_kwargs", MESH_HANDLER_CALLS)
-def test_mesh_handlers_reject_non_mesh_object(monkeypatch, handler_name, extra_kwargs):
+def test_mesh_handlers_reject_non_mesh_object(monkeypatch, handler_name, extra_kwargs) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_empty_object(bpy, "empty_obj")
@@ -565,15 +550,13 @@ def test_mesh_handlers_reject_non_mesh_object(monkeypatch, handler_name, extra_k
 
 def test_mesh_extrude_rejects_out_of_range_face_index_before_entering_edit_mode(
     monkeypatch,
-):
+) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "F")
 
     mode_calls = []
-    monkeypatch.setattr(
-        bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode)
-    )
+    monkeypatch.setattr(bpy.ops.object, "mode_set", mode_calls.append)
 
     with pytest.raises(ValueError, match="out of range"):
         server.mesh_extrude(object_name="F", face_indices=[999])
@@ -582,18 +565,14 @@ def test_mesh_extrude_rejects_out_of_range_face_index_before_entering_edit_mode(
     assert mode_calls == []
 
 
-def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch):
+def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "F2")
 
     mode_calls = []
-    monkeypatch.setattr(
-        bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode)
-    )
-    monkeypatch.setattr(
-        bpy.ops.mesh, "extrude_region_move", lambda **kwargs: {"CANCELLED"}
-    )
+    monkeypatch.setattr(bpy.ops.object, "mode_set", mode_calls.append)
+    monkeypatch.setattr(bpy.ops.mesh, "extrude_region_move", lambda **kwargs: {"CANCELLED"})
 
     with pytest.raises(RuntimeError, match="did not finish"):
         server.mesh_extrude(object_name="F2")
@@ -602,19 +581,17 @@ def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch):
     assert mode_calls == ["EDIT", "OBJECT"]
 
 
-def test_mesh_boolean_rejects_invalid_operation(monkeypatch):
+def test_mesh_boolean_rejects_invalid_operation(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "target")
     _new_mesh_object(bpy, "cutter")
 
     with pytest.raises(ValueError, match="Invalid operation"):
-        server.mesh_boolean(
-            object_name="target", cutter_object_name="cutter", operation="XOR"
-        )
+        server.mesh_boolean(object_name="target", cutter_object_name="cutter", operation="XOR")
 
 
-def test_mesh_boolean_rejects_same_object(monkeypatch):
+def test_mesh_boolean_rejects_same_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "self_obj")
@@ -625,7 +602,7 @@ def test_mesh_boolean_rejects_same_object(monkeypatch):
     assert bpy.data.objects.get("self_obj") is not None
 
 
-def test_mesh_boolean_keeps_cutter_by_default(monkeypatch):
+def test_mesh_boolean_keeps_cutter_by_default(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "target")
@@ -637,20 +614,18 @@ def test_mesh_boolean_keeps_cutter_by_default(monkeypatch):
     assert bpy.data.objects.get("cutter") is not None
 
 
-def test_mesh_boolean_deletes_cutter_when_requested(monkeypatch):
+def test_mesh_boolean_deletes_cutter_when_requested(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "target2")
     _new_mesh_object(bpy, "cutter2")
 
-    server.mesh_boolean(
-        object_name="target2", cutter_object_name="cutter2", keep_cutter=False
-    )
+    server.mesh_boolean(object_name="target2", cutter_object_name="cutter2", keep_cutter=False)
 
     assert bpy.data.objects.get("cutter2") is None
 
 
-def test_model_match_reference_copies_only_flagged_components(monkeypatch):
+def test_model_match_reference_copies_only_flagged_components(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "A")
@@ -677,19 +652,17 @@ def test_model_match_reference_copies_only_flagged_components(monkeypatch):
     assert result["scale"] == pytest.approx([2, 2, 2])
 
 
-def test_model_match_reference_rejects_invalid_space(monkeypatch):
+def test_model_match_reference_rejects_invalid_space(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "A")
     _new_mesh_object(bpy, "B")
 
     with pytest.raises(ValueError, match="Invalid space"):
-        server.model_match_reference(
-            object_name="A", reference_object_name="B", space="OBJECT"
-        )
+        server.model_match_reference(object_name="A", reference_object_name="B", space="OBJECT")
 
 
-def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatch):
+def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "A")
@@ -712,7 +685,7 @@ def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatc
 
 def test_model_match_reference_world_space_differs_from_local_across_parenting(
     monkeypatch,
-):
+) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -745,7 +718,7 @@ def test_model_match_reference_world_space_differs_from_local_across_parenting(
     assert result["location"] == pytest.approx([-95, 5, 5])
 
 
-def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(monkeypatch):
+def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -767,7 +740,7 @@ def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(
     assert bpy.data.objects["blockout_cube"]["blockout"] is True
 
 
-def test_model_refine_reports_evaluated_and_modifier_when_not_applied(monkeypatch):
+def test_model_refine_reports_evaluated_and_modifier_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
@@ -780,7 +753,7 @@ def test_model_refine_reports_evaluated_and_modifier_when_not_applied(monkeypatc
     assert "bounds" in result and "min" in result["bounds"] and "max" in result["bounds"]
 
 
-def test_model_refine_reports_no_modifier_when_applied(monkeypatch):
+def test_model_refine_reports_no_modifier_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R2")
@@ -791,7 +764,7 @@ def test_model_refine_reports_no_modifier_when_applied(monkeypatch):
     assert result["modifier"] is None
 
 
-def test_add_procedural_displacement_removes_texture_orphan_when_applied(monkeypatch):
+def test_add_procedural_displacement_removes_texture_orphan_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D")
@@ -801,7 +774,7 @@ def test_add_procedural_displacement_removes_texture_orphan_when_applied(monkeyp
     assert bpy.data.textures.get("D_detail") is None
 
 
-def test_add_procedural_displacement_keeps_texture_when_not_applied(monkeypatch):
+def test_add_procedural_displacement_keeps_texture_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D2")
@@ -811,7 +784,7 @@ def test_add_procedural_displacement_keeps_texture_when_not_applied(monkeypatch)
     assert bpy.data.textures.get("D2_detail") is not None
 
 
-def test_add_procedural_displacement_subdivide_stays_live_when_not_applied(monkeypatch):
+def test_add_procedural_displacement_subdivide_stays_live_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "D3")
@@ -823,7 +796,7 @@ def test_add_procedural_displacement_subdivide_stays_live_when_not_applied(monke
     assert names == ["Subdivision", "Displace"]
 
 
-def test_add_procedural_displacement_subdivide_applies_extra_modifier_first(monkeypatch):
+def test_add_procedural_displacement_subdivide_applies_extra_modifier_first(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "D4")
@@ -836,7 +809,7 @@ def test_add_procedural_displacement_subdivide_applies_extra_modifier_first(monk
     assert names == []
 
 
-def test_model_radial_array_requires_a_pivot(monkeypatch):
+def test_model_radial_array_requires_a_pivot(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
@@ -845,18 +818,16 @@ def test_model_radial_array_requires_a_pivot(monkeypatch):
         server.model_radial_array(object_name="R", count=4, axis="Z")
 
 
-def test_model_radial_array_rejects_multiple_pivot_options(monkeypatch):
+def test_model_radial_array_rejects_multiple_pivot_options(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
     with pytest.raises(ValueError, match="at most one"):
-        server.model_radial_array(
-            object_name="R", count=4, radius=2.0, pivot_location=(1, 0, 0)
-        )
+        server.model_radial_array(object_name="R", count=4, radius=2.0, pivot_location=(1, 0, 0))
 
 
-def test_model_radial_array_with_radius_offsets_pivot(monkeypatch):
+def test_model_radial_array_with_radius_offsets_pivot(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
@@ -873,7 +844,7 @@ def test_model_radial_array_with_radius_offsets_pivot(monkeypatch):
 
 def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_object(
     monkeypatch,
-):
+) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -894,20 +865,18 @@ def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_obje
     assert empty.location.y == pytest.approx(0.0)
 
 
-def test_model_radial_array_with_explicit_pivot_location(monkeypatch):
+def test_model_radial_array_with_explicit_pivot_location(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
-    server.model_radial_array(
-        object_name="R", count=6, axis="Z", pivot_location=(5, 5, 5)
-    )
+    server.model_radial_array(object_name="R", count=6, axis="Z", pivot_location=(5, 5, 5))
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert (empty.location.x, empty.location.y, empty.location.z) == (5, 5, 5)
 
 
-def test_model_radial_array_with_pivot_object(monkeypatch):
+def test_model_radial_array_with_pivot_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
@@ -920,7 +889,7 @@ def test_model_radial_array_with_pivot_object(monkeypatch):
     assert (empty.location.x, empty.location.y, empty.location.z) == (1, 2, 3)
 
 
-def test_model_radial_array_rejects_unknown_pivot_object(monkeypatch):
+def test_model_radial_array_rejects_unknown_pivot_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
@@ -929,7 +898,7 @@ def test_model_radial_array_rejects_unknown_pivot_object(monkeypatch):
         server.model_radial_array(object_name="R", pivot_object_name="missing")
 
 
-def test_model_radial_array_cleans_up_helper_empty_when_applied(monkeypatch):
+def test_model_radial_array_cleans_up_helper_empty_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R2")

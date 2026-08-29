@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+
 from contextlib import suppress
 
 import bpy
@@ -13,10 +14,12 @@ import requests
 class SketchfabHandlersMixin:
     # region Sketchfab API
     def get_sketchfab_status(self):
-        """Get the current status of Sketchfab integration
+        """
+        Get the current status of Sketchfab integration.
 
         Returns:
             Result produced by the operation.
+
         """
         enabled = bpy.context.scene.blendermcp_use_sketchfab
         api_key = self._get_sketchfab_api_key()
@@ -52,7 +55,7 @@ class SketchfabHandlersMixin:
             except Exception as e:
                 return {
                     "enabled": False,
-                    "message": f"Error testing Sketchfab API key: {str(e)}",
+                    "message": f"Error testing Sketchfab API key: {e!s}",
                 }
 
         if enabled and api_key:
@@ -79,10 +82,9 @@ class SketchfabHandlersMixin:
                             4. Restart the connection to Claude""",
             }
 
-    def search_sketchfab_models(
-        self, query, categories=None, count=20, downloadable=True
-    ):
-        """Search for models on Sketchfab based on query and optional filters
+    def search_sketchfab_models(self, query, categories=None, count=20, downloadable=True):
+        """
+        Search for models on Sketchfab based on query and optional filters.
 
         Args:
             query: Search query.
@@ -92,6 +94,7 @@ class SketchfabHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         try:
             api_key = self._get_sketchfab_api_key()
@@ -126,9 +129,7 @@ class SketchfabHandlersMixin:
                 return {"error": "Authentication failed (401). Check your API key."}
 
             if response.status_code != 200:
-                return {
-                    "error": f"API request failed with status code {response.status_code}"
-                }
+                return {"error": f"API request failed with status code {response.status_code}"}
 
             response_data = response.json()
 
@@ -139,16 +140,14 @@ class SketchfabHandlersMixin:
             # Handle 'results' potentially missing from response
             results = response_data.get("results", [])
             if not isinstance(results, list):
-                return {
-                    "error": f"Unexpected response format from Sketchfab API: {response_data}"
-                }
+                return {"error": f"Unexpected response format from Sketchfab API: {response_data}"}
 
             return response_data
 
         except requests.exceptions.Timeout:
             return {"error": "Request timed out. Check your internet connection."}
         except json.JSONDecodeError as e:
-            return {"error": f"Invalid JSON response from Sketchfab API: {str(e)}"}
+            return {"error": f"Invalid JSON response from Sketchfab API: {e!s}"}
         except Exception as e:
             import traceback
 
@@ -156,13 +155,15 @@ class SketchfabHandlersMixin:
             return {"error": str(e)}
 
     def get_sketchfab_model_preview(self, uid):
-        """Get thumbnail preview image of a Sketchfab model by its UID
+        """
+        Get thumbnail preview image of a Sketchfab model by its UID.
 
         Args:
             uid: Value for uid.
 
         Returns:
             Result produced by the operation.
+
         """
         try:
             import base64
@@ -214,19 +215,14 @@ class SketchfabHandlersMixin:
             # Download the thumbnail image
             img_response = requests.get(thumbnail_url, timeout=30)
             if img_response.status_code != 200:
-                return {
-                    "error": f"Failed to download thumbnail: {img_response.status_code}"
-                }
+                return {"error": f"Failed to download thumbnail: {img_response.status_code}"}
 
             # Encode image as base64
             image_data = base64.b64encode(img_response.content).decode("ascii")
 
             # Determine format from content type or URL
             content_type = img_response.headers.get("Content-Type", "")
-            if "png" in content_type or thumbnail_url.endswith(".png"):
-                img_format = "png"
-            else:
-                img_format = "jpeg"
+            img_format = "png" if "png" in content_type or thumbnail_url.endswith(".png") else "jpeg"
 
             # Get additional model info for context
             model_name = data.get("name", "Unknown")
@@ -249,10 +245,11 @@ class SketchfabHandlersMixin:
             import traceback
 
             traceback.print_exc()
-            return {"error": f"Failed to get model preview: {str(e)}"}
+            return {"error": f"Failed to get model preview: {e!s}"}
 
     def download_sketchfab_model(self, uid, normalize_size=False, target_size=1.0):
-        """Download a model from Sketchfab by its UID
+        """
+        Download a model from Sketchfab by its UID.
 
         Args:
             uid: The unique identifier of the Sketchfab model
@@ -261,6 +258,7 @@ class SketchfabHandlersMixin:
 
         Returns:
             Result produced by the operation.
+
         """
         try:
             api_key = self._get_sketchfab_api_key()
@@ -283,25 +281,18 @@ class SketchfabHandlersMixin:
                 return {"error": "Authentication failed (401). Check your API key."}
 
             if response.status_code != 200:
-                return {
-                    "error": f"Download request failed with status code {response.status_code}"
-                }
+                return {"error": f"Download request failed with status code {response.status_code}"}
 
             data = response.json()
 
             # Safety check for None data
             if data is None:
-                return {
-                    "error": "Received empty response from Sketchfab API for download request"
-                }
+                return {"error": "Received empty response from Sketchfab API for download request"}
 
             # Extract download URL with safety checks
             gltf_data = data.get("gltf")
             if not gltf_data:
-                return {
-                    "error": "No gltf download URL available for this model. Response: "
-                    + str(data)
-                }
+                return {"error": "No gltf download URL available for this model. Response: " + str(data)}
 
             download_url = gltf_data.get("url")
             if not download_url:
@@ -313,9 +304,7 @@ class SketchfabHandlersMixin:
             model_response = requests.get(download_url, timeout=60)  # 60 second timeout
 
             if model_response.status_code != 200:
-                return {
-                    "error": f"Model download failed with status code {model_response.status_code}"
-                }
+                return {"error": f"Model download failed with status code {model_response.status_code}"}
 
             # Save to temporary file
             temp_dir = tempfile.mkdtemp()
@@ -343,27 +332,19 @@ class SketchfabHandlersMixin:
                     if not abs_target_path.startswith(abs_temp_dir):
                         with suppress(Exception):
                             shutil.rmtree(temp_dir)
-                        return {
-                            "error": "Security issue: Zip contains files with path traversal attempt"
-                        }
+                        return {"error": "Security issue: Zip contains files with path traversal attempt"}
 
                     # Additional explicit check for directory traversal
                     if ".." in file_path:
                         with suppress(Exception):
                             shutil.rmtree(temp_dir)
-                        return {
-                            "error": "Security issue: Zip contains files with directory traversal sequence"
-                        }
+                        return {"error": "Security issue: Zip contains files with directory traversal sequence"}
 
                 # If all files passed security checks, extract them
                 zip_ref.extractall(temp_dir)
 
             # Find the main glTF file
-            gltf_files = [
-                f
-                for f in os.listdir(temp_dir)
-                if f.endswith(".gltf") or f.endswith(".glb")
-            ]
+            gltf_files = [f for f in os.listdir(temp_dir) if f.endswith((".gltf", ".glb"))]
 
             if not gltf_files:
                 with suppress(Exception):
@@ -388,13 +369,15 @@ class SketchfabHandlersMixin:
 
             # Helper function to recursively get all mesh children
             def get_all_mesh_children(obj):
-                """Recursively collect all mesh objects in the hierarchy
+                """
+                Recursively collect all mesh objects in the hierarchy.
 
                 Args:
                     obj: Value for obj.
 
                 Returns:
                     Result produced by the operation.
+
                 """
                 meshes = []
                 if obj.type == "MESH":
@@ -411,9 +394,7 @@ class SketchfabHandlersMixin:
             if all_meshes:
                 # Calculate combined world bounding box for all meshes
                 all_min = mathutils.Vector((float("inf"), float("inf"), float("inf")))
-                all_max = mathutils.Vector(
-                    (float("-inf"), float("-inf"), float("-inf"))
-                )
+                all_max = mathutils.Vector((float("-inf"), float("-inf"), float("-inf")))
 
                 for mesh_obj in all_meshes:
                     # Get world-space bounding box corners
@@ -453,18 +434,12 @@ class SketchfabHandlersMixin:
                     bpy.context.view_layer.update()
 
                     # Recalculate bounding box after scaling
-                    all_min = mathutils.Vector(
-                        (float("inf"), float("inf"), float("inf"))
-                    )
-                    all_max = mathutils.Vector(
-                        (float("-inf"), float("-inf"), float("-inf"))
-                    )
+                    all_min = mathutils.Vector((float("inf"), float("inf"), float("inf")))
+                    all_max = mathutils.Vector((float("-inf"), float("-inf"), float("-inf")))
 
                     for mesh_obj in all_meshes:
                         for corner in mesh_obj.bound_box:
-                            world_corner = mesh_obj.matrix_world @ mathutils.Vector(
-                                corner
-                            )
+                            world_corner = mesh_obj.matrix_world @ mathutils.Vector(corner)
                             all_min.x = min(all_min.x, world_corner.x)
                             all_min.y = min(all_min.y, world_corner.y)
                             all_min.z = min(all_min.z, world_corner.z)
@@ -504,15 +479,13 @@ class SketchfabHandlersMixin:
             return result
 
         except requests.exceptions.Timeout:
-            return {
-                "error": "Request timed out. Check your internet connection and try again with a simpler model."
-            }
+            return {"error": "Request timed out. Check your internet connection and try again with a simpler model."}
         except json.JSONDecodeError as e:
-            return {"error": f"Invalid JSON response from Sketchfab API: {str(e)}"}
+            return {"error": f"Invalid JSON response from Sketchfab API: {e!s}"}
         except Exception as e:
             import traceback
 
             traceback.print_exc()
-            return {"error": f"Failed to download model: {str(e)}"}
+            return {"error": f"Failed to download model: {e!s}"}
 
     # endregion

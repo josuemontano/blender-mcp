@@ -1,4 +1,5 @@
-"""Shared paths and loader for the test suite.
+"""
+Shared paths and loader for the test suite.
 
 These tests load the bundled addon package as source (it cannot be imported
 without bpy), so they need the repo root rather than the tests directory.
@@ -8,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -15,7 +17,8 @@ ROOT_ADDON = REPO_ROOT / "src" / "blender_mcp" / "bundled" / "addon" / "__init__
 
 
 def load_addon_package(monkeypatch, name):
-    """Load the bundled addon package under a scratch dotted module name.
+    """
+    Load the bundled addon package under a scratch dotted module name.
 
     Internal relative imports (`from . import helpers`, `from .handlers import
     mesh`, ...) need `submodule_search_locations` and the module registered in
@@ -33,9 +36,7 @@ def load_addon_package(monkeypatch, name):
     for key in [k for k in sys.modules if k == name or k.startswith(prefix)]:
         monkeypatch.delitem(sys.modules, key, raising=False)
 
-    spec = importlib.util.spec_from_file_location(
-        name, ROOT_ADDON, submodule_search_locations=[str(ROOT_ADDON.parent)]
-    )
+    spec = importlib.util.spec_from_file_location(name, ROOT_ADDON, submodule_search_locations=[str(ROOT_ADDON.parent)])
     addon = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, name, addon)
     spec.loader.exec_module(addon)

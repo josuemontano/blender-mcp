@@ -1,4 +1,5 @@
 import io
+
 from contextlib import redirect_stdout
 
 import bpy
@@ -6,7 +7,8 @@ import bpy
 
 class ViewportHandlersMixin:
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
-        """Capture a screenshot of the current 3D viewport and save it to the specified path.
+        """
+        Capture a screenshot of the current 3D viewport and save it to the specified path.
 
         Args:
             max_size: Maximum size in pixels for the largest dimension of the image
@@ -15,6 +17,7 @@ class ViewportHandlersMixin:
 
         Returns:
             success/error status
+
         """
         # screen.screenshot_area captures the OS window framebuffer, which is
         # all-black whenever the Blender window is not composited in the
@@ -67,9 +70,7 @@ class ViewportHandlersMixin:
                     offscreen.free()
 
                 buf.dimensions = width * height * 4
-                pixels = (
-                    np.asarray(buf, dtype=np.float32) / 255.0
-                )  # GPU buffer is 0..255
+                pixels = np.asarray(buf, dtype=np.float32) / 255.0  # GPU buffer is 0..255
 
                 image = bpy.data.images.new("mcp_viewport", width, height, alpha=True)
                 image.pixels.foreach_set(pixels.ravel())
@@ -80,8 +81,7 @@ class ViewportHandlersMixin:
 
             except Exception as offscreen_err:
                 print(
-                    f"[BlenderMCP] offscreen capture failed ({offscreen_err}); "
-                    "falling back to window grab",
+                    f"[BlenderMCP] offscreen capture failed ({offscreen_err}); falling back to window grab",
                     flush=True,
                 )
                 method = "window_grab"
@@ -109,7 +109,8 @@ class ViewportHandlersMixin:
             return {"error": str(e)}
 
     def execute_code(self, code):
-        """Execute arbitrary Blender Python code
+        """
+        Execute arbitrary Blender Python code.
 
         Args:
             code: Value for code.
@@ -119,6 +120,7 @@ class ViewportHandlersMixin:
 
         Raises:
             Exception: If the operation cannot be completed.
+
         """
         # This is powerful but potentially dangerous - use with caution
         try:
@@ -133,4 +135,4 @@ class ViewportHandlersMixin:
             captured_output = capture_buffer.getvalue()
             return {"executed": True, "result": captured_output}
         except Exception as e:
-            raise Exception(f"Code execution error: {str(e)}") from e
+            raise Exception(f"Code execution error: {e!s}") from e

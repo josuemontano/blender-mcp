@@ -4,11 +4,12 @@ import sys
 import types
 
 import pytest
+
 from conftest import load_addon_package
 
 
 class _FakeVector:
-    def __init__(self, x=0.0, y=0.0, z=0.0):
+    def __init__(self, x=0.0, y=0.0, z=0.0) -> None:
         self.x, self.y, self.z = x, y, z
 
     def __iter__(self):
@@ -16,7 +17,7 @@ class _FakeVector:
 
 
 class _FakeVertex:
-    def __init__(self, index, co=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0), select=False):
+    def __init__(self, index, co=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0), select=False) -> None:
         self.index = index
         self.co = _FakeVector(*co)
         self.normal = _FakeVector(*normal)
@@ -24,7 +25,7 @@ class _FakeVertex:
 
 
 class _FakeEdge:
-    def __init__(self, index, vertices=(0, 1), select=False):
+    def __init__(self, index, vertices=(0, 1), select=False) -> None:
         self.index = index
         self.vertices = vertices
         self.select = select
@@ -40,7 +41,7 @@ class _FakePolygon:
         material_index=0,
         loop_start=0,
         loop_total=4,
-    ):
+    ) -> None:
         self.index = index
         self.vertices = vertices
         self.normal = _FakeVector(*normal)
@@ -55,7 +56,7 @@ class _FakePolygon:
 
 
 class _FakeLoop:
-    def __init__(self, index, vertex_index=0, edge_index=0, normal=(0.0, 0.0, 1.0)):
+    def __init__(self, index, vertex_index=0, edge_index=0, normal=(0.0, 0.0, 1.0)) -> None:
         self.index = index
         self.vertex_index = vertex_index
         self.edge_index = edge_index
@@ -65,14 +66,9 @@ class _FakeLoop:
 class _FakeMeshData:
     """A minimal but structurally-real mesh: n_polys quads, 4 loops each."""
 
-    def __init__(self, n_verts=8, n_edges=12, n_polys=6):
-        self.vertices = [
-            _FakeVertex(i, co=(float(i), 0.0, 0.0)) for i in range(n_verts)
-        ]
-        self.edges = [
-            _FakeEdge(i, vertices=(i % n_verts, (i + 1) % n_verts))
-            for i in range(n_edges)
-        ]
+    def __init__(self, n_verts=8, n_edges=12, n_polys=6) -> None:
+        self.vertices = [_FakeVertex(i, co=(float(i), 0.0, 0.0)) for i in range(n_verts)]
+        self.edges = [_FakeEdge(i, vertices=(i % n_verts, (i + 1) % n_verts)) for i in range(n_edges)]
         loops_per_poly = 4
         self.polygons = [
             _FakePolygon(
@@ -92,7 +88,7 @@ class _FakeMeshData:
             for i in range(n_polys * loops_per_poly)
         ]
 
-    def calc_normals_split(self):
+    def calc_normals_split(self) -> None:
         pass
 
 
@@ -197,7 +193,7 @@ def _new_empty_object(bpy, name):
 
 
 # region get_scene_info pagination
-def test_get_scene_info_default_returns_everything_under_the_default_limit(monkeypatch):
+def test_get_scene_info_default_returns_everything_under_the_default_limit(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     for i in range(5):
@@ -212,7 +208,7 @@ def test_get_scene_info_default_returns_everything_under_the_default_limit(monke
     assert result["next_offset"] is None
 
 
-def test_get_scene_info_paginates_and_reports_truncation(monkeypatch):
+def test_get_scene_info_paginates_and_reports_truncation(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     for i in range(7):
@@ -238,7 +234,7 @@ def test_get_scene_info_paginates_and_reports_truncation(monkeypatch):
     assert seen == {f"obj{i}" for i in range(7)}
 
 
-def test_get_scene_info_offset_past_end_returns_empty_page(monkeypatch):
+def test_get_scene_info_offset_past_end_returns_empty_page(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "only_obj")
@@ -248,11 +244,13 @@ def test_get_scene_info_offset_past_end_returns_empty_page(monkeypatch):
     assert result["returned_count"] == 0
     assert result["truncated"] is False
     assert result["next_offset"] is None
+
+
 # endregion
 
 
 # region get_mesh_data
-def test_get_mesh_data_rejects_missing_object(monkeypatch):
+def test_get_mesh_data_rejects_missing_object(monkeypatch) -> None:
     addon, _bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
@@ -260,7 +258,7 @@ def test_get_mesh_data_rejects_missing_object(monkeypatch):
         server.get_mesh_data(object_name="does_not_exist")
 
 
-def test_get_mesh_data_rejects_non_mesh_object(monkeypatch):
+def test_get_mesh_data_rejects_non_mesh_object(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_empty_object(bpy, "empty_obj")
@@ -269,7 +267,7 @@ def test_get_mesh_data_rejects_non_mesh_object(monkeypatch):
         server.get_mesh_data(object_name="empty_obj")
 
 
-def test_get_mesh_data_rejects_invalid_element_type(monkeypatch):
+def test_get_mesh_data_rejects_invalid_element_type(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj")
@@ -278,7 +276,7 @@ def test_get_mesh_data_rejects_invalid_element_type(monkeypatch):
         server.get_mesh_data(object_name="obj", element_type="normals")
 
 
-def test_get_mesh_data_vertices_default_page(monkeypatch):
+def test_get_mesh_data_vertices_default_page(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_verts=8)
@@ -297,7 +295,7 @@ def test_get_mesh_data_vertices_default_page(monkeypatch):
     assert first["select"] is False
 
 
-def test_get_mesh_data_paginates_and_reports_truncation(monkeypatch):
+def test_get_mesh_data_paginates_and_reports_truncation(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_verts=10)
@@ -307,22 +305,18 @@ def test_get_mesh_data_paginates_and_reports_truncation(monkeypatch):
     assert page1["truncated"] is True
     assert page1["next_offset"] == 4
 
-    page2 = server.get_mesh_data(
-        object_name="obj", element_type="vertices", limit=4, offset=page1["next_offset"]
-    )
+    page2 = server.get_mesh_data(object_name="obj", element_type="vertices", limit=4, offset=page1["next_offset"])
     assert [e["index"] for e in page2["elements"]] == [4, 5, 6, 7]
     assert page2["truncated"] is True
     assert page2["next_offset"] == 8
 
-    page3 = server.get_mesh_data(
-        object_name="obj", element_type="vertices", limit=4, offset=page2["next_offset"]
-    )
+    page3 = server.get_mesh_data(object_name="obj", element_type="vertices", limit=4, offset=page2["next_offset"])
     assert [e["index"] for e in page3["elements"]] == [8, 9]
     assert page3["truncated"] is False
     assert page3["next_offset"] is None
 
 
-def test_get_mesh_data_edges_shape(monkeypatch):
+def test_get_mesh_data_edges_shape(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_edges=3)
@@ -333,7 +327,7 @@ def test_get_mesh_data_edges_shape(monkeypatch):
     assert result["elements"][0] == {"index": 0, "vertices": [0, 1], "select": False}
 
 
-def test_get_mesh_data_faces_shape(monkeypatch):
+def test_get_mesh_data_faces_shape(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_polys=2)
@@ -348,7 +342,7 @@ def test_get_mesh_data_faces_shape(monkeypatch):
     assert face["material_index"] == 0
 
 
-def test_get_mesh_data_loops_shape_and_face_index_mapping(monkeypatch):
+def test_get_mesh_data_loops_shape_and_face_index_mapping(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_polys=2)
@@ -363,7 +357,7 @@ def test_get_mesh_data_loops_shape_and_face_index_mapping(monkeypatch):
     assert set(loops[0]) == {"index", "vertex_index", "edge_index", "face_index", "normal"}
 
 
-def test_get_mesh_data_loops_rejects_selected_only(monkeypatch):
+def test_get_mesh_data_loops_rejects_selected_only(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj")
@@ -372,7 +366,7 @@ def test_get_mesh_data_loops_rejects_selected_only(monkeypatch):
         server.get_mesh_data(object_name="obj", element_type="loops", selected_only=True)
 
 
-def test_get_mesh_data_selected_only_filters_before_paging(monkeypatch):
+def test_get_mesh_data_selected_only_filters_before_paging(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "obj", n_verts=6)
@@ -387,7 +381,7 @@ def test_get_mesh_data_selected_only_filters_before_paging(monkeypatch):
     assert all(e["select"] for e in result["elements"])
 
 
-def test_get_mesh_data_limit_is_clamped_to_max(monkeypatch):
+def test_get_mesh_data_limit_is_clamped_to_max(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "obj", n_verts=5)
@@ -398,4 +392,6 @@ def test_get_mesh_data_limit_is_clamped_to_max(monkeypatch):
     # 5-vertex mesh still returns everything in one page rather than erroring.
     assert result["returned_count"] == 5
     assert result["truncated"] is False
+
+
 # endregion
