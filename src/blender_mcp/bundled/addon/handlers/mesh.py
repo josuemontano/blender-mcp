@@ -5,6 +5,7 @@ from ..helpers import (
     _exit_edit_mode,
     _get_mesh_object,
     _mesh_counts,
+    _modifier_result,
     _select_geometry,
     _set_active,
 )
@@ -122,13 +123,17 @@ class MeshHandlersMixin:
         return {"name": obj.name, **_mesh_counts(obj)}
 
     def mesh_boolean(
-        self, object_name, cutter_object_name, operation="DIFFERENCE", keep_target=False
+        self, object_name, cutter_object_name, operation="DIFFERENCE", keep_cutter=True
     ):
-        """Apply a boolean modifier between two mesh objects, deleting the cutter unless keep_target."""
+        """Apply a boolean modifier between two mesh objects, deleting the cutter unless keep_cutter."""
         operation = str(operation).upper()
         if operation not in {"UNION", "DIFFERENCE", "INTERSECT"}:
             raise ValueError(
                 f"Invalid operation: {operation}. Must be one of UNION, DIFFERENCE, INTERSECT"
+            )
+        if object_name == cutter_object_name:
+            raise ValueError(
+                f"cutter_object_name must differ from object_name (both are '{object_name}')"
             )
         obj = _get_mesh_object(object_name)
         cutter = _get_mesh_object(cutter_object_name)
@@ -136,7 +141,7 @@ class MeshHandlersMixin:
         mod.object = cutter
         mod.operation = operation
         _apply_modifier(obj, mod)
-        if not keep_target:
+        if not keep_cutter:
             bpy.data.objects.remove(cutter, do_unlink=True)
         return {"name": obj.name, **_mesh_counts(obj)}
 
@@ -163,6 +168,6 @@ class MeshHandlersMixin:
         mod.thickness = thickness
         if apply:
             _apply_modifier(obj, mod)
-        return {"name": obj.name, "applied": bool(apply), **_mesh_counts(obj)}
+        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
     # endregion

@@ -210,7 +210,7 @@ async def mesh_boolean(
     object_name: str,
     cutter_object_name: str,
     operation: Literal["UNION", "DIFFERENCE", "INTERSECT"] = "DIFFERENCE",
-    keep_target: bool = False,
+    keep_cutter: bool = True,
     user_prompt: str = "",
 ) -> dict:
     """
@@ -218,9 +218,9 @@ async def mesh_boolean(
 
     Parameters:
     - object_name: Name of the mesh object the boolean is applied to (the result).
-    - cutter_object_name: Name of the other mesh object used as the cutter/operand.
+    - cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
     - operation: One of UNION, DIFFERENCE, INTERSECT.
-    - keep_target: If False (default), the cutter object is deleted after the operation is applied. Set True to keep it.
+    - keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete it.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
@@ -233,10 +233,10 @@ async def mesh_boolean(
                 "object_name": object_name,
                 "cutter_object_name": cutter_object_name,
                 "operation": operation,
-                "keep_target": keep_target,
+                "keep_cutter": keep_cutter,
             },
         )
-        changed = [object_name] + ([cutter_object_name] if keep_target else [])
+        changed = [object_name] + ([] if keep_cutter else [cutter_object_name])
         return ok(result, changed_objects=changed)
     except Exception as e:
         logger.error(f"Error applying mesh boolean: {e}")
@@ -324,7 +324,9 @@ async def mesh_solidify(
     - apply: If True (default), bake the modifier into the mesh. If False, leave it as a live modifier.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
