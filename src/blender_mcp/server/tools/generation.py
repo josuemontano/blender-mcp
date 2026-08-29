@@ -186,6 +186,8 @@ async def _generate_hunyuan_and_import(
                 "zip_file_url": model_url,
             },
         )
+        if isinstance(import_result, dict) and import_result.get("succeed") is False:
+            raise ValueError(f"Hunyuan3D import failed: {import_result.get('error', import_result)}")
         return {
             "provider": "hunyuan3d",
             "import_result": import_result,

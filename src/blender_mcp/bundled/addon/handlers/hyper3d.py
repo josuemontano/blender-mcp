@@ -55,7 +55,7 @@ class Hyper3DHandlersMixin:
             case "FAL_AI":
                 return self.create_rodin_job_fal_ai(*args, **kwargs)
             case _:
-                return "Error: Unknown Hyper3D Rodin mode!"
+                raise ValueError(f"Unknown Hyper3D Rodin mode: {bpy.context.scene.blendermcp_hyper3d_mode!r}")
 
     def create_rodin_job_main_site(
         self,
@@ -140,7 +140,7 @@ class Hyper3DHandlersMixin:
             case "FAL_AI":
                 return self.poll_rodin_job_status_fal_ai(*args, **kwargs)
             case _:
-                return "Error: Unknown Hyper3D Rodin mode!"
+                raise ValueError(f"Unknown Hyper3D Rodin mode: {bpy.context.scene.blendermcp_hyper3d_mode!r}")
 
     def poll_rodin_job_status_main_site(self, subscription_key: str):
         """
@@ -264,7 +264,7 @@ class Hyper3DHandlersMixin:
             case "FAL_AI":
                 return self.import_generated_asset_fal_ai(*args, **kwargs)
             case _:
-                return "Error: Unknown Hyper3D Rodin mode!"
+                raise ValueError(f"Unknown Hyper3D Rodin mode: {bpy.context.scene.blendermcp_hyper3d_mode!r}")
 
     def import_generated_asset_main_site(self, task_uuid: str, name: str):
         """

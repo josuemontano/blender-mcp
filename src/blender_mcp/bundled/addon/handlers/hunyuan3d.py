@@ -193,7 +193,7 @@ class Hunyuan3DHandlersMixin:
             case "LOCAL_API":
                 return self.create_hunyuan_job_local_site(*args, **kwargs)
             case _:
-                return "Error: Unknown Hunyuan3D mode!"
+                raise ValueError(f"Unknown Hunyuan3D mode: {bpy.context.scene.blendermcp_hunyuan3d_mode!r}")
 
     def create_hunyuan_job_main_site(self, text_prompt: str | None = None, image: str | None = None):
         try:

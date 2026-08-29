@@ -24,6 +24,47 @@ _addon_handshake_checked = False
 _addon_handshake_lock = threading.Lock()
 
 
+class _BlenderOperationError(Exception):
+    """
+    Raised when Blender reports the requested operation failed.
+
+    Kept distinct from the generic `except Exception` in
+    `_send_command_locked` so a clean failure message isn't relabeled as a
+    communication error and doesn't drop a perfectly good socket.
+    """
+
+
+def _ad_hoc_failure_message(result: object) -> str | None:
+    """
+    Detect an addon handler that returned a failure shape instead of raising.
+
+    Many addon handlers return {"error": "..."}, {"succeed": False, "error":
+    "..."}, or (from an unmatched dispatch branch) a bare "Error: ..."
+    string, instead of raising. None of these set the top-level
+    {"status": "error"} envelope that send_command otherwise checks for, so
+    without this check a failed Blender-side operation would come back to
+    the caller looking like a successful result.
+
+    Args:
+        result: The unwrapped `result` value from a Blender response.
+
+    Returns:
+        str | None: The failure message if `result` matches one of the
+        known ad-hoc failure shapes, else None.
+
+    """
+    if isinstance(result, dict):
+        if result.get("succeed") is False:
+            return str(result.get("error") or result)
+        error = result.get("error")
+        if error:
+            return str(error)
+        return None
+    if isinstance(result, str) and result.startswith("Error:"):
+        return result
+    return None
+
+
 @dataclass
 class BlenderConnection:
     """Manage a serialized socket connection to a Blender addon."""
@@ -192,9 +233,15 @@ class BlenderConnection:
 
             if response.get("status") == "error":
                 logger.error(f"Blender error: {response.get('message')}")
-                raise Exception(response.get("message", "Unknown error from Blender"))
+                raise _BlenderOperationError(response.get("message", "Unknown error from Blender"))
 
-            return response.get("result", {})
+            result = response.get("result", {})
+            failure_message = _ad_hoc_failure_message(result)
+            if failure_message is not None:
+                logger.error(f"Blender handler reported failure without raising: {failure_message}")
+                raise _BlenderOperationError(failure_message)
+
+            return result
         except TimeoutError as exc:
             logger.error("Socket timeout while waiting for response from Blender")
             # Don't try to reconnect here - let the get_blender_connection handle reconnection
@@ -213,6 +260,8 @@ class BlenderConnection:
             if "response_data" in locals() and response_data:
                 logger.error(f"Raw response (first 200 bytes): {response_data[:200]}")
             raise Exception(f"Invalid response from Blender: {e!s}") from e
+        except _BlenderOperationError:
+            raise
         except Exception as e:
             logger.error(f"Error communicating with Blender: {e!s}")
             # Don't try to reconnect here - let the get_blender_connection handle reconnection
