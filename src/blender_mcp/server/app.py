@@ -88,7 +88,8 @@ Every tool below returns one of two shapes:
    second item, not just the image.
 
 Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data,
-get_cloth_simulation_info, get_cloth_object_info, estimate_cloth_resources, inspect_retopology,
+get_cloth_simulation_info, get_cloth_object_info, estimate_cloth_resources, get_liquid_simulation_info,
+inspect_retopology,
 search_polyhaven_assets) paginate through their "data" dict, not through this envelope. Look for
 "truncated" and "next_offset" in each page record, and re-call with the corresponding offset while
 truncated is true to see the rest. A truncated validate_cloth_setup result should be rerun with a

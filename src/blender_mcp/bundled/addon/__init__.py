@@ -23,9 +23,9 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-# Bumped to 14 so installations without the Phase 2 cloth-production command
+# Bumped to 17 so installations without the Phase 1 liquid-simulation command
 # surface are refreshed before dispatch.
-ADDON_PROTOCOL_VERSION = 14
+ADDON_PROTOCOL_VERSION = 17
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]

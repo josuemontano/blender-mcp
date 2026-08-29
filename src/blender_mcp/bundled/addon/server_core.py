@@ -16,6 +16,8 @@ from . import ADDON_PROTOCOL_VERSION, bl_info
 from .handlers.camera import CameraHandlersMixin
 from .handlers.camera_phase1 import CameraPhaseOneHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
+from .handlers.liquid import LiquidHandlersMixin
+from .handlers.liquid_phase1 import LiquidPhaseOneHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
@@ -25,7 +27,7 @@ from .handlers.retopology_phase1 import RetopologyPhaseOneHandlersMixin
 from .handlers.retopology_phase2 import RetopologyPhaseTwoHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
-from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blendermcp_addon_preferences
+from .helpers import get_blendermcp_addon_preferences, get_mesh_object, paginate, sync_from_editmode
 from .transaction import mutation_transaction
 
 
@@ -69,6 +71,7 @@ def _handler_failure_message(result):
 
 class BlenderMCPServer(
     ViewportHandlersMixin,
+    CameraPhaseOneHandlersMixin,
     CameraHandlersMixin,
     RetopologyPhaseTwoHandlersMixin,
     RetopologyPhaseOneHandlersMixin,
@@ -76,6 +79,8 @@ class BlenderMCPServer(
     MeshHandlersMixin,
     ModelHandlersMixin,
     ClothHandlersMixin,
+    LiquidPhaseOneHandlersMixin,
+    LiquidHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
     SketchfabHandlersMixin,
@@ -489,6 +494,8 @@ class BlenderMCPServer(
             "sync_data_name": self.sync_data_name,
             "get_cloth_simulation_info": self.get_cloth_simulation_info,
             "get_cloth_object_info": self.get_cloth_object_info,
+            "get_liquid_simulation_info": self.get_liquid_simulation_info,
+            "get_fluid_object_info": self.get_fluid_object_info,
             "get_camera_rig_info": self.get_camera_rig_info,
             "create_camera": self.create_camera,
             "configure_camera": self.configure_camera,
@@ -501,6 +508,17 @@ class BlenderMCPServer(
             "create_crane_camera_rig": self.create_crane_camera_rig,
             "create_camera_path_rig": self.create_camera_path_rig,
             "configure_camera_dof": self.configure_camera_dof,
+            "keyframe_camera_rig": self.keyframe_camera_rig,
+            "set_camera_interpolation": self.set_camera_interpolation,
+            "create_focus_pull": self.create_focus_pull,
+            "create_dolly_zoom": self.create_dolly_zoom,
+            "add_camera_shake": self.add_camera_shake,
+            "create_camera_markers": self.create_camera_markers,
+            "match_camera_transform": self.match_camera_transform,
+            "duplicate_camera_rig": self.duplicate_camera_rig,
+            "add_camera_constraint": self.add_camera_constraint,
+            "configure_camera_render_gate": self.configure_camera_render_gate,
+            "validate_camera_rig": self.validate_camera_rig,
             "add_cloth_simulation": self.add_cloth_simulation,
             "configure_cloth_material": self.configure_cloth_material,
             "configure_cloth_solver": self.configure_cloth_solver,
@@ -527,6 +545,27 @@ class BlenderMCPServer(
             "prepare_cloth_render_surface": self.prepare_cloth_render_surface,
             "export_cloth_simulation": self.export_cloth_simulation,
             "analyze_cloth_performance": self.analyze_cloth_performance,
+            "create_liquid_domain": self.create_liquid_domain,
+            "fit_liquid_domain": self.fit_liquid_domain,
+            "configure_liquid_solver": self.configure_liquid_solver,
+            "add_liquid_flow": self.add_liquid_flow,
+            "configure_liquid_flow": self.configure_liquid_flow,
+            "add_liquid_effector": self.add_liquid_effector,
+            "configure_liquid_effector": self.configure_liquid_effector,
+            "configure_liquid_scope_and_boundaries": self.configure_liquid_scope_and_boundaries,
+            "estimate_liquid_resources": self.estimate_liquid_resources,
+            "validate_liquid_setup": self.validate_liquid_setup,
+            "configure_liquid_mesh": self.configure_liquid_mesh,
+            "configure_liquid_secondary_particles": self.configure_liquid_secondary_particles,
+            "configure_liquid_diffusion": self.configure_liquid_diffusion,
+            "animate_liquid_flow": self.animate_liquid_flow,
+            "create_liquid_guide": self.create_liquid_guide,
+            "configure_liquid_force_fields": self.configure_liquid_force_fields,
+            "create_liquid_material": self.create_liquid_material,
+            "create_secondary_particle_render_setup": self.create_secondary_particle_render_setup,
+            "sample_liquid_simulation": self.sample_liquid_simulation,
+            "manage_liquid_cache": self.manage_liquid_cache,
+            "remove_fluid_components": self.remove_fluid_components,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -585,8 +624,13 @@ class BlenderMCPServer(
             "get_cloth_simulation_info",
             "get_cloth_object_info",
             "get_camera_rig_info",
+            "validate_camera_rig",
             "estimate_cloth_resources",
             "validate_cloth_setup",
+            "get_liquid_simulation_info",
+            "get_fluid_object_info",
+            "estimate_liquid_resources",
+            "validate_liquid_setup",
             "inspect_retopology",
             "validate_retopology",
             "test_deformation",
@@ -653,8 +697,22 @@ class BlenderMCPServer(
         "render_object_name",
         "proxy_object_name",
         "source_object_name",
+        "destination_name",
+        "movement_object_name",
+        "owner_name",
+        "source_root_name",
+        "domain_object_name",
+        "guide_object_name",
+        "guide_parent_domain_object_name",
+        "instance_object_name",
     )
-    _TARGET_NAMES_PARAMS = ("object_names", "camera_names", "body_collider_object_names")
+    _TARGET_NAMES_PARAMS = (
+        "object_names",
+        "camera_names",
+        "body_collider_object_names",
+        "source_object_names",
+        "collider_object_names",
+    )
 
     # Commands that edit an existing object's mesh geometry. Only these back up
     # the mesh datablock (a full copy) so a failed edit can be swapped back;
@@ -685,6 +743,7 @@ class BlenderMCPServer(
             "transfer_mesh_attributes",
             "unwrap_retopology_uvs",
             "configure_cloth_sewing",
+            "fit_liquid_domain",
         }
     )
 
@@ -711,6 +770,12 @@ class BlenderMCPServer(
             value = params.get(key)
             if isinstance(value, (list, tuple)):
                 names.extend(name for name in value if isinstance(name, str))
+        for record in params.get("targets", ()):
+            if isinstance(record, dict) and isinstance(record.get("object_name"), str):
+                names.append(record["object_name"])
+        for record in params.get("fields", ()):
+            if isinstance(record, dict) and isinstance(record.get("object_name"), str):
+                names.append(record["object_name"])
 
         objects = []
         seen = set()
@@ -747,6 +812,12 @@ class BlenderMCPServer(
         dynamic_read_only = dynamic_read_only or (cmd_type == "configure_cloth_sewing" and params.get("dry_run", True))
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "manage_cloth_cache" and str(params.get("action", "INSPECT")).upper() == "INSPECT"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_liquid_cache" and str(params.get("action", "STATUS")).upper() == "STATUS"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "create_camera_markers" and str(params.get("action", "")).upper() == "LIST"
         )
         if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
             return handler(**params)
