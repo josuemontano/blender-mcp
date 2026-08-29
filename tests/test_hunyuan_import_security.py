@@ -82,7 +82,7 @@ def _load_addon(monkeypatch):
     return addon, bpy
 
 
-class _FakeResponse:
+class FakeResponse:
     def __init__(self, content: bytes) -> None:
         self.content = content
         self.status_code = 200
@@ -114,10 +114,10 @@ def test_hunyuan_import_prefers_glb_urls(monkeypatch) -> None:
     monkeypatch.setattr(
         addon.handlers.hunyuan3d.requests,
         "get",
-        lambda *_args, **_kwargs: _FakeResponse(b"glb-bytes"),
+        lambda *_args, **_kwargs: FakeResponse(b"glb-bytes"),
         raising=False,
     )
-    monkeypatch.setattr(server, "_get_aabb", lambda _obj: [0, 0, 0, 1, 1, 1])
+    monkeypatch.setattr(server, "get_aabb", lambda _obj: [0, 0, 0, 1, 1, 1])
 
     result = server.import_generated_asset_hunyuan_ai(
         "Chair",
@@ -142,7 +142,7 @@ def test_hunyuan_zip_rejects_path_traversal(monkeypatch) -> None:
     monkeypatch.setattr(
         addon.handlers.hunyuan3d.requests,
         "get",
-        lambda *_args, **_kwargs: _FakeResponse(payload),
+        lambda *_args, **_kwargs: FakeResponse(payload),
         raising=False,
     )
 

@@ -31,9 +31,9 @@ class Hunyuan3DHandlersMixin:
         """
         enabled = bpy.context.scene.blendermcp_use_hunyuan3d
         hunyuan3d_mode = bpy.context.scene.blendermcp_hunyuan3d_mode
-        secret_id = self._get_hunyuan3d_secret_id()
-        secret_key = self._get_hunyuan3d_secret_key()
-        api_url = self._get_hunyuan3d_api_url()
+        secret_id = self.get_hunyuan3d_secret_id()
+        secret_key = self.get_hunyuan3d_secret_key()
+        api_url = self.get_hunyuan3d_api_url()
         if enabled:
             match hunyuan3d_mode:
                 case "OFFICIAL_API":
@@ -197,8 +197,8 @@ class Hunyuan3DHandlersMixin:
 
     def create_hunyuan_job_main_site(self, text_prompt: str | None = None, image: str | None = None):
         try:
-            secret_id = self._get_hunyuan3d_secret_id()
-            secret_key = self._get_hunyuan3d_secret_key()
+            secret_id = self.get_hunyuan3d_secret_id()
+            secret_key = self.get_hunyuan3d_secret_key()
 
             if not secret_id or not secret_key:
                 return {"error": "SecretId or SecretKey is not given"}
@@ -257,7 +257,7 @@ class Hunyuan3DHandlersMixin:
 
     def create_hunyuan_job_local_site(self, text_prompt: str | None = None, image: str | None = None):
         try:
-            base_url = self._get_hunyuan3d_api_url().rstrip("/")
+            base_url = self.get_hunyuan3d_api_url().rstrip("/")
             octree_resolution = bpy.context.scene.blendermcp_hunyuan3d_octree_resolution
             num_inference_steps = bpy.context.scene.blendermcp_hunyuan3d_num_inference_steps
             guidance_scale = bpy.context.scene.blendermcp_hunyuan3d_guidance_scale
@@ -341,8 +341,8 @@ class Hunyuan3DHandlersMixin:
         """
         print(job_id)
         try:
-            secret_id = self._get_hunyuan3d_secret_id()
-            secret_key = self._get_hunyuan3d_secret_key()
+            secret_id = self.get_hunyuan3d_secret_id()
+            secret_key = self.get_hunyuan3d_secret_key()
 
             if not secret_id or not secret_key:
                 return {"error": "SecretId or SecretKey is not given"}
@@ -420,7 +420,7 @@ class Hunyuan3DHandlersMixin:
                     "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
                 }
                 if obj.type == "MESH":
-                    result["world_bounding_box"] = self._get_aabb(obj)
+                    result["world_bounding_box"] = self.get_aabb(obj)
                 return {"succeed": True, **result}
             except Exception as e:
                 return {"succeed": False, "error": str(e)}
@@ -483,7 +483,7 @@ class Hunyuan3DHandlersMixin:
                 "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
             }
             if obj.type == "MESH":
-                result["world_bounding_box"] = self._get_aabb(obj)
+                result["world_bounding_box"] = self.get_aabb(obj)
             return {"succeed": True, **result}
         except Exception as e:
             return {"succeed": False, "error": str(e)}

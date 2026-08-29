@@ -45,7 +45,7 @@ def _load_server_class():
     main_thread = threading.current_thread()
     registered = {}
 
-    class _Timers:
+    class Timers:
         """Stub that enforces the real bpy.app.timers main-thread constraint."""
 
         def register(self, fn, first_interval=0.0, persistent=False) -> None:
@@ -60,7 +60,7 @@ def _load_server_class():
             return fn in registered
 
     bpy = types.ModuleType("bpy")
-    bpy.app = types.SimpleNamespace(background=False, timers=_Timers())
+    bpy.app = types.SimpleNamespace(background=False, timers=Timers())
     bpy.context = types.SimpleNamespace(scene=types.SimpleNamespace())
 
     # BlenderMCPServer's real base classes; the tests here never call a
@@ -118,7 +118,7 @@ def _pump(server, deadline=3.0) -> None:
     """Act as Blender's main loop, draining the queue until timeout."""
     end = time.time() + deadline
     while time.time() < end:
-        server._drain_command_queue()
+        server.drain_command_queue()
         time.sleep(0.01)
 
 
@@ -126,7 +126,7 @@ def test_client_thread_never_registers_a_timer() -> None:
     """
     The regression itself: dispatch must not touch bpy.app.timers off-thread.
 
-    The _Timers stub raises if register() is called from a non-main thread, so
+    The Timers stub raises if register() is called from a non-main thread, so
     the old per-command bpy.app.timers.register() would surface here.
     """
     server = _make_server()
@@ -163,7 +163,7 @@ def test_command_is_queued_not_executed_on_client_thread() -> None:
             assert not server.command_queue.empty(), "command was dropped, not queued"
 
             # Now pump once: the queued command is serviced.
-            server._drain_command_queue()
+            server.drain_command_queue()
             client.settimeout(5)
             response = json.loads(client.recv(8192).decode())
             assert response["status"] == "success"
@@ -213,7 +213,7 @@ def test_stop_releases_client_threads() -> None:
 
 
 def bpy_timer_registered(server):
-    return server._drain_command_queue in _registered
+    return server.drain_command_queue in _registered
 
 
 def test_restart_rebinds_port_cleanly() -> None:

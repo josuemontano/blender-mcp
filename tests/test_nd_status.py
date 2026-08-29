@@ -9,19 +9,19 @@ import pytest
 from conftest import load_addon_package
 
 
-class _FakeModifier:
+class FakeModifier:
     def __init__(self, name, type_) -> None:
         self.name = name
         self.type = type_
 
 
-class _FakeObject:
+class FakeObject:
     def __init__(self, name, modifiers=None) -> None:
         self.name = name
         self.modifiers = list(modifiers or [])
 
 
-class _FakeObjectsCollection(dict):
+class FakeObjectsCollection(dict):
     def get(self, name, default=None):
         return super().get(name, default)
 
@@ -29,18 +29,18 @@ class _FakeObjectsCollection(dict):
         return iter(list(self.values()))
 
 
-class _FakeOverlay:
+class FakeOverlay:
     def __init__(self) -> None:
         self.show_cavity = False
         self.show_wireframes = False
         self.show_face_orientation = False
 
 
-class _FakeArea:
+class FakeArea:
     def __init__(self) -> None:
         self.type = "VIEW_3D"
         self.regions = [types.SimpleNamespace(type="WINDOW")]
-        self.spaces = types.SimpleNamespace(active=types.SimpleNamespace(overlay=_FakeOverlay()))
+        self.spaces = types.SimpleNamespace(active=types.SimpleNamespace(overlay=FakeOverlay()))
 
 
 @contextlib.contextmanager
@@ -50,7 +50,7 @@ def _temp_override(**_kwargs):
 
 def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
     bpy = types.ModuleType("bpy")
-    area = _FakeArea()
+    area = FakeArea()
     bpy.context = types.SimpleNamespace(
         scene=scene,
         screen=types.SimpleNamespace(areas=[area]),
@@ -65,7 +65,7 @@ def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
         Panel=object,
         Scene=type("Scene", (), {}),
     )
-    bpy.data = types.SimpleNamespace(objects=objects if objects is not None else _FakeObjectsCollection())
+    bpy.data = types.SimpleNamespace(objects=objects if objects is not None else FakeObjectsCollection())
 
     ops = types.SimpleNamespace(
         object=types.SimpleNamespace(
@@ -143,7 +143,7 @@ def test_disabled_nd_is_absent_from_dispatch(monkeypatch) -> None:
     server = addon.BlenderMCPServer()
 
     status = server.get_nd_status()
-    command = server._execute_command_internal({"type": "nd_boolean"})
+    command = server.execute_command_internal({"type": "nd_boolean"})
 
     assert status["enabled"] is False
     assert "currently disabled" in status["message"]
@@ -230,9 +230,9 @@ def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch) -> None:
 
 
 def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch) -> None:
-    objects = _FakeObjectsCollection()
-    kept = _FakeObject("Kept", modifiers=[_FakeModifier("Array", "ARRAY")])
-    orphan = _FakeObject("UtilCutter")
+    objects = FakeObjectsCollection()
+    kept = FakeObject("Kept", modifiers=[FakeModifier("Array", "ARRAY")])
+    orphan = FakeObject("UtilCutter")
     objects["Kept"] = kept
     objects["UtilCutter"] = orphan
 
@@ -253,8 +253,8 @@ def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch) -> No
 
 
 def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monkeypatch) -> None:
-    objects = _FakeObjectsCollection()
-    objects["Solo"] = _FakeObject("Solo", modifiers=[_FakeModifier("Bevel", "BEVEL")])
+    objects = FakeObjectsCollection()
+    objects["Solo"] = FakeObject("Solo", modifiers=[FakeModifier("Bevel", "BEVEL")])
 
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects)
     server = addon.BlenderMCPServer()

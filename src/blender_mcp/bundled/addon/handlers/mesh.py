@@ -1,13 +1,13 @@
 import bpy
 
 from ..helpers import (
-    _apply_modifier,
-    _edit_mesh,
-    _get_mesh_object,
-    _mesh_counts,
-    _modifier_result,
-    _preserve_mode_and_selection,
-    _set_active,
+    apply_modifier,
+    edit_mesh,
+    get_mesh_object,
+    mesh_counts,
+    modifier_result,
+    preserve_mode_and_selection,
+    set_active,
 )
 
 _SYMMETRIZE_DIRECTIONS = {
@@ -91,7 +91,7 @@ class MeshHandlersMixin:
             raise ValueError(f"Unknown primitive_type: {primitive_type}. Must be one of {sorted(self._PRIMITIVE_OPS)}")
         if purpose is not None and purpose != "blockout":
             raise ValueError(f"Invalid purpose: {purpose}. Must be 'blockout' or omitted")
-        with _preserve_mode_and_selection():
+        with preserve_mode_and_selection():
             op(size, tuple(location), tuple(rotation))
             obj = bpy.context.active_object
         if name:
@@ -106,7 +106,7 @@ class MeshHandlersMixin:
             "location": [obj.location.x, obj.location.y, obj.location.z],
         }
         if obj.type == "MESH":
-            result.update(_mesh_counts(obj))
+            result.update(mesh_counts(obj))
         if dimensions is not None:
             result["dimensions"] = [obj.dimensions.x, obj.dimensions.y, obj.dimensions.z]
             result["scale"] = [obj.scale.x, obj.scale.y, obj.scale.z]
@@ -128,12 +128,12 @@ class MeshHandlersMixin:
             RuntimeError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj, face_indices=face_indices):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj, face_indices=face_indices):
             result = bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value": tuple(offset)})
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.extrude_region_move did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_inset(self, object_name, thickness=0.05, depth=0.0, face_indices=None):
         """
@@ -152,12 +152,12 @@ class MeshHandlersMixin:
             RuntimeError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj, face_indices=face_indices):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj, face_indices=face_indices):
             result = bpy.ops.mesh.inset(thickness=thickness, depth=depth)
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.inset did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_bevel(
         self,
@@ -186,12 +186,12 @@ class MeshHandlersMixin:
             RuntimeError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj, vert_indices=vertex_indices, edge_indices=edge_indices):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj, vert_indices=vertex_indices, edge_indices=edge_indices):
             result = bpy.ops.mesh.bevel(offset=offset, segments=segments, affect=affect)
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.bevel did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_bridge(self, object_name, edge_indices):
         """
@@ -211,12 +211,12 @@ class MeshHandlersMixin:
         """
         if not edge_indices:
             raise ValueError("edge_indices is required: select the edges forming the two loops to bridge")
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj, edge_indices=edge_indices):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj, edge_indices=edge_indices):
             result = bpy.ops.mesh.bridge_edge_loops()
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.bridge_edge_loops did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_symmetrize(self, object_name, direction="NEGATIVE_X"):
         """
@@ -237,12 +237,12 @@ class MeshHandlersMixin:
         direction = str(direction).upper()
         if direction not in _SYMMETRIZE_DIRECTIONS:
             raise ValueError(f"Invalid direction: {direction}. Must be one of {sorted(_SYMMETRIZE_DIRECTIONS)}")
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj):
             result = bpy.ops.mesh.symmetrize(direction=direction)
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.symmetrize did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_boolean(self, object_name, cutter_object_name, operation="DIFFERENCE", keep_cutter=True):
         """
@@ -266,15 +266,15 @@ class MeshHandlersMixin:
             raise ValueError(f"Invalid operation: {operation}. Must be one of UNION, DIFFERENCE, INTERSECT")
         if object_name == cutter_object_name:
             raise ValueError(f"cutter_object_name must differ from object_name (both are '{object_name}')")
-        obj = _get_mesh_object(object_name)
-        cutter = _get_mesh_object(cutter_object_name)
+        obj = get_mesh_object(object_name)
+        cutter = get_mesh_object(cutter_object_name)
         mod = obj.modifiers.new(name="Boolean", type="BOOLEAN")
         mod.object = cutter
         mod.operation = operation
-        _apply_modifier(obj, mod)
+        apply_modifier(obj, mod)
         if not keep_cutter:
             bpy.data.objects.remove(cutter, do_unlink=True)
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_subdivide(self, object_name, cuts=1, face_indices=None):
         """
@@ -292,12 +292,12 @@ class MeshHandlersMixin:
             RuntimeError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
-        with _edit_mesh(obj, face_indices=face_indices):
+        obj = get_mesh_object(object_name)
+        with edit_mesh(obj, face_indices=face_indices):
             result = bpy.ops.mesh.subdivide(number_cuts=cuts)
             if "FINISHED" not in result:
                 raise RuntimeError(f"mesh.subdivide did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_remesh(self, object_name, voxel_size=0.1):
         """
@@ -314,14 +314,14 @@ class MeshHandlersMixin:
             RuntimeError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         obj.data.remesh_voxel_size = voxel_size
-        with _preserve_mode_and_selection():
-            _set_active(obj)
+        with preserve_mode_and_selection():
+            set_active(obj)
             result = bpy.ops.object.voxel_remesh()
         if "FINISHED" not in result:
             raise RuntimeError(f"object.voxel_remesh did not finish (status: {result})")
-        return {"name": obj.name, **_mesh_counts(obj)}
+        return {"name": obj.name, **mesh_counts(obj)}
 
     def mesh_solidify(self, object_name, thickness=0.01, apply=False):
         """
@@ -336,11 +336,11 @@ class MeshHandlersMixin:
             Result produced by the operation.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Solidify", type="SOLIDIFY")
         mod.thickness = thickness
         if apply:
-            _apply_modifier(obj, mod)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+            apply_modifier(obj, mod)
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     # endregion

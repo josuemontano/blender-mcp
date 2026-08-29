@@ -23,11 +23,11 @@ def _quat_mul(a, b):
     x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y
     y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x
     z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w
-    return _FakeQuaternion((w, x, y, z))
+    return FakeQuaternion((w, x, y, z))
 
 
 def _quat_conjugate(q):
-    return _FakeQuaternion((q.w, -q.x, -q.y, -q.z))
+    return FakeQuaternion((q.w, -q.x, -q.y, -q.z))
 
 
 def _quat_rotate_vec(q, v):
@@ -36,7 +36,7 @@ def _quat_rotate_vec(q, v):
     t = _cross(qv, vv)
     t = (2 * t[0], 2 * t[1], 2 * t[2])
     c2 = _cross(qv, t)
-    return _FakeVector(
+    return FakeVector(
         vv[0] + q.w * t[0] + c2[0],
         vv[1] + q.w * t[1] + c2[1],
         vv[2] + q.w * t[2] + c2[2],
@@ -48,9 +48,9 @@ def _euler_to_quat(euler):
     cx, sx = math.cos(x / 2), math.sin(x / 2)
     cy, sy = math.cos(y / 2), math.sin(y / 2)
     cz, sz = math.cos(z / 2), math.sin(z / 2)
-    qx = _FakeQuaternion((cx, sx, 0.0, 0.0))
-    qy = _FakeQuaternion((cy, 0.0, sy, 0.0))
-    qz = _FakeQuaternion((cz, 0.0, 0.0, sz))
+    qx = FakeQuaternion((cx, sx, 0.0, 0.0))
+    qy = FakeQuaternion((cy, 0.0, sy, 0.0))
+    qz = FakeQuaternion((cz, 0.0, 0.0, sz))
     return _quat_mul(_quat_mul(qz, qy), qx)
 
 
@@ -63,7 +63,7 @@ def _quat_to_euler(q, _order="XYZ"):
     ey = math.asin(max(-1.0, min(1.0, -r20)))
     ex = math.atan2(r21, r22)
     ez = math.atan2(r10, r00)
-    return _FakeVector(ex, ey, ez)
+    return FakeVector(ex, ey, ez)
 
 
 def _quat_to_axis_angle(q):
@@ -71,29 +71,29 @@ def _quat_to_axis_angle(q):
     angle = 2 * math.acos(w)
     s = math.sqrt(max(0.0, 1 - w * w))
     if s < 1e-8:
-        return _FakeVector(1.0, 0.0, 0.0), 0.0
-    return _FakeVector(q.x / s, q.y / s, q.z / s), angle
+        return FakeVector(1.0, 0.0, 0.0), 0.0
+    return FakeVector(q.x / s, q.y / s, q.z / s), angle
 
 
 def _compose(a, b):
     """Compose two TRS matrices: a's transform applied to b (a is the outer/parent transform)."""
-    scaled_b_loc = _FakeVector(b.loc.x * a.scale.x, b.loc.y * a.scale.y, b.loc.z * a.scale.z)
+    scaled_b_loc = FakeVector(b.loc.x * a.scale.x, b.loc.y * a.scale.y, b.loc.z * a.scale.z)
     rotated = _quat_rotate_vec(a.rot, scaled_b_loc)
-    new_loc = _FakeVector(rotated.x + a.loc.x, rotated.y + a.loc.y, rotated.z + a.loc.z)
+    new_loc = FakeVector(rotated.x + a.loc.x, rotated.y + a.loc.y, rotated.z + a.loc.z)
     new_rot = _quat_mul(a.rot, b.rot)
-    new_scale = _FakeVector(a.scale.x * b.scale.x, a.scale.y * b.scale.y, a.scale.z * b.scale.z)
-    return _FakeMatrix(new_loc, new_rot, new_scale)
+    new_scale = FakeVector(a.scale.x * b.scale.x, a.scale.y * b.scale.y, a.scale.z * b.scale.z)
+    return FakeMatrix(new_loc, new_rot, new_scale)
 
 
 # endregion
 
 
-class _FakeVector:
+class FakeVector:
     def __init__(self, x=0.0, y=0.0, z=0.0) -> None:
         self.x, self.y, self.z = x, y, z
 
     def copy(self):
-        return _FakeVector(self.x, self.y, self.z)
+        return FakeVector(self.x, self.y, self.z)
 
     def to_quaternion(self):
         return _euler_to_quat(self)
@@ -105,7 +105,7 @@ class _FakeVector:
         return tuple(self) == tuple(other)
 
 
-class _FakeQuaternion:
+class FakeQuaternion:
     def __init__(self, *args) -> None:
         if not args:
             self.w, self.x, self.y, self.z = 1.0, 0.0, 0.0, 0.0
@@ -122,7 +122,7 @@ class _FakeQuaternion:
             raise TypeError("Quaternion accepts 0, 1, or 2 positional args")
 
     def copy(self):
-        return _FakeQuaternion((self.w, self.x, self.y, self.z))
+        return FakeQuaternion((self.w, self.x, self.y, self.z))
 
     def to_euler(self, order="XYZ"):
         return _quat_to_euler(self, order)
@@ -134,7 +134,7 @@ class _FakeQuaternion:
         return (self.w, self.x, self.y, self.z) == (other.w, other.x, other.y, other.z)
 
 
-class _FakeMatrix:
+class FakeMatrix:
     def __init__(self, loc, rot, scale) -> None:
         self.loc, self.rot, self.scale = loc, rot, scale
 
@@ -146,37 +146,37 @@ class _FakeMatrix:
         return self.loc.copy(), self.rot.copy(), self.scale.copy()
 
     def __matmul__(self, point):
-        scaled = _FakeVector(point.x * self.scale.x, point.y * self.scale.y, point.z * self.scale.z)
+        scaled = FakeVector(point.x * self.scale.x, point.y * self.scale.y, point.z * self.scale.z)
         rotated = _quat_rotate_vec(self.rot, scaled)
-        return _FakeVector(rotated.x + self.loc.x, rotated.y + self.loc.y, rotated.z + self.loc.z)
+        return FakeVector(rotated.x + self.loc.x, rotated.y + self.loc.y, rotated.z + self.loc.z)
 
     @staticmethod
     def LocRotScale(loc, rot, scale):
-        return _FakeMatrix(loc, rot, scale)
+        return FakeMatrix(loc, rot, scale)
 
 
-class _FakeVertex:
+class FakeVertex:
     def __init__(self, co) -> None:
         self.co = co
 
 
-class _FakeMeshData:
+class FakeMeshData:
     def __init__(self, n_verts=8, n_edges=12, n_polys=6) -> None:
-        self.vertices = [_FakeVertex(_FakeVector(float(i), 0.0, 0.0)) for i in range(n_verts)]
+        self.vertices = [FakeVertex(FakeVector(float(i), 0.0, 0.0)) for i in range(n_verts)]
         self.edges = [object() for _ in range(n_edges)]
         self.polygons = [object() for _ in range(n_polys)]
         self.remesh_voxel_size = 0.1
 
 
-class _FakeModifier:
+class FakeModifier:
     def __init__(self, name, type) -> None:
         self.name = name
         self.type = type
 
 
-class _FakeModifiers(list):
+class FakeModifiers(list):
     def new(self, name, type):
-        mod = _FakeModifier(name, type)
+        mod = FakeModifier(name, type)
         self.append(mod)
         return mod
 
@@ -184,21 +184,21 @@ class _FakeModifiers(list):
         return next((m for m in self if m.name == name), None)
 
 
-class _FakeObject:
+class FakeObject:
     def __init__(self, name, obj_type, selected_objects=None) -> None:
         self._name = name
         self._collection = None
         self.type = obj_type
-        self.location = _FakeVector()
-        self.rotation_euler = _FakeVector()
+        self.location = FakeVector()
+        self.rotation_euler = FakeVector()
         self.rotation_mode = "XYZ"
-        self.rotation_quaternion = _FakeQuaternion()
+        self.rotation_quaternion = FakeQuaternion()
         self.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
-        self.scale = _FakeVector(1.0, 1.0, 1.0)
-        self._dimensions = _FakeVector(1.0, 1.0, 1.0)
+        self.scale = FakeVector(1.0, 1.0, 1.0)
+        self._dimensions = FakeVector(1.0, 1.0, 1.0)
         self.parent = None
-        self.data = _FakeMeshData() if obj_type == "MESH" else None
-        self.modifiers = _FakeModifiers()
+        self.data = FakeMeshData() if obj_type == "MESH" else None
+        self.modifiers = FakeModifiers()
         self.material_slots = []
         self._custom = {}
         self.selected = False
@@ -210,10 +210,10 @@ class _FakeObject:
             rot = self.rotation_quaternion.copy()
         elif self.rotation_mode == "AXIS_ANGLE":
             angle, x, y, z = self.rotation_axis_angle
-            rot = _FakeQuaternion((x, y, z), angle)
+            rot = FakeQuaternion((x, y, z), angle)
         else:
             rot = _euler_to_quat(self.rotation_euler)
-        return _FakeMatrix(self.location.copy(), rot, self.scale.copy())
+        return FakeMatrix(self.location.copy(), rot, self.scale.copy())
 
     @property
     def matrix_world(self):
@@ -228,12 +228,12 @@ class _FakeObject:
             loc, rot, scale = mat.decompose()
         else:
             a = self.parent.matrix_world
-            diff = _FakeVector(mat.loc.x - a.loc.x, mat.loc.y - a.loc.y, mat.loc.z - a.loc.z)
-            unscaled = _FakeVector(diff.x / a.scale.x, diff.y / a.scale.y, diff.z / a.scale.z)
+            diff = FakeVector(mat.loc.x - a.loc.x, mat.loc.y - a.loc.y, mat.loc.z - a.loc.z)
+            unscaled = FakeVector(diff.x / a.scale.x, diff.y / a.scale.y, diff.z / a.scale.z)
             a_conj = _quat_conjugate(a.rot)
             loc = _quat_rotate_vec(a_conj, unscaled)
             rot = _quat_mul(a_conj, mat.rot)
-            scale = _FakeVector(mat.scale.x / a.scale.x, mat.scale.y / a.scale.y, mat.scale.z / a.scale.z)
+            scale = FakeVector(mat.scale.x / a.scale.x, mat.scale.y / a.scale.y, mat.scale.z / a.scale.z)
         self.location = loc
         self.scale = scale
         if self.rotation_mode == "QUATERNION":
@@ -250,7 +250,7 @@ class _FakeObject:
 
     @dimensions.setter
     def dimensions(self, value) -> None:
-        self._dimensions = _FakeVector(*value)
+        self._dimensions = FakeVector(*value)
 
     @property
     def name(self):
@@ -286,7 +286,7 @@ class _FakeObject:
         return self._custom[key]
 
 
-class _FakeObjectsCollection(dict):
+class FakeObjectsCollection(dict):
     def __init__(self, selected_objects) -> None:
         super().__init__()
         self._selected_objects = selected_objects
@@ -295,7 +295,7 @@ class _FakeObjectsCollection(dict):
         return dict.get(self, name, default)
 
     def new(self, name, data):
-        obj = _FakeObject(name, "MESH" if data is not None else "EMPTY", selected_objects=self._selected_objects)
+        obj = FakeObject(name, "MESH" if data is not None else "EMPTY", selected_objects=self._selected_objects)
         obj._collection = self
         self[obj.name] = obj
         return obj
@@ -306,7 +306,7 @@ class _FakeObjectsCollection(dict):
             self._selected_objects.remove(obj)
 
 
-class _FakeTexturesCollection(dict):
+class FakeTexturesCollection(dict):
     def get(self, name, default=None):
         return dict.get(self, name, default)
 
@@ -319,21 +319,21 @@ class _FakeTexturesCollection(dict):
         self.pop(tex.name, None)
 
 
-class _FakeBMElem:
+class FakeBMElem:
     def __init__(self) -> None:
         self.select = False
 
 
-class _FakeBMElemSeq(list):
+class FakeBMElemSeq(list):
     def ensure_lookup_table(self) -> None:
         pass
 
 
-class _FakeBMesh:
+class FakeBMesh:
     def __init__(self, mesh_data) -> None:
-        self.verts = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.vertices)
-        self.edges = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.edges)
-        self.faces = _FakeBMElemSeq(_FakeBMElem() for _ in mesh_data.polygons)
+        self.verts = FakeBMElemSeq(FakeBMElem() for _ in mesh_data.vertices)
+        self.edges = FakeBMElemSeq(FakeBMElem() for _ in mesh_data.edges)
+        self.faces = FakeBMElemSeq(FakeBMElem() for _ in mesh_data.polygons)
 
     def select_flush(self, _value) -> None:
         pass
@@ -351,20 +351,20 @@ def _load_addon(monkeypatch):
     )
 
     selected_objects = []
-    objects = _FakeObjectsCollection(selected_objects)
-    textures = _FakeTexturesCollection()
+    objects = FakeObjectsCollection(selected_objects)
+    textures = FakeTexturesCollection()
     primitive_counter = {"n": 0}
 
     def _make_primitive_op(prefix, obj_type="MESH"):
         def op(**kwargs):
             primitive_counter["n"] += 1
             name = f"{prefix}.{primitive_counter['n']:03d}"
-            obj = _FakeObject(name, obj_type, selected_objects=selected_objects)
+            obj = FakeObject(name, obj_type, selected_objects=selected_objects)
             obj._collection = objects
             location = kwargs.get("location", (0, 0, 0))
             rotation = kwargs.get("rotation", (0, 0, 0))
-            obj.location = _FakeVector(*location)
-            obj.rotation_euler = _FakeVector(*rotation)
+            obj.location = FakeVector(*location)
+            obj.rotation_euler = FakeVector(*rotation)
             objects[name] = obj
             bpy.context.view_layer.objects.active = obj
             bpy.context.active_object = obj
@@ -473,13 +473,13 @@ def _load_addon(monkeypatch):
     bpy.app = app
 
     bmesh = types.ModuleType("bmesh")
-    bmesh.from_edit_mesh = _FakeBMesh
+    bmesh.from_edit_mesh = FakeBMesh
     bmesh.update_edit_mesh = lambda _mesh_data: None
 
     mathutils = types.ModuleType("mathutils")
-    mathutils.Vector = lambda seq: _FakeVector(*seq)
-    mathutils.Quaternion = _FakeQuaternion
-    mathutils.Matrix = types.SimpleNamespace(LocRotScale=_FakeMatrix.LocRotScale)
+    mathutils.Vector = lambda seq: FakeVector(*seq)
+    mathutils.Quaternion = FakeQuaternion
+    mathutils.Matrix = types.SimpleNamespace(LocRotScale=FakeMatrix.LocRotScale)
 
     monkeypatch.setitem(sys.modules, "bpy", bpy)
     monkeypatch.setitem(sys.modules, "bpy.props", props)
@@ -691,13 +691,13 @@ def test_model_match_reference_copies_only_flagged_components(monkeypatch) -> No
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "A")
-    obj.location = _FakeVector(1, 2, 3)
-    obj.rotation_euler = _FakeVector(0, 0, 0)
-    obj.scale = _FakeVector(1, 1, 1)
+    obj.location = FakeVector(1, 2, 3)
+    obj.rotation_euler = FakeVector(0, 0, 0)
+    obj.scale = FakeVector(1, 1, 1)
     ref = _new_mesh_object(bpy, "B")
-    ref.location = _FakeVector(4, 5, 6)
-    ref.rotation_euler = _FakeVector(0.1, 0.2, 0.3)
-    ref.scale = _FakeVector(2, 2, 2)
+    ref.location = FakeVector(4, 5, 6)
+    ref.rotation_euler = FakeVector(0.1, 0.2, 0.3)
+    ref.scale = FakeVector(2, 2, 2)
 
     result = server.model_match_reference(
         object_name="A",
@@ -731,7 +731,7 @@ def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatc
     obj.rotation_mode = "QUATERNION"
     ref = _new_mesh_object(bpy, "B")
     ref.rotation_mode = "QUATERNION"
-    ref.rotation_quaternion = _FakeQuaternion((0.5, 0.5, 0.5, 0.5))
+    ref.rotation_quaternion = FakeQuaternion((0.5, 0.5, 0.5, 0.5))
 
     server.model_match_reference(
         object_name="A",
@@ -742,7 +742,7 @@ def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatc
         space="LOCAL",
     )
 
-    assert obj.rotation_quaternion == _FakeQuaternion((0.5, 0.5, 0.5, 0.5))
+    assert obj.rotation_quaternion == FakeQuaternion((0.5, 0.5, 0.5, 0.5))
 
 
 def test_model_match_reference_world_space_differs_from_local_across_parenting(
@@ -752,15 +752,15 @@ def test_model_match_reference_world_space_differs_from_local_across_parenting(
     server = addon.BlenderMCPServer()
 
     parent_a = _new_mesh_object(bpy, "ParentA")
-    parent_a.location = _FakeVector(100, 0, 0)
+    parent_a.location = FakeVector(100, 0, 0)
     obj = _new_mesh_object(bpy, "A")
-    obj.location = _FakeVector(0, 0, 0)
+    obj.location = FakeVector(0, 0, 0)
     obj.parent = parent_a
 
     parent_b = _new_mesh_object(bpy, "ParentB")
-    parent_b.location = _FakeVector(0, 0, 0)
+    parent_b.location = FakeVector(0, 0, 0)
     ref = _new_mesh_object(bpy, "B")
-    ref.location = _FakeVector(5, 5, 5)
+    ref.location = FakeVector(5, 5, 5)
     ref.parent = parent_b
 
     # ref's world position is (5, 5, 5); WORLD-space matching must land obj
@@ -911,9 +911,9 @@ def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_obje
     server = addon.BlenderMCPServer()
 
     parent = _new_mesh_object(bpy, "Parent")
-    parent.location = _FakeVector(100, 0, 0)
+    parent.location = FakeVector(100, 0, 0)
     obj = _new_mesh_object(bpy, "R")
-    obj.location = _FakeVector(0, 0, 0)
+    obj.location = FakeVector(0, 0, 0)
     obj.parent = parent
 
     # obj's world location is (100, 0, 0) even though its local location is
@@ -943,7 +943,7 @@ def test_model_radial_array_with_pivot_object(monkeypatch) -> None:
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
     pivot = _new_mesh_object(bpy, "Pivot")
-    pivot.location = _FakeVector(1, 2, 3)
+    pivot.location = FakeVector(1, 2, 3)
 
     server.model_radial_array(object_name="R", count=6, pivot_object_name="Pivot")
 

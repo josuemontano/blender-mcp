@@ -22,7 +22,7 @@ from .handlers.nd import NDHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
-from .helpers import _get_mesh_object, _paginate, get_blendermcp_addon_preferences
+from .helpers import get_mesh_object, paginate, get_blendermcp_addon_preferences
 
 
 class BlenderMCPServer(
@@ -82,7 +82,7 @@ class BlenderMCPServer(
                 return env_value
         return ""
 
-    def _get_hyper3d_api_key(self):
+    def get_hyper3d_api_key(self):
         # Let the free-trial button temporarily override persistent keys
         # without overwriting user-saved private keys.
         scene_value = getattr(bpy.context.scene, "blendermcp_hyper3d_api_key", "")
@@ -94,28 +94,28 @@ class BlenderMCPServer(
             "BLENDERMCP_HYPER3D_API_KEY",
         )
 
-    def _get_sketchfab_api_key(self):
+    def get_sketchfab_api_key(self):
         return self._get_config_value(
             "blendermcp_sketchfab_api_key",
             "sketchfab_api_key",
             "BLENDERMCP_SKETCHFAB_API_KEY",
         )
 
-    def _get_hunyuan3d_secret_id(self):
+    def get_hunyuan3d_secret_id(self):
         return self._get_config_value(
             "blendermcp_hunyuan3d_secret_id",
             "hunyuan3d_secret_id",
             "BLENDERMCP_HUNYUAN3D_SECRET_ID",
         )
 
-    def _get_hunyuan3d_secret_key(self):
+    def get_hunyuan3d_secret_key(self):
         return self._get_config_value(
             "blendermcp_hunyuan3d_secret_key",
             "hunyuan3d_secret_key",
             "BLENDERMCP_HUNYUAN3D_SECRET_KEY",
         )
 
-    def _get_hunyuan3d_api_url(self):
+    def get_hunyuan3d_api_url(self):
         return (
             self._get_config_value(
                 "blendermcp_hunyuan3d_api_url",
@@ -156,8 +156,8 @@ class BlenderMCPServer(
 
             # start() is called from the operator, i.e. the main thread, so
             # this is the only safe place to touch bpy.app.timers.
-            if not bpy.app.timers.is_registered(self._drain_command_queue):
-                bpy.app.timers.register(self._drain_command_queue, persistent=True)
+            if not bpy.app.timers.is_registered(self.drain_command_queue):
+                bpy.app.timers.register(self.drain_command_queue, persistent=True)
 
             print(f"BlenderMCP server started on {self.host}:{self.port}")
         except Exception as e:
@@ -168,8 +168,8 @@ class BlenderMCPServer(
         self.running = False
 
         try:
-            if bpy.app.timers.is_registered(self._drain_command_queue):
-                bpy.app.timers.unregister(self._drain_command_queue)
+            if bpy.app.timers.is_registered(self.drain_command_queue):
+                bpy.app.timers.unregister(self.drain_command_queue)
         except Exception:
             pass
 
@@ -223,7 +223,7 @@ class BlenderMCPServer(
                     print(f"Connected to client: {address}")
 
                     # Handle client in a separate thread
-                    client_thread = threading.Thread(target=self._handle_client, args=(client,))
+                    client_thread = threading.Thread(target=self.handle_client, args=(client,))
                     client_thread.daemon = True
                     client_thread.start()
                 except TimeoutError:
@@ -240,7 +240,7 @@ class BlenderMCPServer(
 
         print("Server thread stopped")
 
-    def _drain_command_queue(self) -> float | None:
+    def drain_command_queue(self) -> float | None:
         """
         Run queued commands on Blender's main thread.
 
@@ -275,7 +275,7 @@ class BlenderMCPServer(
 
         return 0.05
 
-    def _handle_client(self, client) -> None:
+    def handle_client(self, client) -> None:
         """
         Handle connected client.
 
@@ -344,7 +344,7 @@ class BlenderMCPServer(
 
         """
         try:
-            return self._execute_command_internal(command)
+            return self.execute_command_internal(command)
         except Exception as e:
             print(f"Error executing command: {e!s}")
             traceback.print_exc()
@@ -354,7 +354,7 @@ class BlenderMCPServer(
         """
         Build the cmd_type -> handler map, including conditionally-enabled providers.
 
-        Shared by _execute_command_internal (dispatch) and get_addon_info
+        Shared by execute_command_internal (dispatch) and get_addon_info
         (advertised capabilities), so the two can never drift apart.
 
         Returns:
@@ -450,7 +450,7 @@ class BlenderMCPServer(
 
         return handlers
 
-    def _execute_command_internal(self, command):
+    def execute_command_internal(self, command):
         """
         Internal command execution with proper context.
 
@@ -527,7 +527,7 @@ class BlenderMCPServer(
             print("Getting scene info...")
             scene_objects = list(bpy.context.scene.objects)
             total = len(scene_objects)
-            start, end, truncated, next_offset = _paginate(total, offset, limit, self._SCENE_INFO_MAX_LIMIT)
+            start, end, truncated, next_offset = paginate(total, offset, limit, self._SCENE_INFO_MAX_LIMIT)
 
             objects = []
             for obj in scene_objects[start:end]:
@@ -564,7 +564,7 @@ class BlenderMCPServer(
             return {"error": str(e)}
 
     @staticmethod
-    def _get_aabb(obj):
+    def get_aabb(obj):
         """
         Returns the world-space axis-aligned bounding box (AABB) of an object.
 
@@ -627,7 +627,7 @@ class BlenderMCPServer(
         }
 
         if obj.type == "MESH":
-            bounding_box = self._get_aabb(obj)
+            bounding_box = self.get_aabb(obj)
             obj_info["world_bounding_box"] = bounding_box
 
         # Add material slots
@@ -700,7 +700,7 @@ class BlenderMCPServer(
         """
         if element_type not in self._MESH_DATA_ELEMENT_TYPES:
             raise ValueError(f"Invalid element_type: {element_type}. Must be one of {self._MESH_DATA_ELEMENT_TYPES}")
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         mesh = obj.data
 
         if element_type == "vertices":
@@ -741,11 +741,11 @@ class BlenderMCPServer(
         if selected_only:
             universe = [el for el in all_elements if el.select]
             total = len(universe)
-            start, end, truncated, next_offset = _paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
+            start, end, truncated, next_offset = paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
             page = universe[start:end]
         else:
             total = total_unfiltered
-            start, end, truncated, next_offset = _paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
+            start, end, truncated, next_offset = paginate(total, offset, limit, self._MESH_DATA_MAX_LIMIT)
             # islice avoids materializing the whole (possibly huge) collection
             # when the caller only asked for a small page of it.
             page = itertools.islice(all_elements, start, end)

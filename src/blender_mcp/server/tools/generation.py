@@ -21,7 +21,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from ..app import mcp
 from ..connection import get_blender_connection
 from ._envelope import ok
-from .hyper3d import _process_bbox
+from .hyper3d import process_bbox
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -81,7 +81,7 @@ async def _generate_hyper3d_and_import(
         {
             "text_prompt": text_prompt,
             "images": images,
-            "bbox_condition": _process_bbox(bbox_condition),
+            "bbox_condition": process_bbox(bbox_condition),
         },
     )
     job_ids = _rodin_extract_job_ids(result)

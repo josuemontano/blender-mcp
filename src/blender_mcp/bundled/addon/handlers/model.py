@@ -2,13 +2,13 @@ import bpy
 import mathutils
 
 from ..helpers import (
-    _apply_modifier,
-    _get_mesh_object,
-    _get_rotation_quaternion,
-    _modifier_result,
-    _preserve_mode_and_selection,
-    _set_active,
-    _set_rotation_quaternion,
+    apply_modifier,
+    get_mesh_object,
+    get_rotation_quaternion,
+    modifier_result,
+    preserve_mode_and_selection,
+    set_active,
+    set_rotation_quaternion,
 )
 
 _SPACES = {"LOCAL", "WORLD"}
@@ -63,7 +63,7 @@ class ModelHandlersMixin:
             if match_location:
                 obj.location = ref.location.copy()
             if match_rotation:
-                _set_rotation_quaternion(obj, _get_rotation_quaternion(ref))
+                set_rotation_quaternion(obj, get_rotation_quaternion(ref))
             if match_scale:
                 obj.scale = ref.scale.copy()
         else:
@@ -74,7 +74,7 @@ class ModelHandlersMixin:
             new_scale = ref_scale if match_scale else obj_scale
             obj.matrix_world = mathutils.Matrix.LocRotScale(new_loc, new_rot, new_scale)
 
-        rotation_quat = _get_rotation_quaternion(obj)
+        rotation_quat = get_rotation_quaternion(obj)
         euler = rotation_quat.to_euler(obj.rotation_mode)
         return {
             "name": obj.name,
@@ -97,16 +97,16 @@ class ModelHandlersMixin:
             Result produced by the operation.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Subdivision", type="SUBSURF")
         mod.levels = levels
         mod.render_levels = levels
-        with _preserve_mode_and_selection():
-            _set_active(obj)
+        with preserve_mode_and_selection():
+            set_active(obj)
             bpy.ops.object.shade_smooth()
         if apply:
-            _apply_modifier(obj, mod)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+            apply_modifier(obj, mod)
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     def add_procedural_displacement(
         self,
@@ -139,22 +139,22 @@ class ModelHandlersMixin:
             Result produced by the operation.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         if subdivide:
             subsurf = obj.modifiers.new(name="Subdivision", type="SUBSURF")
             subsurf.levels = 2
             subsurf.render_levels = 2
             if apply:
-                _apply_modifier(obj, subsurf)
+                apply_modifier(obj, subsurf)
         tex = bpy.data.textures.new(name=f"{object_name}_detail", type=texture_type)
         tex.noise_scale = scale
         mod = obj.modifiers.new(name="Displace", type="DISPLACE")
         mod.texture = tex
         mod.strength = strength
         if apply:
-            _apply_modifier(obj, mod)
+            apply_modifier(obj, mod)
             bpy.data.textures.remove(tex, do_unlink=True)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
         """
@@ -174,7 +174,7 @@ class ModelHandlersMixin:
             ValueError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         axis = str(axis).upper()
         if axis not in {"X", "Y", "Z"}:
             raise ValueError(f"Invalid axis: {axis}. Must be one of X, Y, Z")
@@ -183,8 +183,8 @@ class ModelHandlersMixin:
         mod.use_mirror_merge = bool(merge)
         mod.use_clip = bool(clip)
         if apply:
-            _apply_modifier(obj, mod)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+            apply_modifier(obj, mod)
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     def model_array(self, object_name, count=2, relative_offset=(1, 0, 0), apply=False):
         """
@@ -200,13 +200,13 @@ class ModelHandlersMixin:
             Result produced by the operation.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         mod = obj.modifiers.new(name="Array", type="ARRAY")
         mod.count = count
         mod.relative_offset_displace = tuple(relative_offset)
         if apply:
-            _apply_modifier(obj, mod)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+            apply_modifier(obj, mod)
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     _RADIAL_AXIS_PERP = {"X": "Y", "Y": "Z", "Z": "X"}
 
@@ -245,7 +245,7 @@ class ModelHandlersMixin:
             ValueError: If the operation cannot be completed.
 
         """
-        obj = _get_mesh_object(object_name)
+        obj = get_mesh_object(object_name)
         axis = str(axis).upper()
         if axis not in {"X", "Y", "Z"}:
             raise ValueError(f"Invalid axis: {axis}. Must be one of X, Y, Z")
@@ -283,8 +283,8 @@ class ModelHandlersMixin:
         mod.use_object_offset = True
         mod.offset_object = empty
         if apply:
-            _apply_modifier(obj, mod)
+            apply_modifier(obj, mod)
             bpy.data.objects.remove(empty, do_unlink=True)
-        return {"name": obj.name, **_modifier_result(obj, mod, apply)}
+        return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
     # endregion

@@ -1,7 +1,7 @@
 """
 Regression coverage for split multi-byte UTF-8 sequences in the socket buffer.
 
-The bug: `_handle_client` accumulates `recv()` chunks into `buffer` and does
+The bug: `handle_client` accumulates `recv()` chunks into `buffer` and does
 `buffer.decode('utf-8')` before attempting `json.loads()`. Only
 `json.JSONDecodeError` was caught, treated as "incomplete data, wait for more".
 If a multi-byte UTF-8 character (e.g. an accented letter, CJK text, or an
@@ -14,7 +14,7 @@ buffer waiting to be read.
 
 A real loopback socket won't reliably reproduce an exact byte-offset split
 (the OS may coalesce separate `sendall()` calls into one `recv()`), so this
-drives `_handle_client` directly with a fake socket that returns pre-scripted
+drives `handle_client` directly with a fake socket that returns pre-scripted
 chunks - deterministic, no network, no flakiness.
 """
 
@@ -27,7 +27,7 @@ import pytest
 from test_server_threading import BlenderMCPServer
 
 
-class _ScriptedSocket:
+class ScriptedSocket:
     """Fake client socket returning pre-scripted recv() chunks, one per call."""
 
     def __init__(self, chunks) -> None:
@@ -86,7 +86,7 @@ def test_split_multibyte_utf8_boundary_is_not_dropped() -> None:
 
     server = _make_server()
     server.running = True
-    server._handle_client(_ScriptedSocket([chunk1, chunk2]))
+    server.handle_client(ScriptedSocket([chunk1, chunk2]))
 
     assert not server.command_queue.empty(), (
         "command was dropped: a multi-byte UTF-8 character split across a "
@@ -110,7 +110,7 @@ def test_split_multibyte_utf8_boundary_keeps_handler_loop_alive() -> None:
 
     server = _make_server()
     server.running = True
-    server._handle_client(_ScriptedSocket([first[:split_idx], first[split_idx:], second]))
+    server.handle_client(ScriptedSocket([first[:split_idx], first[split_idx:], second]))
 
     queued = []
     while not server.command_queue.empty():

@@ -25,7 +25,7 @@ def get_blendermcp_addon_preferences(context=None):
 
 
 # region Mesh/model editing helpers
-def _get_mesh_object(name):
+def get_mesh_object(name):
     """
     Look up an object by name and require it to be a mesh.
 
@@ -48,7 +48,7 @@ def _get_mesh_object(name):
 
 
 @contextlib.contextmanager
-def _preserve_mode_and_selection():
+def preserve_mode_and_selection():
     """
     Snapshot the current mode, active object, and selection; force Object
     Mode for the wrapped block; restore the snapshot on exit - success or
@@ -58,7 +58,7 @@ def _preserve_mode_and_selection():
     active/selected object to pass poll() (Blender API docs, "Using
     Operators": poll typically checks "the active area type, a selection or
     active object"). Code inside the `with` block is responsible for
-    returning to Object Mode before the block ends (e.g. _edit_mesh already
+    returning to Object Mode before the block ends (e.g. edit_mesh already
     does this in its own finally) - this only guarantees a clean Object Mode
     starting point and restores the caller's prior state afterward.
     """
@@ -78,11 +78,11 @@ def _preserve_mode_and_selection():
             bpy.ops.object.mode_set(mode=prev_mode)
 
 
-def _set_active(obj) -> None:
+def set_active(obj) -> None:
     """
     Make obj the sole selected + active object.
 
-    Must be called from inside a `with _preserve_mode_and_selection():`
+    Must be called from inside a `with preserve_mode_and_selection():`
     block - select_all/select_set require Object Mode to pass poll().
 
     Args:
@@ -108,7 +108,7 @@ def _select_geometry(obj, vert_indices=None, edge_indices=None, face_indices=Non
         face_indices: Indices of faces to operate on.
 
     """
-    _set_active(obj)
+    set_active(obj)
     bpy.ops.object.mode_set(mode="EDIT")
     bm = bmesh.from_edit_mesh(obj.data)
     bm.verts.ensure_lookup_table()
@@ -148,7 +148,7 @@ def _select_geometry(obj, vert_indices=None, edge_indices=None, face_indices=Non
     bmesh.update_edit_mesh(obj.data)
 
 
-def _exit_edit_mode() -> None:
+def exit_edit_mode() -> None:
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
@@ -174,7 +174,7 @@ def _validate_indices(obj, attr, indices) -> None:
 
 
 @contextlib.contextmanager
-def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
+def edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     """
     Enter edit mode on obj, select the given indices, and always exit edit mode afterward.
 
@@ -183,7 +183,7 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     IndexError - and the mode restoration in the finally block happens even if
     the caller's operator inside the `with` block raises.
 
-    Wrapped in _preserve_mode_and_selection() so entering/leaving Edit Mode
+    Wrapped in preserve_mode_and_selection() so entering/leaving Edit Mode
     on obj is guaranteed to start from - and return to - the caller's real
     prior mode, active object, and selection.
 
@@ -197,7 +197,7 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     _validate_indices(obj, "vertices", vert_indices)
     _validate_indices(obj, "edges", edge_indices)
     _validate_indices(obj, "polygons", face_indices)
-    with _preserve_mode_and_selection():
+    with preserve_mode_and_selection():
         _select_geometry(
             obj,
             vert_indices=vert_indices,
@@ -207,10 +207,10 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
         try:
             yield
         finally:
-            _exit_edit_mode()
+            exit_edit_mode()
 
 
-def _paginate(total, offset, limit, max_limit):
+def paginate(total, offset, limit, max_limit):
     """
     Clamp offset/limit against total and return (start, end, truncated, next_offset).
 
@@ -232,7 +232,7 @@ def _paginate(total, offset, limit, max_limit):
     return start, end, truncated, (end if truncated else None)
 
 
-def _mesh_counts(obj):
+def mesh_counts(obj):
     return {
         "vertices": len(obj.data.vertices),
         "edges": len(obj.data.edges),
@@ -240,9 +240,9 @@ def _mesh_counts(obj):
     }
 
 
-def _apply_modifier(obj, modifier) -> None:
-    with _preserve_mode_and_selection():
-        _set_active(obj)
+def apply_modifier(obj, modifier) -> None:
+    with preserve_mode_and_selection():
+        set_active(obj)
         bpy.ops.object.modifier_apply(modifier=modifier.name)
 
 
@@ -270,11 +270,11 @@ def _world_bounds(matrix_world, vertices):
     }
 
 
-def _modifier_result(obj, modifier, applied):
+def modifier_result(obj, modifier, applied):
     """
     Report base-mesh counts plus modifier-evaluated counts/name/bounds.
 
-    When apply=False, _mesh_counts(obj) only reflects the base mesh - the
+    When apply=False, mesh_counts(obj) only reflects the base mesh - the
     live modifier's effect is invisible unless it's read from the
     depsgraph-evaluated object instead.
 
@@ -287,7 +287,7 @@ def _modifier_result(obj, modifier, applied):
         Result produced by the operation.
 
     """
-    base = _mesh_counts(obj)
+    base = mesh_counts(obj)
     if applied or modifier is None:
         return {
             **base,
@@ -313,7 +313,7 @@ def _modifier_result(obj, modifier, applied):
     }
 
 
-def _get_rotation_quaternion(obj):
+def get_rotation_quaternion(obj):
     """
     Read obj's rotation as a quaternion, regardless of its rotation_mode.
 
@@ -332,7 +332,7 @@ def _get_rotation_quaternion(obj):
     return obj.rotation_euler.to_quaternion()
 
 
-def _set_rotation_quaternion(obj, quat) -> None:
+def set_rotation_quaternion(obj, quat) -> None:
     """
     Write a quaternion to obj, converting to whatever rotation_mode it uses.
 
@@ -350,7 +350,7 @@ def _set_rotation_quaternion(obj, quat) -> None:
         obj.rotation_euler = quat.to_euler(obj.rotation_mode)
 
 
-def _select_objects(names, active_name=None):
+def select_objects(names, active_name=None):
     """
     Deselect everything, select the named objects, and set the active object.
 
@@ -381,7 +381,7 @@ def _select_objects(names, active_name=None):
     return objs
 
 
-def _find_view3d():
+def find_view3d():
     """
     Locate a VIEW_3D area/region, needed to override bpy.context.space_data for ND's viewport operators.
 
@@ -397,7 +397,7 @@ def _find_view3d():
     return None, None
 
 
-def _nd_call(op_name, op, *args, **kwargs):
+def nd_call(op_name, op, *args, **kwargs):
     """
     Call an ND operator, raising if it unexpectedly enters a modal state.
 
@@ -420,7 +420,7 @@ def _nd_call(op_name, op, *args, **kwargs):
     return result
 
 
-def _nd_configure_object_as_util(obj, util=True) -> None:
+def nd_configure_object_as_util(obj, util=True) -> None:
     """
     Replicate ND's lib/objects.configure_object_as_util (mark/unmark a utility object).
 

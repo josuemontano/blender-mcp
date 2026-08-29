@@ -5,8 +5,8 @@ Many addon handlers catch their own exceptions and return an ad-hoc failure
 shape ({"error": ...}, {"succeed": False, "error": ...}, or a bare
 "Error: ..." string) instead of raising. The addon's own dispatcher then
 wraps that as {"status": "success", "result": <value>}, since only a raised
-exception produces {"status": "error", ...}. `_ad_hoc_failure_message` and
-`_send_command_locked` are the safety net that catches this on the MCP
+exception produces {"status": "error", ...}. `ad_hoc_failure_message` and
+`send_command_locked` are the safety net that catches this on the MCP
 server side regardless of which addon version is installed.
 """
 
@@ -16,11 +16,11 @@ import json
 
 import pytest
 
-from blender_mcp.server.connection import BlenderConnection, _ad_hoc_failure_message
+from blender_mcp.server.connection import BlenderConnection, ad_hoc_failure_message
 
 
-class _FakeSocket:
-    """Minimal stand-in so _send_command_locked never touches a real socket."""
+class FakeSocket:
+    """Minimal stand-in so send_command_locked never touches a real socket."""
 
     def sendall(self, data: bytes) -> None:
         pass
@@ -31,7 +31,7 @@ class _FakeSocket:
 
 def _connection_returning(payload: dict, monkeypatch) -> BlenderConnection:
     conn = BlenderConnection(host="localhost", port=0)
-    conn.sock = _FakeSocket()
+    conn.sock = FakeSocket()
     monkeypatch.setattr(conn, "receive_full_response", lambda sock: json.dumps(payload).encode("utf-8"))
     return conn
 
@@ -46,7 +46,7 @@ def _connection_returning(payload: dict, monkeypatch) -> BlenderConnection:
     ],
 )
 def test_ad_hoc_failure_message_detects_known_failure_shapes(result, expected) -> None:
-    assert _ad_hoc_failure_message(result) == expected
+    assert ad_hoc_failure_message(result) == expected
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,7 @@ def test_ad_hoc_failure_message_detects_known_failure_shapes(result, expected) -
     ],
 )
 def test_ad_hoc_failure_message_leaves_real_success_alone(result) -> None:
-    assert _ad_hoc_failure_message(result) is None
+    assert ad_hoc_failure_message(result) is None
 
 
 def test_send_command_raises_on_nested_error_dict(monkeypatch) -> None:
@@ -71,7 +71,7 @@ def test_send_command_raises_on_nested_error_dict(monkeypatch) -> None:
     )
 
     with pytest.raises(Exception, match="SecretId or SecretKey is not given"):
-        conn._send_command_locked("generate_hunyuan3d_model")
+        conn.send_command_locked("generate_hunyuan3d_model")
 
     # A clean operation failure is not a transport problem - the socket must survive it.
     assert conn.sock is not None
@@ -87,7 +87,7 @@ def test_send_command_raises_on_succeed_false(monkeypatch) -> None:
     )
 
     with pytest.raises(Exception, match="No mesh objects imported from GLB"):
-        conn._send_command_locked("import_generated_asset_hunyuan")
+        conn.send_command_locked("import_generated_asset_hunyuan")
 
     assert conn.sock is not None
 
@@ -96,7 +96,7 @@ def test_send_command_still_raises_cleanly_on_top_level_error_status(monkeypatch
     conn = _connection_returning({"status": "error", "message": "Unknown command type: bogus"}, monkeypatch)
 
     with pytest.raises(Exception, match="Unknown command type: bogus"):
-        conn._send_command_locked("bogus")
+        conn.send_command_locked("bogus")
 
     # Regression check: this used to get relabeled "Communication error with
     # Blender: ..." and needlessly drop a working socket.
@@ -108,4 +108,4 @@ def test_send_command_passes_through_real_success(monkeypatch) -> None:
         {"status": "success", "result": {"succeed": True, "name": "Cube"}}, monkeypatch
     )
 
-    assert conn._send_command_locked("import_generated_asset_hunyuan") == {"succeed": True, "name": "Cube"}
+    assert conn.send_command_locked("import_generated_asset_hunyuan") == {"succeed": True, "name": "Cube"}

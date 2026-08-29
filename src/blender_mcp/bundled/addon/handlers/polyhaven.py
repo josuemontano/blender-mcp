@@ -9,7 +9,7 @@ import bpy
 import requests
 
 from ..constants import REQ_HEADERS
-from ..helpers import _preserve_mode_and_selection
+from ..helpers import preserve_mode_and_selection
 
 
 class PolyhavenHandlersMixin:
@@ -713,7 +713,7 @@ class PolyhavenHandlersMixin:
             obj.data.materials.append(new_mat)
 
             # CRITICAL: Make the object active and select it
-            with _preserve_mode_and_selection():
+            with preserve_mode_and_selection():
                 bpy.context.view_layer.objects.active = obj
                 obj.select_set(True)
 

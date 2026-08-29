@@ -24,7 +24,7 @@ class SketchfabHandlersMixin:
 
         """
         enabled = bpy.context.scene.blendermcp_use_sketchfab
-        api_key = self._get_sketchfab_api_key()
+        api_key = self.get_sketchfab_api_key()
 
         # Test the API key if present
         if api_key and enabled:
@@ -99,7 +99,7 @@ class SketchfabHandlersMixin:
 
         """
         try:
-            api_key = self._get_sketchfab_api_key()
+            api_key = self.get_sketchfab_api_key()
             if not api_key:
                 return {"error": "Sketchfab API key is not configured"}
 
@@ -170,7 +170,7 @@ class SketchfabHandlersMixin:
         try:
             import base64
 
-            api_key = self._get_sketchfab_api_key()
+            api_key = self.get_sketchfab_api_key()
             if not api_key:
                 return {"error": "Sketchfab API key is not configured"}
 
@@ -263,7 +263,7 @@ class SketchfabHandlersMixin:
 
         """
         try:
-            api_key = self._get_sketchfab_api_key()
+            api_key = self.get_sketchfab_api_key()
             if not api_key:
                 return {"error": "Sketchfab API key is not configured"}
 

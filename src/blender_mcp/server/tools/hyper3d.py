@@ -17,7 +17,7 @@ from ._envelope import ok
 logger = logging.getLogger("BlenderMCPServer")
 
 
-def _process_bbox(
+def process_bbox(
     original_bbox: tuple[float, float, float] | list[float] | list[int] | None,
 ) -> list[int] | None:
     if original_bbox is None:
@@ -61,7 +61,7 @@ async def generate_hyper3d_model_via_text(
             {
                 "text_prompt": text_prompt,
                 "images": None,
-                "bbox_condition": _process_bbox(bbox_condition),
+                "bbox_condition": process_bbox(bbox_condition),
             },
         )
         if not result.get("submit_time", False):
@@ -131,7 +131,7 @@ async def generate_hyper3d_model_via_images(
             {
                 "text_prompt": None,
                 "images": images,
-                "bbox_condition": _process_bbox(bbox_condition),
+                "bbox_condition": process_bbox(bbox_condition),
             },
         )
         if not result.get("submit_time", False):

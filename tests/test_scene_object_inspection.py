@@ -8,7 +8,7 @@ import pytest
 from conftest import load_addon_package
 
 
-class _FakeVector:
+class FakeVector:
     def __init__(self, x=0.0, y=0.0, z=0.0) -> None:
         self.x, self.y, self.z = x, y, z
 
@@ -16,22 +16,22 @@ class _FakeVector:
         return iter((self.x, self.y, self.z))
 
 
-class _FakeVertex:
+class FakeVertex:
     def __init__(self, index, co=(0.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0), select=False) -> None:
         self.index = index
-        self.co = _FakeVector(*co)
-        self.normal = _FakeVector(*normal)
+        self.co = FakeVector(*co)
+        self.normal = FakeVector(*normal)
         self.select = select
 
 
-class _FakeEdge:
+class FakeEdge:
     def __init__(self, index, vertices=(0, 1), select=False) -> None:
         self.index = index
         self.vertices = vertices
         self.select = select
 
 
-class _FakePolygon:
+class FakePolygon:
     def __init__(
         self,
         index,
@@ -44,7 +44,7 @@ class _FakePolygon:
     ) -> None:
         self.index = index
         self.vertices = vertices
-        self.normal = _FakeVector(*normal)
+        self.normal = FakeVector(*normal)
         self.select = select
         self.material_index = material_index
         self.loop_start = loop_start
@@ -55,23 +55,23 @@ class _FakePolygon:
         return range(self.loop_start, self.loop_start + self.loop_total)
 
 
-class _FakeLoop:
+class FakeLoop:
     def __init__(self, index, vertex_index=0, edge_index=0, normal=(0.0, 0.0, 1.0)) -> None:
         self.index = index
         self.vertex_index = vertex_index
         self.edge_index = edge_index
-        self.normal = _FakeVector(*normal)
+        self.normal = FakeVector(*normal)
 
 
-class _FakeMeshData:
+class FakeMeshData:
     """A minimal but structurally-real mesh: n_polys quads, 4 loops each."""
 
     def __init__(self, n_verts=8, n_edges=12, n_polys=6) -> None:
-        self.vertices = [_FakeVertex(i, co=(float(i), 0.0, 0.0)) for i in range(n_verts)]
-        self.edges = [_FakeEdge(i, vertices=(i % n_verts, (i + 1) % n_verts)) for i in range(n_edges)]
+        self.vertices = [FakeVertex(i, co=(float(i), 0.0, 0.0)) for i in range(n_verts)]
+        self.edges = [FakeEdge(i, vertices=(i % n_verts, (i + 1) % n_verts)) for i in range(n_edges)]
         loops_per_poly = 4
         self.polygons = [
-            _FakePolygon(
+            FakePolygon(
                 i,
                 vertices=(0, 1, 2, 3),
                 loop_start=i * loops_per_poly,
@@ -80,7 +80,7 @@ class _FakeMeshData:
             for i in range(n_polys)
         ]
         self.loops = [
-            _FakeLoop(
+            FakeLoop(
                 i,
                 vertex_index=i % n_verts,
                 edge_index=i % n_edges,
@@ -92,7 +92,7 @@ class _FakeMeshData:
         pass
 
 
-class _FakeObjectsCollection(dict):
+class FakeObjectsCollection(dict):
     def get(self, name, default=None):
         return dict.get(self, name, default)
 
@@ -100,7 +100,7 @@ class _FakeObjectsCollection(dict):
         obj = types.SimpleNamespace(
             name=name,
             type="MESH" if data is not None else "EMPTY",
-            location=_FakeVector(),
+            location=FakeVector(),
             data=data,
         )
         self[name] = obj
@@ -108,7 +108,7 @@ class _FakeObjectsCollection(dict):
 
 
 def _load_addon(monkeypatch):
-    objects = _FakeObjectsCollection()
+    objects = FakeObjectsCollection()
     materials = []
 
     scene = types.SimpleNamespace(
@@ -184,7 +184,7 @@ def _load_addon(monkeypatch):
 
 
 def _new_mesh_object(bpy, name, **mesh_kwargs):
-    obj = bpy.data.objects.new(name, _FakeMeshData(**mesh_kwargs))
+    obj = bpy.data.objects.new(name, FakeMeshData(**mesh_kwargs))
     return obj
 
 

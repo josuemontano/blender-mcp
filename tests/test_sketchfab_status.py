@@ -76,7 +76,7 @@ def _scene(sketchfab_enabled):
 def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(sketchfab_enabled=False))
     server = addon.BlenderMCPServer()
-    monkeypatch.setattr(server, "_get_sketchfab_api_key", lambda: "saved-key")
+    monkeypatch.setattr(server, "get_sketchfab_api_key", lambda: "saved-key")
 
     def request_should_not_run(*_args, **_kwargs) -> Never:
         raise AssertionError("must not validate a disabled integration")
@@ -89,7 +89,7 @@ def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch) ->
     )
 
     status = server.get_sketchfab_status()
-    command = server._execute_command_internal({"type": "search_sketchfab_models"})
+    command = server.execute_command_internal({"type": "search_sketchfab_models"})
 
     assert status["enabled"] is False
     assert "currently disabled" in status["message"]
@@ -102,7 +102,7 @@ def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch) ->
 def test_enabled_sketchfab_reports_a_valid_key_as_ready(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(sketchfab_enabled=True))
     server = addon.BlenderMCPServer()
-    monkeypatch.setattr(server, "_get_sketchfab_api_key", lambda: "saved-key")
+    monkeypatch.setattr(server, "get_sketchfab_api_key", lambda: "saved-key")
 
     class Response:
         status_code = 200

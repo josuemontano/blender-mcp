@@ -22,7 +22,7 @@ class Hyper3DHandlersMixin:
 
         """
         enabled = bpy.context.scene.blendermcp_use_hyper3d
-        hyper3d_api_key = self._get_hyper3d_api_key()
+        hyper3d_api_key = self.get_hyper3d_api_key()
         if enabled:
             if not hyper3d_api_key:
                 return {
@@ -64,7 +64,7 @@ class Hyper3DHandlersMixin:
         bbox_condition=None,
     ):
         try:
-            api_key = self._get_hyper3d_api_key()
+            api_key = self.get_hyper3d_api_key()
             if not api_key:
                 return {"error": "Hyper3D API key is not given"}
             if images is None:
@@ -108,7 +108,7 @@ class Hyper3DHandlersMixin:
         bbox_condition=None,
     ):
         try:
-            api_key = self._get_hyper3d_api_key()
+            api_key = self.get_hyper3d_api_key()
             if not api_key:
                 return {"error": "Hyper3D API key is not given"}
             req_data = {
@@ -153,7 +153,7 @@ class Hyper3DHandlersMixin:
             Result produced by the operation.
 
         """
-        api_key = self._get_hyper3d_api_key()
+        api_key = self.get_hyper3d_api_key()
         if not api_key:
             return {"error": "Hyper3D API key is not given"}
         response = requests.post(
@@ -179,7 +179,7 @@ class Hyper3DHandlersMixin:
             Result produced by the operation.
 
         """
-        api_key = self._get_hyper3d_api_key()
+        api_key = self.get_hyper3d_api_key()
         if not api_key:
             return {"error": "Hyper3D API key is not given"}
         response = requests.get(
@@ -278,7 +278,7 @@ class Hyper3DHandlersMixin:
             Result produced by the operation.
 
         """
-        api_key = self._get_hyper3d_api_key()
+        api_key = self.get_hyper3d_api_key()
         if not api_key:
             return {"succeed": False, "error": "Hyper3D API key is not given"}
         response = requests.post(
@@ -338,7 +338,7 @@ class Hyper3DHandlersMixin:
             }
 
             if obj.type == "MESH":
-                bounding_box = self._get_aabb(obj)
+                bounding_box = self.get_aabb(obj)
                 result["world_bounding_box"] = bounding_box
 
             return {"succeed": True, **result}
@@ -357,7 +357,7 @@ class Hyper3DHandlersMixin:
             Result produced by the operation.
 
         """
-        api_key = self._get_hyper3d_api_key()
+        api_key = self.get_hyper3d_api_key()
         if not api_key:
             return {"succeed": False, "error": "Hyper3D API key is not given"}
         response = requests.get(
@@ -408,7 +408,7 @@ class Hyper3DHandlersMixin:
             }
 
             if obj.type == "MESH":
-                bounding_box = self._get_aabb(obj)
+                bounding_box = self.get_aabb(obj)
                 result["world_bounding_box"] = bounding_box
 
             return {"succeed": True, **result}
