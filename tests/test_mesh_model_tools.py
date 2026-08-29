@@ -1,12 +1,11 @@
 """Regression coverage for the mesh_*/model_* geometry-editing addon handlers."""
 
-import importlib.util
 import math
 import sys
 import types
 
 import pytest
-from conftest import ROOT_ADDON as ADDON
+from conftest import load_addon_package
 
 
 class _FakeVector:
@@ -245,11 +244,7 @@ def _load_addon(monkeypatch):
     requests.exceptions = types.SimpleNamespace(Timeout=TimeoutError)
     monkeypatch.setitem(sys.modules, "requests", requests)
 
-    spec = importlib.util.spec_from_file_location(
-        "blender_mcp_addon_mesh_model_test", ADDON
-    )
-    addon = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(addon)
+    addon = load_addon_package(monkeypatch, "blender_mcp_addon_mesh_model_test")
     return addon, bpy
 
 

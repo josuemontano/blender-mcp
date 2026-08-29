@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from conftest import ROOT_ADDON
-
 from blender_mcp.addon_manager import (
     EXPECTED_ADDON_PROTOCOL_VERSION,
     get_bundled_addon_path,
@@ -17,49 +15,13 @@ from blender_mcp.addon_manager import (
 
 def test_bundled_addon_exists_and_has_protocol():
     path = get_bundled_addon_path()
-    assert path.is_file()
-    text = path.read_text(encoding="utf-8")
+    assert path.is_dir()
+    text = (path / "__init__.py").read_text(encoding="utf-8")
     assert "ADDON_PROTOCOL_VERSION" in text
-    assert "get_addon_info" in text
-
     assert f"ADDON_PROTOCOL_VERSION = {EXPECTED_ADDON_PROTOCOL_VERSION}" in text
 
-
-def test_root_and_bundled_addon_in_sync():
-    root = ROOT_ADDON
-    if not root.is_file():
-        return
-    # Address the bundled copy directly. get_bundled_addon_path() falls back to
-    # root addon.py, which would compare the file against itself and pass even
-    # when the bundled copy is missing entirely.
-    import blender_mcp
-
-    bundled = Path(blender_mcp.__file__).resolve().parent / "bundled" / "addon.py"
-    assert bundled.is_file(), (
-        "src/blender_mcp/bundled/addon.py is missing — packaged installs would "
-        "ship without a bundled addon."
-    )
-    assert root.read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8"), (
-        "Root addon.py and src/blender_mcp/bundled/addon.py diverged — "
-        "copy root → bundled after editing."
-    )
-
-
-def test_root_addon_protocol_matches_server_expectation():
-    """ADDON_PROTOCOL_VERSION is hand-synced across two files; catch drift."""
-    root = ROOT_ADDON
-    if not root.is_file():
-        return
-    import re
-
-    match = re.search(
-        r"ADDON_PROTOCOL_VERSION\s*=\s*(\d+)", root.read_text(encoding="utf-8")
-    )
-    assert match is not None, "addon.py is missing ADDON_PROTOCOL_VERSION"
-    assert int(match.group(1)) == EXPECTED_ADDON_PROTOCOL_VERSION, (
-        "addon.py ADDON_PROTOCOL_VERSION and addon_manager."
-        "EXPECTED_ADDON_PROTOCOL_VERSION diverged."
-    )
+    server_core = (path / "server_core.py").read_text(encoding="utf-8")
+    assert "get_addon_info" in server_core
 
 
 def test_install_addon_copies_into_target_dir(tmp_path: Path):
@@ -75,10 +37,13 @@ def test_install_addon_copies_into_target_dir(tmp_path: Path):
     assert result.success is True
     assert result.target_path is not None
     installed = Path(result.target_path)
-    assert installed.is_file()
-    assert "ADDON_PROTOCOL_VERSION" in installed.read_text(encoding="utf-8")
-    # Legacy file should also have been overwritten
-    assert "ADDON_PROTOCOL_VERSION" in legacy.read_text(encoding="utf-8")
+    assert installed.is_dir()
+    assert "ADDON_PROTOCOL_VERSION" in (installed / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    # The legacy single-file install is replaced by the package directory,
+    # not left behind alongside it.
+    assert not legacy.exists()
 
 
 def test_handshake_up_to_date():
@@ -121,12 +86,18 @@ def test_handshake_outdated_protocol():
 
 
 def _stale_addon_source() -> str:
+    """A stand-in for an old-style single-.py-file legacy install.
+
+    The addon's bl_info and ADDON_PROTOCOL_VERSION marker both live in
+    __init__.py, so its content alone is enough to be recognized as a
+    (stale) Blender MCP addon file by the marker-based checks below.
+    """
     from blender_mcp import addon_manager as am
 
     # Derive the stale marker from the current expected version so this helper
     # keeps producing a genuinely outdated file across protocol bumps.
     return (
-        am.get_bundled_addon_path()
+        (am.get_bundled_addon_path() / "__init__.py")
         .read_text(encoding="utf-8")
         .replace(
             f"ADDON_PROTOCOL_VERSION = {am.EXPECTED_ADDON_PROTOCOL_VERSION}",
@@ -164,7 +135,8 @@ def test_startup_check_reports_current(tmp_path: Path, monkeypatch):
     addons = tmp_path / "4.2" / "scripts" / "addons"
     addons.mkdir(parents=True)
     (addons / "blender_mcp.py").write_text(
-        am.get_bundled_addon_path().read_text(encoding="utf-8"), encoding="utf-8"
+        (am.get_bundled_addon_path() / "__init__.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
 
     monkeypatch.setattr(am, "discover_blender_addon_dirs", lambda: [addons])
@@ -196,8 +168,8 @@ def test_install_updates_extensions_dir_when_addon_lives_there(
     extensions = tmp_path / "4.2" / "extensions" / "user_default"
     scripts.mkdir(parents=True)
     extensions.mkdir(parents=True)
-    installed = extensions / "blender_mcp.py"
-    installed.write_text(_stale_addon_source(), encoding="utf-8")
+    stale_install = extensions / "blender_mcp.py"
+    stale_install.write_text(_stale_addon_source(), encoding="utf-8")
 
     # discover_blender_addon_dirs lists scripts/addons first.
     monkeypatch.setattr(
@@ -206,10 +178,12 @@ def test_install_updates_extensions_dir_when_addon_lives_there(
     result = am.install_addon()
 
     assert result.success is True
-    assert am.read_addon_protocol_version(installed) == (
+    updated = extensions / "blender_mcp"
+    assert am.read_addon_protocol_version(updated) == (
         am.EXPECTED_ADDON_PROTOCOL_VERSION
     ), "the actually-loaded extensions copy was left stale"
-    assert not (scripts / "blender_mcp.py").exists(), (
+    assert not stale_install.exists(), "old single-file install was left behind"
+    assert not (scripts / "blender_mcp").exists(), (
         "installed a duplicate into scripts/addons instead of updating in place"
     )
 

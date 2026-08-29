@@ -1,7 +1,7 @@
 """Tests for the addon's socket server threading model (no Blender required).
 
-addon.py cannot be imported without bpy, so BlenderMCPServer is lifted out by
-AST and executed against stubs.
+server_core.py cannot be imported without bpy, so BlenderMCPServer is lifted
+out by AST and executed against stubs.
 
 The bug these cover: commands used to be dispatched by calling
 bpy.app.timers.register() from a client thread. bpy.app.timers is main-thread
@@ -22,6 +22,8 @@ from contextlib import contextmanager, suppress
 
 from conftest import ROOT_ADDON
 
+SERVER_CORE = ROOT_ADDON.parent / "server_core.py"
+
 
 class _NullEditRecorder:
     """Stands in for the addon's UserEditRecorder; captures nothing."""
@@ -35,8 +37,14 @@ class _NullEditRecorder:
 
 
 def _load_server_class():
-    """Compile BlenderMCPServer from addon.py against stub modules."""
-    source = ROOT_ADDON.read_text(encoding="utf-8")
+    """Compile BlenderMCPServer from server_core.py against stub modules.
+
+    execute_command is overridden per-instance by every test in this file (see
+    _make_server), so the real dispatch table and handler mixins are never
+    invoked - only __init__/start/stop/the socket loop are exercised. The
+    mixins only need to exist as base classes for the ClassDef to compile.
+    """
+    source = SERVER_CORE.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     body = [
@@ -44,7 +52,7 @@ def _load_server_class():
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "BlenderMCPServer"
     ]
-    assert body, "BlenderMCPServer not found in addon.py"
+    assert body, "BlenderMCPServer not found in server_core.py"
 
     main_thread = threading.current_thread()
     registered = {}
@@ -69,6 +77,21 @@ def _load_server_class():
     bpy.app = types.SimpleNamespace(background=False, timers=_Timers())
     bpy.context = types.SimpleNamespace(scene=types.SimpleNamespace())
 
+    # BlenderMCPServer's real base classes; the tests here never call a
+    # handler method (execute_command is stubbed per-instance in
+    # _make_server), so empty stand-ins are enough to satisfy the ClassDef.
+    mixin_names = (
+        "ViewportHandlersMixin",
+        "MeshHandlersMixin",
+        "ModelHandlersMixin",
+        "NDHandlersMixin",
+        "PolyhavenHandlersMixin",
+        "Hyper3DHandlersMixin",
+        "SketchfabHandlersMixin",
+        "Hunyuan3DHandlersMixin",
+        "TelemetryHandlersMixin",
+    )
+
     namespace = {
         "bpy": bpy,
         "socket": socket,
@@ -81,11 +104,12 @@ def _load_server_class():
         "suppress": suppress,
         "get_blendermcp_addon_preferences": lambda context=None: None,
         "RODIN_FREE_TRIAL_KEY": "vibecoding",
-        # start()/stop() drive the edit-capture handlers, which live at module
-        # scope in addon.py and so are not carried in by lifting the class.
+        # start()/stop() drive the edit-capture handlers, which live in
+        # edit_capture.py and so are not carried in by lifting the class.
         "_register_edit_capture_handlers": lambda: False,
         "_unregister_edit_capture_handlers": lambda: None,
         "get_edit_recorder": lambda: _NullEditRecorder(),
+        **{name: type(name, (), {}) for name in mixin_names},
     }
     exec(compile(ast.Module(body=body, type_ignores=[]), "<addon>", "exec"), namespace)
     return namespace["BlenderMCPServer"], registered

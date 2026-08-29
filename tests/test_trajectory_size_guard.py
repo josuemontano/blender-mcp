@@ -128,6 +128,8 @@ def test_fallback_snapshot_template_caps_selected():
 
 
 def test_addon_snapshot_caps_selected():
-    source = ROOT_ADDON.read_text()
-    assert "MAX_SNAPSHOT_SELECTED = 200" in source
-    assert "selected = sorted(selected)[:MAX_SNAPSHOT_SELECTED]" in source
+    constants = (ROOT_ADDON.parent / "constants.py").read_text()
+    assert "MAX_SNAPSHOT_SELECTED = 200" in constants
+
+    server_core = (ROOT_ADDON.parent / "server_core.py").read_text()
+    assert "selected = sorted(selected)[:MAX_SNAPSHOT_SELECTED]" in server_core
