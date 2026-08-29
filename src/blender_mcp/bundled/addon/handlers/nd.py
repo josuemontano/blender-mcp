@@ -2,11 +2,11 @@ import bpy
 
 from ..helpers import (
     exit_edit_mode,
-    find_view3d,
     get_mesh_object,
     mesh_counts,
     nd_call,
     nd_configure_object_as_util,
+    nd_view3d_override,
     preserve_mode_and_selection,
     select_objects,
 )
@@ -36,22 +36,32 @@ class NDHandlersMixin:
         mode = str(mode).upper()
         if mode not in {"UNION", "DIFFERENCE", "INTERSECT"}:
             raise ValueError(f"Invalid mode: {mode}. Must be one of UNION, DIFFERENCE, INTERSECT")
+        if object_name == cutter_object_name:
+            raise ValueError(f"cutter_object_name must differ from object_name (both are '{object_name}')")
         target = get_mesh_object(object_name)
         cutter = get_mesh_object(cutter_object_name)
-        with preserve_mode_and_selection():
+        with preserve_mode_and_selection(), nd_view3d_override():
             select_objects([cutter.name, target.name], active_name=target.name)
             # execute() reads attributes bool_vanilla only sets inside invoke(); INVOKE_DEFAULT's
             # synthetic event always has shift/alt False, so this always converts+cleans the cutter.
-            nd_call("bool_vanilla", bpy.ops.nd.bool_vanilla, "INVOKE_DEFAULT", mode=mode)
-        return {"name": target.name, "cutter_name": cutter.name, **mesh_counts(target)}
+            _result, cancelled = nd_call("bool_vanilla", "INVOKE_DEFAULT", mode=mode)
+        return {"name": target.name, "cutter_name": cutter.name, "cancelled": cancelled, **mesh_counts(target)}
 
-    def nd_mark_as_util(self, object_names, unmark=False):
+    def nd_mark_as_util(self, object_names, unmark=False, parent_to=None):
         """
         Mark/unmark objects as ND utility objects (wireframe display, hidden from render).
+
+        When parent_to is given (mark path only), also reparents each object to it while
+        preserving world transform - matrix_parent_inverse is recomputed so the object doesn't
+        visually jump - replicating the parenting half of ND's real mark_as_util operator. The
+        keyboard-modifier-driven behaviors of the real operator (Ctrl-revert, Alt-skip-parenting,
+        Shift-recursive-children) have no scriptable equivalent and are not replicated; unmark=True
+        already covers reverting the visibility/display properties.
 
         Args:
             object_names: Names of Blender objects to operate on.
             unmark: Value for unmark.
+            parent_to: Name of an object to reparent each marked object to, preserving world transform.
 
         Returns:
             Result produced by the operation.
@@ -62,16 +72,32 @@ class NDHandlersMixin:
         """
         if not object_names:
             raise ValueError("At least one object name is required")
+        if parent_to is not None and unmark:
+            raise ValueError("parent_to cannot be combined with unmark=True")
+        parent_obj = None
+        if parent_to is not None:
+            parent_obj = bpy.data.objects.get(parent_to)
+            if not parent_obj:
+                raise ValueError(f"Object not found: {parent_to}")
         names = []
         for name in object_names:
             obj = bpy.data.objects.get(name)
             if not obj:
                 raise ValueError(f"Object not found: {name}")
             nd_configure_object_as_util(obj, util=not unmark)
+            if parent_obj is not None:
+                world_matrix = obj.matrix_world.copy()
+                obj.parent = parent_obj
+                obj.matrix_parent_inverse = parent_obj.matrix_world.inverted()
+                obj.matrix_world = world_matrix
             names.append(obj.name)
-        return {"names": names, "marked_as_util": not unmark}
+        return {
+            "names": names,
+            "marked_as_util": not unmark,
+            "parent": parent_obj.name if parent_obj else None,
+        }
 
-    def nd_clean_utils(self):
+    def nd_clean_utils(self, confirm=False):
         """
         Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
@@ -79,14 +105,25 @@ class NDHandlersMixin:
         surviving object's modifiers) before and after the call - a true
         dry-run isn't feasible without reimplementing ND's own cleanup logic.
 
+        Args:
+            confirm: Must be True to run - this is scene-wide and destructive with no way to scope it.
+
         Returns:
             Result produced by the operation.
 
+        Raises:
+            ValueError: If the operation cannot be completed.
+
         """
+        if not confirm:
+            raise ValueError(
+                "Pass confirm=True to run nd_clean_utils - it removes orphaned ND utility objects/modifiers "
+                "scene-wide with no way to scope or preview the change"
+            )
         before_objects = {obj.name for obj in bpy.data.objects}
         before_modifiers = {obj.name: [(mod.name, mod.type) for mod in obj.modifiers] for obj in bpy.data.objects}
-        with preserve_mode_and_selection():
-            nd_call("clean_utils", bpy.ops.nd.clean_utils, "INVOKE_DEFAULT")
+        with preserve_mode_and_selection(), nd_view3d_override():
+            _result, cancelled = nd_call("clean_utils", "INVOKE_DEFAULT")
         after_objects = {obj.name for obj in bpy.data.objects}
         removed_objects = sorted(before_objects - after_objects)
         removed_modifiers = []
@@ -102,6 +139,7 @@ class NDHandlersMixin:
             "status": "cleaned",
             "removed_objects": removed_objects,
             "removed_modifiers": removed_modifiers,
+            "cancelled": cancelled,
         }
 
     def nd_create_id_material(self, object_names, material_name):
@@ -118,12 +156,8 @@ class NDHandlersMixin:
         """
         with preserve_mode_and_selection():
             objs = select_objects(object_names)
-            nd_call(
-                "create_id_material",
-                bpy.ops.nd.create_id_material,
-                material_name=material_name,
-            )
-        return {"names": [obj.name for obj in objs], "material_name": material_name}
+            _result, cancelled = nd_call("create_id_material", material_name=material_name)
+        return {"names": [obj.name for obj in objs], "material_name": material_name, "cancelled": cancelled}
 
     def nd_bulk_create_id_materials(self, object_names):
         """
@@ -138,24 +172,8 @@ class NDHandlersMixin:
         """
         with preserve_mode_and_selection():
             objs = select_objects(object_names)
-            nd_call("bulk_create_id_materials", bpy.ops.nd.bulk_create_id_materials)
-        return {"names": [obj.name for obj in objs]}
-
-    def nd_clear_materials(self, object_names):
-        """
-        Remove all material slots from the given mesh/curve objects.
-
-        Args:
-            object_names: Names of Blender objects to operate on.
-
-        Returns:
-            Result produced by the operation.
-
-        """
-        with preserve_mode_and_selection():
-            objs = select_objects(object_names)
-            nd_call("clear_materials", bpy.ops.nd.clear_materials)
-        return {"names": [obj.name for obj in objs]}
+            _result, cancelled = nd_call("bulk_create_id_materials")
+        return {"names": [obj.name for obj in objs], "cancelled": cancelled}
 
     def nd_set_lod_suffix(self, object_names, mode="HIGH"):
         """
@@ -177,24 +195,8 @@ class NDHandlersMixin:
             raise ValueError(f"Invalid mode: {mode}. Must be one of HIGH, LOW")
         with preserve_mode_and_selection():
             objs = select_objects(object_names)
-            nd_call("set_lod_suffix", bpy.ops.nd.set_lod_suffix, mode=mode)
-        return {"names": [obj.name for obj in objs]}
-
-    def nd_name_sync(self, object_names):
-        """
-        Sync each object's data-block name to match its object name.
-
-        Args:
-            object_names: Names of Blender objects to operate on.
-
-        Returns:
-            Result produced by the operation.
-
-        """
-        with preserve_mode_and_selection():
-            objs = select_objects(object_names)
-            nd_call("name_sync", bpy.ops.nd.name_sync)
-        return {"names": [obj.name for obj in objs]}
+            _result, cancelled = nd_call("set_lod_suffix", mode=mode)
+        return {"names": [obj.name for obj in objs], "cancelled": cancelled}
 
     def nd_single_vertex(self, location=(0, 0, 0)):
         """
@@ -212,7 +214,7 @@ class NDHandlersMixin:
         try:
             with preserve_mode_and_selection():
                 try:
-                    nd_call("single_vertex", bpy.ops.nd.single_vertex)
+                    _result, cancelled = nd_call("single_vertex")
                 finally:
                     if bpy.context.mode != "OBJECT":
                         exit_edit_mode()
@@ -222,41 +224,8 @@ class NDHandlersMixin:
         return {
             "name": obj.name,
             "location": [obj.location.x, obj.location.y, obj.location.z],
+            "cancelled": cancelled,
         }
-
-    def nd_clear_edge_marks(self, object_name):
-        """
-        Remove sharp/seam/freestyle edge marks from a mesh object.
-
-        Args:
-            object_name: Name of the Blender object to operate on.
-
-        Returns:
-            Result produced by the operation.
-
-        """
-        obj = get_mesh_object(object_name)
-        with preserve_mode_and_selection():
-            select_objects([obj.name])
-            nd_call("clear_edge_marks", bpy.ops.nd.clear_edge_marks)
-        return {"name": obj.name}
-
-    def nd_clear_vertex_groups(self, object_name):
-        """
-        Remove all vertex groups from a mesh object.
-
-        Args:
-            object_name: Name of the Blender object to operate on.
-
-        Returns:
-            Result produced by the operation.
-
-        """
-        obj = get_mesh_object(object_name)
-        with preserve_mode_and_selection():
-            select_objects([obj.name])
-            nd_call("clear_vertex_groups", bpy.ops.nd.clear_vertex_groups)
-        return {"name": obj.name}
 
     def nd_apply_modifiers(self, object_names):
         """
@@ -270,74 +239,44 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        with preserve_mode_and_selection():
+        with preserve_mode_and_selection(), nd_view3d_override():
             objs = select_objects(object_names)
-            nd_call("apply_modifiers", bpy.ops.nd.apply_modifiers, "INVOKE_DEFAULT")
-        return {"names": [obj.name for obj in objs]}
+            _result, cancelled = nd_call("apply_modifiers", "INVOKE_DEFAULT")
+        return {"names": [obj.name for obj in objs], "cancelled": cancelled}
 
-    _NATIVE_OVERLAY_TOGGLES = {
-        "CAVITY": "show_cavity",
-        "WIREFRAMES": "show_wireframes",
-        "FACE_ORIENTATION": "show_face_orientation",
+    _ND_PULSE_TOGGLES = {
+        "CLEAR_VIEW": "toggle_clear_view",
+        "CUSTOM_VIEW": "toggle_custom_view",
+        "UTILS": "toggle_utils",
     }
 
-    def nd_viewport_toggle(self, toggle, enabled):
+    def nd_pulse_viewport_toggle(self, toggle):
         """
-        Set an ND-related viewport display toggle to an explicit on/off state.
+        Pulse an ND viewport toggle that has no readable on/off state of its own.
 
-        For CAVITY, WIREFRAMES, and FACE_ORIENTATION this bypasses ND entirely
-        and sets Blender's own View3DOverlay properties directly, so it's a
-        true idempotent setter - calling it again with the same `enabled`
-        value is a no-op.
-        CLEAR_VIEW, CUSTOM_VIEW, and UTILS expose no readable on/off state in
-        what's vendored here, so `enabled` is ignored for those three and the
-        call still just flips ND's internal toggle operator - it is NOT
-        guaranteed idempotent for them until ND exposes readable state.
-        ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.
+        ND exposes no readable state for CLEAR_VIEW, CUSTOM_VIEW, or UTILS in what's vendored
+        here, so each call just flips ND's internal toggle operator - it is NOT guaranteed
+        idempotent. ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not
+        exposed here. For the native Blender viewport overlays (cavity, wireframes, face
+        orientation), use viewport_overlay_toggle instead - those are true idempotent setters.
 
         Args:
-            toggle: Value for toggle.
-            enabled: Whether to enable the feature.
+            toggle: One of CLEAR_VIEW, CUSTOM_VIEW, UTILS.
 
         Returns:
             Result produced by the operation.
 
         Raises:
             ValueError: If the operation cannot be completed.
-            RuntimeError: If the operation cannot be completed.
 
         """
         toggle = str(toggle).upper()
-        overlay_prop = self._NATIVE_OVERLAY_TOGGLES.get(toggle)
-        if overlay_prop is not None:
-            area, region = find_view3d()
-            if area is None:
-                raise RuntimeError("No 3D viewport found to toggle")
-            space = area.spaces.active
-            setattr(space.overlay, overlay_prop, bool(enabled))
-            return {"toggle": toggle, "enabled": bool(enabled)}
-
-        op_by_toggle = {
-            "CLEAR_VIEW": bpy.ops.nd.toggle_clear_view,
-            "CUSTOM_VIEW": bpy.ops.nd.toggle_custom_view,
-            "UTILS": bpy.ops.nd.toggle_utils,
-        }
-        op = op_by_toggle.get(toggle)
-        if op is None:
-            valid = ", ".join([*self._NATIVE_OVERLAY_TOGGLES, *op_by_toggle])
-            raise ValueError(f"Invalid toggle: {toggle}. Must be one of {valid}")
-        op_name = f"toggle_{toggle.lower()}"
-        if toggle == "UTILS":
-            nd_call(op_name, op)
-        else:
-            # These toggles read bpy.context.space_data directly, which is None outside
-            # an actual VIEW_3D UI region - override it to a real viewport's area/region.
-            area, region = find_view3d()
-            if area is None:
-                raise RuntimeError("No 3D viewport found to toggle")
-            with bpy.context.temp_override(area=area, region=region):
-                nd_call(op_name, op)
-        return {"toggle": toggle, "enabled": None}
+        op_name = self._ND_PULSE_TOGGLES.get(toggle)
+        if op_name is None:
+            raise ValueError(f"Invalid toggle: {toggle}. Must be one of {sorted(self._ND_PULSE_TOGGLES)}")
+        with nd_view3d_override():
+            _result, cancelled = nd_call(op_name)
+        return {"toggle": toggle, "cancelled": cancelled}
 
     def nd_capture_utils(self):
         """
@@ -349,8 +288,9 @@ class NDHandlersMixin:
         """
         if bpy.context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
-        nd_call("capture_utils", bpy.ops.nd.capture_utils, "INVOKE_DEFAULT")
-        return {"status": "captured"}
+        with nd_view3d_override():
+            _result, cancelled = nd_call("capture_utils", "INVOKE_DEFAULT")
+        return {"status": "captured", "cancelled": cancelled}
 
     def get_nd_status(self):
         """

@@ -1,4 +1,4 @@
-"""Regression coverage for ND (HugeMenace) availability reporting."""
+"""Regression coverage for ND (HugeMenace) availability reporting and related handlers."""
 
 import contextlib
 import sys
@@ -15,10 +15,29 @@ class FakeModifier:
         self.type = type_
 
 
+class FakeMatrix:
+    def __init__(self, value) -> None:
+        self.value = value
+
+    def copy(self):
+        return FakeMatrix(self.value)
+
+    def inverted(self):
+        return FakeMatrix(f"inv({self.value})")
+
+    def __eq__(self, other):
+        return isinstance(other, FakeMatrix) and self.value == other.value
+
+
 class FakeObject:
     def __init__(self, name, modifiers=None) -> None:
         self.name = name
         self.modifiers = list(modifiers or [])
+        self.parent = None
+        self.matrix_world = FakeMatrix(f"{name}-world")
+
+    def select_set(self, _value) -> None:
+        pass
 
 
 class FakeObjectsCollection(dict):
@@ -77,6 +96,7 @@ def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
         ops.nd = types.SimpleNamespace(
             bool_vanilla=lambda *_a, **_k: {"FINISHED"},
             clean_utils=lambda *_a, **_k: {"FINISHED"},
+            capture_utils=lambda *_a, **_k: {"FINISHED"},
             toggle_clear_view=lambda *_a, **_k: {"FINISHED"},
             toggle_custom_view=lambda *_a, **_k: {"FINISHED"},
             toggle_utils=lambda *_a, **_k: {"FINISHED"},
@@ -173,37 +193,43 @@ def test_enabled_nd_with_addon_installed_is_ready(monkeypatch) -> None:
     }
 
 
-def test_nd_viewport_toggle_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
-    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+def test_viewport_overlay_toggle_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
     overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
 
-    result = server.nd_viewport_toggle(toggle="cavity", enabled=True)
+    result = server.viewport_overlay_toggle(toggle="cavity", enabled=True)
 
     assert result == {"toggle": "CAVITY", "enabled": True}
     assert overlay.show_cavity is True
 
-    result_again = server.nd_viewport_toggle(toggle="CAVITY", enabled=True)
+    result_again = server.viewport_overlay_toggle(toggle="CAVITY", enabled=True)
 
     assert result_again == {"toggle": "CAVITY", "enabled": True}
     assert overlay.show_cavity is True
 
 
-def test_nd_viewport_toggle_face_orientation_can_be_turned_off(monkeypatch) -> None:
-    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+def test_viewport_overlay_toggle_face_orientation_can_be_turned_off(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
     overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
     overlay.show_face_orientation = True
 
-    result = server.nd_viewport_toggle(toggle="FACE_ORIENTATION", enabled=False)
+    result = server.viewport_overlay_toggle(toggle="FACE_ORIENTATION", enabled=False)
 
     assert result == {"toggle": "FACE_ORIENTATION", "enabled": False}
     assert overlay.show_face_orientation is False
 
 
-def test_nd_viewport_toggle_clear_view_routes_through_nd_operator_and_ignores_enabled_state(
-    monkeypatch,
-) -> None:
+def test_viewport_overlay_toggle_rejects_unknown_toggle(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(ValueError, match="Invalid toggle"):
+        server.viewport_overlay_toggle(toggle="SILHOUETTE", enabled=True)
+
+
+def test_nd_pulse_viewport_toggle_clear_view_routes_through_nd_operator(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
     calls = []
@@ -213,18 +239,81 @@ def test_nd_viewport_toggle_clear_view_routes_through_nd_operator_and_ignores_en
         lambda *_a, **_k: calls.append("called") or {"FINISHED"},
     )
 
-    result = server.nd_viewport_toggle(toggle="clear_view", enabled=True)
+    result = server.nd_pulse_viewport_toggle(toggle="clear_view")
 
-    assert result == {"toggle": "CLEAR_VIEW", "enabled": None}
+    assert result == {"toggle": "CLEAR_VIEW", "cancelled": False}
     assert calls == ["called"]
 
 
-def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch) -> None:
+def test_nd_pulse_viewport_toggle_surfaces_cancelled(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+    monkeypatch.setattr(
+        sys.modules["bpy"].ops.nd,
+        "toggle_utils",
+        lambda *_a, **_k: {"CANCELLED"},
+    )
+
+    result = server.nd_pulse_viewport_toggle(toggle="UTILS")
+
+    assert result == {"toggle": "UTILS", "cancelled": True}
+
+
+def test_nd_pulse_viewport_toggle_rejects_unknown_toggle(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
     server = addon.BlenderMCPServer()
 
     with pytest.raises(ValueError, match="Invalid toggle"):
-        server.nd_viewport_toggle(toggle="SILHOUETTE", enabled=True)
+        server.nd_pulse_viewport_toggle(toggle="SILHOUETTE")
+
+
+def test_nd_call_raises_clear_error_when_operator_not_available(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=False)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(RuntimeError, match="nd.capture_utils' is not available"):
+        server.nd_capture_utils()
+
+
+def test_nd_boolean_rejects_same_object(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(ValueError, match="must differ from object_name"):
+        server.nd_boolean(object_name="Thing", cutter_object_name="Thing")
+
+
+def test_nd_mark_as_util_parent_to_preserves_world_transform(monkeypatch) -> None:
+    objects = FakeObjectsCollection()
+    child = FakeObject("Cutter")
+    parent = FakeObject("Target")
+    objects["Cutter"] = child
+    objects["Target"] = parent
+
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects)
+    server = addon.BlenderMCPServer()
+
+    result = server.nd_mark_as_util(object_names=["Cutter"], parent_to="Target")
+
+    assert result == {"names": ["Cutter"], "marked_as_util": True, "parent": "Target"}
+    assert child.parent is parent
+    assert child.matrix_world == FakeMatrix("Cutter-world")
+
+
+def test_nd_mark_as_util_rejects_parent_to_with_unmark(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(ValueError, match="cannot be combined with unmark"):
+        server.nd_mark_as_util(object_names=["Cutter"], unmark=True, parent_to="Target")
+
+
+def test_nd_clean_utils_requires_confirm(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(ValueError, match="Pass confirm=True"):
+        server.nd_clean_utils()
 
 
 def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch) -> None:
@@ -243,11 +332,12 @@ def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch) -> No
     monkeypatch.setattr(sys.modules["bpy"].ops.nd, "clean_utils", fake_clean_utils)
     server = addon.BlenderMCPServer()
 
-    result = server.nd_clean_utils()
+    result = server.nd_clean_utils(confirm=True)
 
     assert result["status"] == "cleaned"
     assert result["removed_objects"] == ["UtilCutter"]
     assert result["removed_modifiers"] == [{"object": "Kept", "modifier": "Array", "type": "ARRAY"}]
+    assert result["cancelled"] is False
 
 
 def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monkeypatch) -> None:
@@ -257,10 +347,21 @@ def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monk
     addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects)
     server = addon.BlenderMCPServer()
 
-    result = server.nd_clean_utils()
+    result = server.nd_clean_utils(confirm=True)
 
     assert result == {
         "status": "cleaned",
         "removed_objects": [],
         "removed_modifiers": [],
+        "cancelled": False,
     }
+
+
+def test_nd_clean_utils_surfaces_cancelled(monkeypatch) -> None:
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    monkeypatch.setattr(sys.modules["bpy"].ops.nd, "clean_utils", lambda *_a, **_k: {"CANCELLED"})
+    server = addon.BlenderMCPServer()
+
+    result = server.nd_clean_utils(confirm=True)
+
+    assert result["cancelled"] is True

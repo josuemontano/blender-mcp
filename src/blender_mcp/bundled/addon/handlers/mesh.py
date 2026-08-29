@@ -343,4 +343,63 @@ class MeshHandlersMixin:
             apply_modifier(obj, mod)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
+    def clear_materials(self, object_names):
+        """
+        Remove all material slots from the given objects.
+
+        Args:
+            object_names: Names of Blender objects to operate on.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+
+        """
+        if not object_names:
+            raise ValueError("At least one object name is required")
+        names = []
+        for name in object_names:
+            obj = bpy.data.objects.get(name)
+            if not obj:
+                raise ValueError(f"Object not found: {name}")
+            if obj.data is not None and hasattr(obj.data, "materials"):
+                obj.data.materials.clear()
+            names.append(obj.name)
+        return {"names": names}
+
+    def clear_vertex_groups(self, object_name):
+        """
+        Remove all vertex groups from a mesh object.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+
+        Returns:
+            Result produced by the operation.
+
+        """
+        obj = get_mesh_object(object_name)
+        obj.vertex_groups.clear()
+        return {"name": obj.name}
+
+    def clear_edge_marks(self, object_name):
+        """
+        Clear sharp, seam, and freestyle edge marks on a mesh object.
+
+        Args:
+            object_name: Name of the Blender object to operate on.
+
+        Returns:
+            Result produced by the operation.
+
+        """
+        obj = get_mesh_object(object_name)
+        for edge in obj.data.edges:
+            edge.use_edge_sharp = False
+            edge.use_seam = False
+            edge.use_freestyle_mark = False
+        return {"name": obj.name}
+
     # endregion

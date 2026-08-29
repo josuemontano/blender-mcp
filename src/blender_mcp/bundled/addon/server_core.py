@@ -221,14 +221,20 @@ class BlenderMCPServer(
 
             try:
                 response = self.execute_command(command)
-                response_json = json.dumps(response)
             except Exception as e:
                 print(f"Error executing command: {e!s}")
                 traceback.print_exc()
-                response_json = json.dumps({"status": "error", "message": str(e)})
+                response = {"status": "error", "message": str(e)}
+
+            # Echo the request id (if any) back so the client can match this
+            # response to the command it sent instead of relying purely on
+            # stream ordering.
+            response["id"] = command.get("id")
 
             try:
-                client.sendall(response_json.encode("utf-8"))
+                # Newline-terminated - see handle_client for why this
+                # protocol needs explicit framing.
+                client.sendall(json.dumps(response).encode("utf-8") + b"\n")
             except Exception:
                 print("Failed to send response - client disconnected")
 
@@ -346,6 +352,11 @@ class BlenderMCPServer(
             "model_mirror": self.model_mirror,
             "model_array": self.model_array,
             "model_radial_array": self.model_radial_array,
+            "viewport_overlay_toggle": self.viewport_overlay_toggle,
+            "clear_materials": self.clear_materials,
+            "clear_vertex_groups": self.clear_vertex_groups,
+            "clear_edge_marks": self.clear_edge_marks,
+            "sync_data_name": self.sync_data_name,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -375,14 +386,10 @@ class BlenderMCPServer(
                 "nd_clean_utils": self.nd_clean_utils,
                 "nd_create_id_material": self.nd_create_id_material,
                 "nd_bulk_create_id_materials": self.nd_bulk_create_id_materials,
-                "nd_clear_materials": self.nd_clear_materials,
                 "nd_set_lod_suffix": self.nd_set_lod_suffix,
-                "nd_name_sync": self.nd_name_sync,
                 "nd_single_vertex": self.nd_single_vertex,
-                "nd_clear_edge_marks": self.nd_clear_edge_marks,
-                "nd_clear_vertex_groups": self.nd_clear_vertex_groups,
                 "nd_apply_modifiers": self.nd_apply_modifiers,
-                "nd_viewport_toggle": self.nd_viewport_toggle,
+                "nd_pulse_viewport_toggle": self.nd_pulse_viewport_toggle,
                 "nd_capture_utils": self.nd_capture_utils,
             }
             handlers.update(nd_handlers)

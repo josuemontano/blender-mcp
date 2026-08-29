@@ -15,7 +15,15 @@ logger = logging.getLogger("BlenderMCPServer")
 
 BooleanMode = Literal["UNION", "DIFFERENCE", "INTERSECT"]
 LodMode = Literal["HIGH", "LOW"]
-ViewportToggle = Literal["CAVITY", "WIREFRAMES", "FACE_ORIENTATION", "CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"]
+PulseToggle = Literal["CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"]
+
+_CANCELLED_WARNING = "ND operator was cancelled - the scene may be unchanged"
+
+
+def _cancelled_warnings(result) -> list[str] | None:
+    if isinstance(result, dict) and result.get("cancelled"):
+        return [_CANCELLED_WARNING]
+    return None
 
 
 @mcp.tool()
@@ -29,12 +37,13 @@ async def nd_boolean(
     Create a live ND Boolean modifier and retain the cutter as an ND utility object.
 
     The cutter becomes a wireframe utility object parented to the target instead of
-    being deleted, unlike `mesh_boolean`.
+    being deleted, unlike `mesh_boolean`. object_name and cutter_object_name must refer
+    to different objects.
 
     Args:
         ctx: MCP request context.
         object_name: Name of the mesh object the boolean is applied to (the result/target).
-        cutter_object_name: Name of the other mesh object used as the cutter/operand.
+        cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
         mode: One of UNION, DIFFERENCE, INTERSECT.
 
     Returns:
@@ -54,7 +63,7 @@ async def nd_boolean(
                 "mode": mode,
             },
         )
-        return ok(result, changed_objects=[object_name, cutter_object_name])
+        return ok(result, changed_objects=[object_name, cutter_object_name], warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error applying ND boolean: {e}")
         raise ToolError(f"Error applying ND boolean: {e}") from e
@@ -65,17 +74,25 @@ async def nd_mark_as_util(
     ctx: Context,
     object_names: list[str],
     unmark: bool = False,
+    parent_to: str | None = None,
 ) -> dict:
     """
     Mark objects as ND utilities, or restore previously marked objects.
 
     Marked objects display as wireframes and are hidden from renders and most viewport
-    visibility categories.
+    visibility categories. When parent_to is given (mark path only, unmark=False), each
+    marked object is also reparented to it while preserving its world transform,
+    replicating the parenting half of ND's real mark_as_util operator. The
+    keyboard-modifier-driven behaviors of the real operator (Ctrl-revert,
+    Alt-skip-parenting, Shift-recursive-children) have no scriptable equivalent and are
+    not replicated here.
 
     Args:
         ctx: MCP request context.
         object_names: Names of the objects to mark/unmark.
         unmark: If True, restore normal (SOLID/visible) display instead of marking as a utility.
+        parent_to: Name of an object to reparent each marked object to, preserving world transform. Only valid when
+            unmark is False.
 
     Returns:
         the affected object names.
@@ -88,7 +105,7 @@ async def nd_mark_as_util(
         blender = get_blender_connection()
         result = blender.send_command(
             "nd_mark_as_util",
-            {"object_names": object_names, "unmark": unmark},
+            {"object_names": object_names, "unmark": unmark, "parent_to": parent_to},
         )
         return ok(result, changed_objects=object_names)
     except Exception as e:
@@ -97,7 +114,7 @@ async def nd_mark_as_util(
 
 
 @mcp.tool()
-async def nd_clean_utils(ctx: Context) -> dict:
+async def nd_clean_utils(ctx: Context, confirm: bool = False) -> dict:
     """
     Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
@@ -108,6 +125,7 @@ async def nd_clean_utils(ctx: Context) -> dict:
 
     Args:
         ctx: MCP request context.
+        confirm: Must be True to run - this is scene-wide and destructive with no way to scope or preview it.
 
     Returns:
         dict: Result produced by the operation.
@@ -118,8 +136,8 @@ async def nd_clean_utils(ctx: Context) -> dict:
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("nd_clean_utils", {})
-        return ok(result)
+        result = blender.send_command("nd_clean_utils", {"confirm": confirm})
+        return ok(result, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error cleaning ND utility objects: {e}")
         raise ToolError(f"Error cleaning ND utility objects: {e}") from e
@@ -152,7 +170,7 @@ async def nd_create_id_material(
             "nd_create_id_material",
             {"object_names": object_names, "material_name": material_name},
         )
-        return ok(result, changed_objects=object_names)
+        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error creating ND ID material: {e}")
         raise ToolError(f"Error creating ND ID material: {e}") from e
@@ -177,35 +195,10 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_bulk_create_id_materials", {"object_names": object_names})
-        return ok(result, changed_objects=object_names)
+        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error bulk-creating ND ID materials: {e}")
         raise ToolError(f"Error bulk-creating ND ID materials: {e}") from e
-
-
-@mcp.tool()
-async def nd_clear_materials(ctx: Context, object_names: list[str]) -> dict:
-    """
-    Remove all material slots from the given mesh/curve objects.
-
-    Args:
-        ctx: MCP request context.
-        object_names: Names of the objects to clear materials from.
-
-    Returns:
-        dict: Result produced by the operation.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("nd_clear_materials", {"object_names": object_names})
-        return ok(result, changed_objects=object_names)
-    except Exception as e:
-        logger.error(f"Error clearing ND materials: {e}")
-        raise ToolError(f"Error clearing ND materials: {e}") from e
 
 
 @mcp.tool()
@@ -232,35 +225,11 @@ async def nd_set_lod_suffix(
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_set_lod_suffix", {"object_names": object_names, "mode": mode})
-        return ok(result, changed_objects=object_names)
+        changed = result.get("names", object_names) if isinstance(result, dict) else object_names
+        return ok(result, changed_objects=changed, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error setting ND LOD suffix: {e}")
         raise ToolError(f"Error setting ND LOD suffix: {e}") from e
-
-
-@mcp.tool()
-async def nd_name_sync(ctx: Context, object_names: list[str]) -> dict:
-    """
-    Sync each object's data-block name to match its object name.
-
-    Args:
-        ctx: MCP request context.
-        object_names: Names of the objects to sync.
-
-    Returns:
-        dict: Result produced by the operation.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("nd_name_sync", {"object_names": object_names})
-        return ok(result, changed_objects=object_names)
-    except Exception as e:
-        logger.error(f"Error syncing ND names: {e}")
-        raise ToolError(f"Error syncing ND names: {e}") from e
 
 
 @mcp.tool()
@@ -286,60 +255,10 @@ async def nd_single_vertex(
         blender = get_blender_connection()
         result = blender.send_command("nd_single_vertex", {"location": list(location)})
         changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
-        return ok(result, changed_objects=changed)
+        return ok(result, changed_objects=changed, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error creating ND single vertex: {e}")
         raise ToolError(f"Error creating ND single vertex: {e}") from e
-
-
-@mcp.tool()
-async def nd_clear_edge_marks(ctx: Context, object_name: str) -> dict:
-    """
-    Remove sharp/seam/freestyle edge marks from a mesh object.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to clear edge marks from.
-
-    Returns:
-        dict: Result produced by the operation.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("nd_clear_edge_marks", {"object_name": object_name})
-        return ok(result, changed_objects=[object_name])
-    except Exception as e:
-        logger.error(f"Error clearing ND edge marks: {e}")
-        raise ToolError(f"Error clearing ND edge marks: {e}") from e
-
-
-@mcp.tool()
-async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
-    """
-    Remove all vertex groups from a mesh object.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to clear vertex groups from.
-
-    Returns:
-        dict: Result produced by the operation.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("nd_clear_vertex_groups", {"object_name": object_name})
-        return ok(result, changed_objects=[object_name])
-    except Exception as e:
-        logger.error(f"Error clearing ND vertex groups: {e}")
-        raise ToolError(f"Error clearing ND vertex groups: {e}") from e
 
 
 @mcp.tool()
@@ -366,28 +285,26 @@ async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_apply_modifiers", {"object_names": object_names})
-        return ok(result, changed_objects=object_names)
+        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error applying ND modifiers: {e}")
         raise ToolError(f"Error applying ND modifiers: {e}") from e
 
 
 @mcp.tool()
-async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool) -> dict:
+async def nd_pulse_viewport_toggle(ctx: Context, toggle: PulseToggle) -> dict:
     """
-    Set an ND-related viewport display toggle to an explicit on/off state.
+    Pulse an ND viewport toggle that has no readable on/off state of its own.
 
-    For CAVITY, WIREFRAMES, and FACE_ORIENTATION this is a true idempotent setter backed
-    by Blender's own viewport overlay properties - calling it again with the same `enabled`
-    value is a no-op. For CLEAR_VIEW, CUSTOM_VIEW, and UTILS, ND exposes no readable on/off
-    state, so `enabled` is ignored and the call just flips ND's internal toggle operator -
-    it is NOT guaranteed idempotent for those three.
+    ND exposes no readable state for CLEAR_VIEW, CUSTOM_VIEW, or UTILS, so this just
+    flips ND's internal toggle operator - it is NOT guaranteed idempotent. ND's
+    SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.
+    For the native Blender viewport overlays (cavity, wireframes, face orientation), use
+    viewport_overlay_toggle instead - those are true idempotent setters.
 
     Args:
         ctx: MCP request context.
-        toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION, CLEAR_VIEW, CUSTOM_VIEW, UTILS. (ND's SILHOUETTE
-            toggle is a genuine modal operator and is intentionally not exposed here.)
-        enabled: Desired on/off state. Ignored for CLEAR_VIEW, CUSTOM_VIEW, and UTILS.
+        toggle: One of CLEAR_VIEW, CUSTOM_VIEW, UTILS.
 
     Returns:
         dict: Result produced by the operation.
@@ -398,11 +315,11 @@ async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("nd_viewport_toggle", {"toggle": toggle, "enabled": enabled})
-        return ok(result)
+        result = blender.send_command("nd_pulse_viewport_toggle", {"toggle": toggle})
+        return ok(result, warnings=_cancelled_warnings(result))
     except Exception as e:
-        logger.error(f"Error toggling ND viewport setting: {e}")
-        raise ToolError(f"Error toggling ND viewport setting: {e}") from e
+        logger.error(f"Error pulsing ND viewport toggle: {e}")
+        raise ToolError(f"Error pulsing ND viewport toggle: {e}") from e
 
 
 @mcp.tool()
@@ -423,7 +340,7 @@ async def nd_capture_utils(ctx: Context) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_capture_utils", {})
-        return ok(result)
+        return ok(result, warnings=_cancelled_warnings(result))
     except Exception as e:
         logger.error(f"Error capturing ND utility objects: {e}")
         raise ToolError(f"Error capturing ND utility objects: {e}") from e

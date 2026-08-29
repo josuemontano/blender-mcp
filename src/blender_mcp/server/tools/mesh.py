@@ -426,3 +426,78 @@ async def mesh_solidify(
     except Exception as e:
         logger.error(f"Error solidifying mesh: {e}")
         raise ToolError(f"Error solidifying mesh: {e}") from e
+
+
+@mcp.tool()
+async def clear_materials(ctx: Context, object_names: list[str]) -> dict:
+    """
+    Remove all material slots from the given objects.
+
+    Args:
+        ctx: MCP request context.
+        object_names: Names of the objects to clear materials from.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
+
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("clear_materials", {"object_names": object_names})
+        return ok(result, changed_objects=object_names)
+    except Exception as e:
+        logger.error(f"Error clearing materials: {e}")
+        raise ToolError(f"Error clearing materials: {e}") from e
+
+
+@mcp.tool()
+async def clear_vertex_groups(ctx: Context, object_name: str) -> dict:
+    """
+    Remove all vertex groups from a mesh object.
+
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to clear vertex groups from.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
+
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("clear_vertex_groups", {"object_name": object_name})
+        return ok(result, changed_objects=[object_name])
+    except Exception as e:
+        logger.error(f"Error clearing vertex groups: {e}")
+        raise ToolError(f"Error clearing vertex groups: {e}") from e
+
+
+@mcp.tool()
+async def clear_edge_marks(ctx: Context, object_name: str) -> dict:
+    """
+    Remove sharp/seam/freestyle edge marks from a mesh object.
+
+    Args:
+        ctx: MCP request context.
+        object_name: Name of the mesh object to clear edge marks from.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
+
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("clear_edge_marks", {"object_name": object_name})
+        return ok(result, changed_objects=[object_name])
+    except Exception as e:
+        logger.error(f"Error clearing edge marks: {e}")
+        raise ToolError(f"Error clearing edge marks: {e}") from e

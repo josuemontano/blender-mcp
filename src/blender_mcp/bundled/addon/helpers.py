@@ -397,27 +397,53 @@ def find_view3d():
     return None, None
 
 
-def nd_call(op_name, op, *args, **kwargs):
+@contextlib.contextmanager
+def nd_view3d_override():
     """
-    Call an ND operator, raising if it unexpectedly enters a modal state.
-
-    Args:
-        op_name: Name of the op.
-        op: Value for op.
-        args: Value for args.
-        kwargs: Value for kwargs.
-
-    Returns:
-        Result produced by the operation.
+    Override bpy.context to a real VIEW_3D area/region for ND operators that read bpy.context.space_data.
 
     Raises:
-        RuntimeError: If the operation cannot be completed.
+        RuntimeError: If no 3D viewport is open to override into.
 
     """
+    area, region = find_view3d()
+    if area is None:
+        raise RuntimeError("No 3D viewport found to run this ND operator")
+    with bpy.context.temp_override(area=area, region=region):
+        yield
+
+
+def nd_call(op_name, *args, **kwargs):
+    """
+    Look up and call an ND operator by name, raising a clear error if it isn't installed.
+
+    Unlike a pre-resolved bpy.ops.nd.<op_name> reference (which raises a bare
+    AttributeError if missing), resolving op_name here gives every caller the
+    same clear "not available" error. Raises if the operator unexpectedly
+    enters a modal state; otherwise returns (result, cancelled) so callers can
+    surface a CANCELLED result (Blender's "aborted / preconditions not met"
+    status) instead of treating it as indistinguishable from FINISHED.
+
+    Args:
+        op_name: Name of the bpy.ops.nd operator to call, e.g. "bool_vanilla".
+        args: Positional args forwarded to the operator (e.g. a call context string).
+        kwargs: Keyword args forwarded to the operator.
+
+    Returns:
+        (result, cancelled): the raw operator result set, and whether it contained CANCELLED.
+
+    Raises:
+        RuntimeError: If the operator isn't available, or enters a modal state unexpectedly.
+
+    """
+    nd_ops = getattr(bpy.ops, "nd", None)
+    op = getattr(nd_ops, op_name, None) if nd_ops is not None else None
+    if op is None:
+        raise RuntimeError(f"ND operator 'nd.{op_name}' is not available - check that the ND addon is installed/enabled")
     result = op(*args, **kwargs)
     if "RUNNING_MODAL" in result:
         raise RuntimeError(f"nd.{op_name} entered a modal state unexpectedly - not safe to call headlessly")
-    return result
+    return result, "CANCELLED" in result
 
 
 def nd_configure_object_as_util(obj, util=True) -> None:

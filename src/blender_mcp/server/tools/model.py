@@ -310,3 +310,29 @@ async def model_radial_array(
     except Exception as e:
         logger.error(f"Error creating radial array: {e}")
         raise ToolError(f"Error creating radial array: {e}") from e
+
+
+@mcp.tool()
+async def sync_data_name(ctx: Context, object_names: list[str]) -> dict:
+    """
+    Sync each object's data-block name to match its object name.
+
+    Args:
+        ctx: MCP request context.
+        object_names: Names of the objects to sync.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
+
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("sync_data_name", {"object_names": object_names})
+        changed = result.get("names", object_names) if isinstance(result, dict) else object_names
+        return ok(result, changed_objects=changed)
+    except Exception as e:
+        logger.error(f"Error syncing data-block names: {e}")
+        raise ToolError(f"Error syncing data-block names: {e}") from e

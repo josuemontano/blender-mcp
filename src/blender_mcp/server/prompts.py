@@ -40,13 +40,15 @@ def asset_creation_strategy() -> str:
         - create_primitive_object() for cubes, spheres, cylinders, cones, tori, planes, and curves
         - mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(), mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize() for direct mesh edits
         - copy_object_transform(), add_subdivision_surface_modifier(), add_displace_modifier(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations (use create_primitive_object() with purpose="blockout" for placeholder proxies)
+        - clear_materials(), clear_vertex_groups(), clear_edge_marks(), sync_data_name() for general mesh/data cleanup
+        - viewport_overlay_toggle() for native viewport overlays (cavity, wireframes, face orientation)
 
-    2.5. For non-destructive hard-surface workflows (utility objects, ID materials, LOD naming, viewport overlays), use the ND (HugeMenace) tools instead of execute_blender_code:
+    2.5. For non-destructive hard-surface workflows (ND utility objects, ID materials, LOD naming), use the ND (HugeMenace) tools instead of execute_blender_code:
         - Use get_integration_status(provider="nd") to verify its status
         - nd_boolean(), nd_mark_as_util(), nd_clean_utils() for the utility-object boolean workflow
-        - nd_create_id_material(), nd_bulk_create_id_materials(), nd_clear_materials(), nd_set_lod_suffix(), nd_name_sync() for export/packaging prep
-        - nd_single_vertex(), nd_clear_edge_marks(), nd_clear_vertex_groups(), nd_apply_modifiers() for sketch/data cleanup
-        - nd_viewport_toggle(), nd_capture_utils() for viewport helpers
+        - nd_create_id_material(), nd_bulk_create_id_materials(), nd_set_lod_suffix() for export/packaging prep
+        - nd_single_vertex(), nd_apply_modifiers() for sketch/modifier cleanup
+        - nd_pulse_viewport_toggle(), nd_capture_utils() for ND-specific viewport helpers
 
     3. Always check the world_bounding_box for each item so that:
         - Ensure that all objects that should not be clipping are not clipping.

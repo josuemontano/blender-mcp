@@ -44,6 +44,38 @@ async def list_scene_objects(ctx: Context, limit: int = 25, offset: int = 0) -> 
         raise ToolError(f"Error getting scene info: {e}") from e
 
 
+ViewportOverlay = Literal["CAVITY", "WIREFRAMES", "FACE_ORIENTATION"]
+
+
+@mcp.tool()
+async def viewport_overlay_toggle(ctx: Context, toggle: ViewportOverlay, enabled: bool) -> dict:
+    """
+    Set a native Blender viewport overlay to an explicit on/off state.
+
+    A true idempotent setter backed by Blender's own viewport overlay properties -
+    calling it again with the same enabled value is a no-op.
+
+    Args:
+        ctx: MCP request context.
+        toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION.
+        enabled: Desired on/off state.
+
+    Returns:
+        dict: Result produced by the operation.
+
+    Raises:
+        ToolError: If the operation cannot be completed.
+
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("viewport_overlay_toggle", {"toggle": toggle, "enabled": enabled})
+        return ok(result)
+    except Exception as e:
+        logger.error(f"Error toggling viewport overlay: {e}")
+        raise ToolError(f"Error toggling viewport overlay: {e}") from e
+
+
 @mcp.tool()
 async def get_object_info(ctx: Context, object_name: str) -> dict:
     """

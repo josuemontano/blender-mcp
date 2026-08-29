@@ -4,9 +4,47 @@ from contextlib import redirect_stdout
 
 import bpy
 
+from ..helpers import find_view3d
+
 
 class ViewportHandlersMixin:
     """Provide handlers for inspecting and capturing the 3D viewport."""
+
+    _OVERLAY_TOGGLES = {
+        "CAVITY": "show_cavity",
+        "WIREFRAMES": "show_wireframes",
+        "FACE_ORIENTATION": "show_face_orientation",
+    }
+
+    def viewport_overlay_toggle(self, toggle, enabled):
+        """
+        Set a native Blender viewport overlay to an explicit on/off state.
+
+        A true idempotent setter, unlike ND's pulse-style toggles - calling it
+        again with the same enabled value is a no-op.
+
+        Args:
+            toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION.
+            enabled: Desired on/off state.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+            RuntimeError: If the operation cannot be completed.
+
+        """
+        toggle = str(toggle).upper()
+        overlay_prop = self._OVERLAY_TOGGLES.get(toggle)
+        if overlay_prop is None:
+            raise ValueError(f"Invalid toggle: {toggle}. Must be one of {sorted(self._OVERLAY_TOGGLES)}")
+        area, _region = find_view3d()
+        if area is None:
+            raise RuntimeError("No 3D viewport found to toggle")
+        space = area.spaces.active
+        setattr(space.overlay, overlay_prop, bool(enabled))
+        return {"toggle": toggle, "enabled": bool(enabled)}
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
         """

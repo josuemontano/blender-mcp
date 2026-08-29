@@ -287,4 +287,30 @@ class ModelHandlersMixin:
             bpy.data.objects.remove(empty, do_unlink=True)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
+    def sync_data_name(self, object_names):
+        """
+        Sync each object's data-block name to match its object name.
+
+        Args:
+            object_names: Names of Blender objects to operate on.
+
+        Returns:
+            Result produced by the operation.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+
+        """
+        if not object_names:
+            raise ValueError("At least one object name is required")
+        names = []
+        for name in object_names:
+            obj = bpy.data.objects.get(name)
+            if not obj:
+                raise ValueError(f"Object not found: {name}")
+            if obj.data is not None:
+                obj.data.name = obj.name
+            names.append(obj.name)
+        return {"names": names}
+
     # endregion
