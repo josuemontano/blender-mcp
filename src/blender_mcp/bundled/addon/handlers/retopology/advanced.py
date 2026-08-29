@@ -1,4 +1,3 @@
-# ruff: file-ignore[collection-literal-concatenation, docstring-missing-returns, line-too-long, magic-value-comparison, missing-return-type-private-function, missing-return-type-undocumented-public-function, missing-type-function-argument, no-self-use, too-many-arguments, too-many-branches, too-many-locals, too-many-positional-arguments, too-many-statements, too-many-statements-in-try-clause, undocumented-public-method]
 # pyright: reportArgumentType=false, reportGeneralTypeIssues=false, reportOptionalSubscript=false
 """Blender-main-thread handlers for specialized retopology accelerators."""
 
@@ -10,19 +9,21 @@ import bmesh
 import bpy
 import mathutils
 
-from ..helpers import get_mesh_object, mesh_counts, preserve_mode_and_selection, set_active
-from .retopology import (
+from ...helpers import get_mesh_object, mesh_counts, preserve_mode_and_selection, set_active
+from ._shared import (
+    _TRANSFER_TYPES,
     _editable_bmesh,
     _ensure_indices,
     _finite,
     _kd_tree_class,
     _modifier_order,
+    _named_collection,
     _positive,
     _project_vertices,
+    _require_finished,
     _require_revision,
     topology_revision,
 )
-from .retopology_phase1 import _TRANSFER_TYPES, _named_collection, _require_finished
 
 _PROFILES = {"CHARACTER", "HARD_SURFACE", "VFX", "GAME"}
 _LOD_METHODS = {"DECIMATE", "QUADRIFLOW"}
@@ -567,7 +568,7 @@ def _prepare_lod_levels(levels, master, base_faces):
     return prepared
 
 
-class RetopologyPhaseTwoHandlersMixin:
+class _AdvancedMixin:
     """Provide automatic drafts, primitive fits, surface binding, and LODs."""
 
     def generate_quadriflow_draft(
