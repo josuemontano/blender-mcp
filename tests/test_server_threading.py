@@ -130,7 +130,7 @@ def test_client_thread_never_registers_a_timer() -> None:
     server.start()
     try:
         with socket.create_connection(("localhost", server.port), timeout=5) as client:
-            client.sendall(json.dumps({"type": "ping"}).encode())
+            client.sendall(json.dumps({"type": "ping"}).encode() + b"\n")
 
             pump = threading.Thread(target=_pump, args=(server,), daemon=True)
             pump.start()
@@ -150,7 +150,7 @@ def test_command_is_queued_not_executed_on_client_thread() -> None:
     server.start()
     try:
         with socket.create_connection(("localhost", server.port), timeout=5) as client:
-            client.sendall(json.dumps({"type": "ping"}).encode())
+            client.sendall(json.dumps({"type": "ping"}).encode() + b"\n")
 
             # No pump running, so nothing should execute yet.
             deadline = time.time() + 2.0
@@ -232,7 +232,7 @@ def test_restart_rebinds_port_cleanly() -> None:
     second.start()
     try:
         with socket.create_connection(("localhost", port), timeout=5) as client:
-            client.sendall(json.dumps({"type": "ping"}).encode())
+            client.sendall(json.dumps({"type": "ping"}).encode() + b"\n")
             pump = threading.Thread(target=_pump, args=(second,), daemon=True)
             pump.start()
             client.settimeout(5)

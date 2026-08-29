@@ -85,7 +85,7 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
         ctx: MCP request context.
         object_name: Object name to inspect. For meshes, this returns only vertex/edge/polygon counts; use
             `get_mesh_data` for element coordinates, normals, indices, or selection state before calling index-based
-            editing tools.
+            editing tools - and again afterward, since those tools change topology and invalidate prior indices.
 
     Returns:
         dict: Result produced by the operation.
@@ -117,7 +117,11 @@ async def get_mesh_data(
 
     Use this to discover valid indices (with coordinates, normals, and selection state)
     before calling index-based mesh tools such as mesh_extrude, mesh_inset, mesh_bevel,
-    mesh_bridge, or mesh_subdivide.
+    mesh_bridge, or mesh_subdivide. Call it again after any topology-changing edit
+    (extrude, inset, bevel, bridge, subdivide, symmetrize, boolean, remesh, or an applied
+    modifier) before reusing indices - those operations rebuild the mesh's vertex/edge/face
+    arrays, so previously fetched indices are no longer guaranteed to refer to the same
+    elements.
 
     Args:
         ctx: MCP request context.

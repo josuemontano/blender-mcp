@@ -16,6 +16,12 @@ logger = logging.getLogger("BlenderMCPServer")
 PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
 PrimitivePurpose = Literal["blockout"]
 
+STALE_INDEX_WARNING = (
+    "This operation changed the mesh's topology. Vertex/edge/face indices from any get_mesh_data call made "
+    "before this one are no longer reliable - call get_mesh_data again before reusing indices in further "
+    "index-based edits."
+)
+
 
 @mcp.tool()
 async def create_primitive_object(
@@ -87,6 +93,9 @@ async def mesh_extrude(
         face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use
             get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -104,7 +113,7 @@ async def mesh_extrude(
                 "face_indices": face_indices,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error extruding mesh: {e}")
         raise ToolError(f"Error extruding mesh: {e}") from e
@@ -129,6 +138,9 @@ async def mesh_inset(
         face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use
             get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -147,7 +159,7 @@ async def mesh_inset(
                 "face_indices": face_indices,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error insetting mesh faces: {e}")
         raise ToolError(f"Error insetting mesh faces: {e}") from e
@@ -178,6 +190,9 @@ async def mesh_bevel(
             element_type="vertices") to discover valid indices. - If neither edge_indices nor vertex_indices is
             given, the whole mesh is selected.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -198,7 +213,7 @@ async def mesh_bevel(
                 "vertex_indices": vertex_indices,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error beveling mesh: {e}")
         raise ToolError(f"Error beveling mesh: {e}") from e
@@ -214,6 +229,9 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
         object_name: Name of the mesh object to edit.
         edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name,
             element_type="edges") to discover valid indices.
+
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -231,7 +249,7 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
                 "edge_indices": edge_indices,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error bridging mesh edge loops: {e}")
         raise ToolError(f"Error bridging mesh edge loops: {e}") from e
@@ -250,6 +268,9 @@ async def mesh_symmetrize(ctx: Context, object_name: str, direction: SymmetrizeD
         object_name: Name of the mesh object to edit.
         direction: Which half to keep and mirror from, e.g. "NEGATIVE_X" keeps the -X half and mirrors it onto +X.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -266,7 +287,7 @@ async def mesh_symmetrize(ctx: Context, object_name: str, direction: SymmetrizeD
                 "direction": direction,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error symmetrizing mesh: {e}")
         raise ToolError(f"Error symmetrizing mesh: {e}") from e
@@ -291,6 +312,9 @@ async def mesh_boolean(
         keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete
             it.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -310,7 +334,7 @@ async def mesh_boolean(
             },
         )
         changed = [object_name] + ([] if keep_cutter else [cutter_object_name])
-        return ok(result, changed_objects=changed)
+        return ok(result, changed_objects=changed, warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error applying mesh boolean: {e}")
         raise ToolError(f"Error applying mesh boolean: {e}") from e
@@ -333,6 +357,9 @@ async def mesh_subdivide(
         face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use
             get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
+
     Returns:
         the object's name and updated vertex/edge/polygon counts.
 
@@ -350,7 +377,7 @@ async def mesh_subdivide(
                 "face_indices": face_indices,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error subdividing mesh: {e}")
         raise ToolError(f"Error subdividing mesh: {e}") from e
@@ -365,6 +392,9 @@ async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -
         ctx: MCP request context.
         object_name: Name of the mesh object to remesh.
         voxel_size: Size of the voxels used to rebuild the mesh; smaller values produce more detail.
+
+    Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
+    afterward; call get_mesh_data again before further index-based edits.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -382,7 +412,7 @@ async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -
                 "voxel_size": voxel_size,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])
     except Exception as e:
         logger.error(f"Error remeshing mesh: {e}")
         raise ToolError(f"Error remeshing mesh: {e}") from e
@@ -404,6 +434,10 @@ async def mesh_solidify(
         thickness: Thickness to add.
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
+    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
+    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
+    base mesh (and its indices) are untouched.
+
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
         an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
@@ -422,7 +456,8 @@ async def mesh_solidify(
                 "apply": apply,
             },
         )
-        return ok(result, changed_objects=[object_name])
+        warnings = [STALE_INDEX_WARNING] if apply else None
+        return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error solidifying mesh: {e}")
         raise ToolError(f"Error solidifying mesh: {e}") from e
