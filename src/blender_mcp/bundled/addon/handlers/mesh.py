@@ -193,31 +193,6 @@ class MeshHandlersMixin:
                 raise RuntimeError(f"mesh.bevel did not finish (status: {result})")
         return {"name": obj.name, **mesh_counts(obj)}
 
-    def mesh_bridge(self, object_name, edge_indices):
-        """
-        Bridge two selected open edge loops of a mesh.
-
-        Args:
-            object_name: Name of the Blender object to operate on.
-            edge_indices: Indices of edges to operate on.
-
-        Returns:
-            Result produced by the operation.
-
-        Raises:
-            ValueError: If the operation cannot be completed.
-            RuntimeError: If the operation cannot be completed.
-
-        """
-        if not edge_indices:
-            raise ValueError("edge_indices is required: select the edges forming the two loops to bridge")
-        obj = get_mesh_object(object_name)
-        with edit_mesh(obj, edge_indices=edge_indices):
-            result = bpy.ops.mesh.bridge_edge_loops()
-            if "FINISHED" not in result:
-                raise RuntimeError(f"mesh.bridge_edge_loops did not finish (status: {result})")
-        return {"name": obj.name, **mesh_counts(obj)}
-
     def mesh_symmetrize(self, object_name, direction="NEGATIVE_X"):
         """
         Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.

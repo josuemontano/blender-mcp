@@ -18,6 +18,7 @@ from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
+from .handlers.retopology import RetopologyHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
 from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blendermcp_addon_preferences
@@ -64,6 +65,7 @@ def _handler_failure_message(result):
 
 class BlenderMCPServer(
     ViewportHandlersMixin,
+    RetopologyHandlersMixin,
     MeshHandlersMixin,
     ModelHandlersMixin,
     ClothHandlersMixin,
@@ -440,6 +442,20 @@ class BlenderMCPServer(
             "mesh_remesh": self.mesh_remesh,
             "mesh_solidify": self.mesh_solidify,
             "mesh_symmetrize": self.mesh_symmetrize,
+            "create_retopology_target": self.create_retopology_target,
+            "inspect_retopology": self.inspect_retopology,
+            "analyze_surface_conformity": self.analyze_surface_conformity,
+            "manage_retopology_checkpoint": self.manage_retopology_checkpoint,
+            "configure_surface_projection": self.configure_surface_projection,
+            "project_mesh_elements": self.project_mesh_elements,
+            "build_quad_patch": self.build_quad_patch,
+            "extend_boundary": self.extend_boundary,
+            "fill_boundary_quads": self.fill_boundary_quads,
+            "reroute_topology": self.reroute_topology,
+            "relax_topology": self.relax_topology,
+            "redistribute_edge_loop": self.redistribute_edge_loop,
+            "configure_retopology_symmetry": self.configure_retopology_symmetry,
+            "validate_retopology": self.validate_retopology,
             "copy_object_transform": self.copy_object_transform,
             "add_subdivision_surface_modifier": self.add_subdivision_surface_modifier,
             "add_displace_modifier": self.add_displace_modifier,
@@ -518,6 +534,12 @@ class BlenderMCPServer(
             "search_polyhaven_assets",
             "search_sketchfab_models",
             "get_sketchfab_model_preview",
+            "get_cloth_simulation_info",
+            "get_cloth_object_info",
+            "estimate_cloth_resources",
+            "validate_cloth_setup",
+            "inspect_retopology",
+            "validate_retopology",
         }
     )
 
@@ -585,6 +607,16 @@ class BlenderMCPServer(
             "mesh_remesh",
             "mesh_solidify",
             "mesh_symmetrize",
+            "analyze_surface_conformity",
+            "manage_retopology_checkpoint",
+            "configure_surface_projection",
+            "project_mesh_elements",
+            "build_quad_patch",
+            "extend_boundary",
+            "fill_boundary_quads",
+            "reroute_topology",
+            "relax_topology",
+            "redistribute_edge_loop",
         }
     )
 
@@ -641,7 +673,10 @@ class BlenderMCPServer(
             Result produced by the handler.
 
         """
-        if cmd_type in self._READ_ONLY_COMMANDS:
+        dynamic_read_only = (
+            cmd_type == "manage_retopology_checkpoint" and str(params.get("action", "")).upper() in {"LIST", "COMPARE"}
+        ) or (cmd_type == "analyze_surface_conformity" and not params.get("create_heat_map", False))
+        if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
             return handler(**params)
 
         targets = self._resolve_targets(params)

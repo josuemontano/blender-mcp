@@ -214,21 +214,41 @@ async def mesh_bevel(
 
 
 @mcp.tool()
-async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -> dict:
+async def mesh_bridge(
+    ctx: Context,
+    object_name: str,
+    loop_a_edge_indices: list[int] | None = None,
+    loop_b_edge_indices: list[int] | None = None,
+    edge_indices: list[int] | None = None,
+    cuts: int = 0,
+    interpolation: Literal["LINEAR", "PATH", "SURFACE"] = "LINEAR",
+    smoothness: float = 0.0,
+    twist_offset: int = 0,
+    expected_revision: str | None = None,
+) -> dict:
     """
     Bridge two open edge loops of a mesh object with new faces.
 
     Args:
         ctx: MCP request context.
         object_name: Name of the mesh object to edit.
-        edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name,
-            element_type="edges") to discover valid indices.
+        loop_a_edge_indices: First boundary loop's edge indices. Keep separate from the second loop so correspondence
+            and validation are deterministic.
+        loop_b_edge_indices: Second boundary loop's edge indices. Both loops may be open chains or closed loops, but
+            they must have matching topology and may not share vertices.
+        edge_indices: Deprecated compatibility input containing both loops. Prefer the two separate loop inputs.
+        cuts: Number of intermediate bridge loops, 0 or greater.
+        interpolation: LINEAR, PATH, or SURFACE interpolation for intermediate cuts.
+        smoothness: Shape factor for interpolated cuts, in [-1000, 1000].
+        twist_offset: Integer correspondence offset applied around closed loops.
+        expected_revision: Optional revision from inspect_retopology. If it no longer matches, the edit is rejected
+            before mutation rather than using stale edge indices.
 
     Note: this changes topology - indices returned by an earlier get_mesh_data call are no longer valid
     afterward; call get_mesh_data again before further index-based edits.
 
     Returns:
-        the object's name and updated vertex/edge/polygon counts.
+        the object's counts, newly created vertex/edge/face indices, and new topology revision.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -240,7 +260,14 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
             "mesh_bridge",
             {
                 "object_name": object_name,
+                "loop_a_edge_indices": loop_a_edge_indices,
+                "loop_b_edge_indices": loop_b_edge_indices,
                 "edge_indices": edge_indices,
+                "cuts": cuts,
+                "interpolation": interpolation,
+                "smoothness": smoothness,
+                "twist_offset": twist_offset,
+                "expected_revision": expected_revision,
             },
         )
         return ok(result, changed_objects=[object_name], warnings=[STALE_INDEX_WARNING])

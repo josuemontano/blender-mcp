@@ -201,7 +201,16 @@ def _load_addon(monkeypatch, *, data=None, use_global_undo=None):
     monkeypatch.setitem(sys.modules, "bpy.props", props)
     monkeypatch.setitem(sys.modules, "bpy.app", app)
     monkeypatch.setitem(sys.modules, "bpy.app.handlers", handlers)
-    monkeypatch.setitem(sys.modules, "mathutils", types.ModuleType("mathutils"))
+    mathutils = types.ModuleType("mathutils")
+    bvhtree = types.ModuleType("mathutils.bvhtree")
+    bvhtree.BVHTree = type("BVHTree", (), {})
+    kdtree = types.ModuleType("mathutils.kdtree")
+    kdtree.KDTree = type("KDTree", (), {})
+    mathutils.bvhtree = bvhtree
+    mathutils.kdtree = kdtree
+    monkeypatch.setitem(sys.modules, "mathutils", mathutils)
+    monkeypatch.setitem(sys.modules, "mathutils.bvhtree", bvhtree)
+    monkeypatch.setitem(sys.modules, "mathutils.kdtree", kdtree)
     monkeypatch.setitem(sys.modules, "bmesh", types.ModuleType("bmesh"))
 
     requests = types.ModuleType("requests")

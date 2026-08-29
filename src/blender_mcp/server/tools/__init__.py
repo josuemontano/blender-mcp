@@ -7,5 +7,6 @@ from . import mesh as mesh
 from . import model as model
 from . import nd as nd
 from . import polyhaven as polyhaven
+from . import retopology as retopology
 from . import sketchfab as sketchfab
 from . import viewport as viewport
