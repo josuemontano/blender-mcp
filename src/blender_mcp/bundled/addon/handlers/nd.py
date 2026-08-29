@@ -79,20 +79,21 @@ class NDHandlersMixin:
             parent_obj = bpy.data.objects.get(parent_to)
             if not parent_obj:
                 raise ValueError(f"Object not found: {parent_to}")
-        names = []
+        objs = []
         for name in object_names:
             obj = bpy.data.objects.get(name)
             if not obj:
                 raise ValueError(f"Object not found: {name}")
+            objs.append(obj)
+        for obj in objs:
             nd_configure_object_as_util(obj, util=not unmark)
             if parent_obj is not None:
                 world_matrix = obj.matrix_world.copy()
                 obj.parent = parent_obj
                 obj.matrix_parent_inverse = parent_obj.matrix_world.inverted()
                 obj.matrix_world = world_matrix
-            names.append(obj.name)
         return {
-            "names": names,
+            "names": [obj.name for obj in objs],
             "marked_as_util": not unmark,
             "parent": parent_obj.name if parent_obj else None,
         }

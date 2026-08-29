@@ -303,14 +303,15 @@ class ModelHandlersMixin:
         """
         if not object_names:
             raise ValueError("At least one object name is required")
-        names = []
+        objs = []
         for name in object_names:
             obj = bpy.data.objects.get(name)
             if not obj:
                 raise ValueError(f"Object not found: {name}")
+            objs.append(obj)
+        for obj in objs:
             if obj.data is not None:
                 obj.data.name = obj.name
-            names.append(obj.name)
-        return {"names": names}
+        return {"names": [obj.name for obj in objs]}
 
     # endregion

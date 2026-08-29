@@ -359,15 +359,16 @@ class MeshHandlersMixin:
         """
         if not object_names:
             raise ValueError("At least one object name is required")
-        names = []
+        objs = []
         for name in object_names:
             obj = bpy.data.objects.get(name)
             if not obj:
                 raise ValueError(f"Object not found: {name}")
+            objs.append(obj)
+        for obj in objs:
             if obj.data is not None and hasattr(obj.data, "materials"):
                 obj.data.materials.clear()
-            names.append(obj.name)
-        return {"names": names}
+        return {"names": [obj.name for obj in objs]}
 
     def clear_vertex_groups(self, object_name):
         """

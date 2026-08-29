@@ -20,6 +20,7 @@ from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
 from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blendermcp_addon_preferences
+from .transaction import mutation_transaction
 
 
 class BlenderMCPServer(
@@ -421,6 +422,25 @@ class BlenderMCPServer(
 
         return handlers
 
+    # Commands that never mutate bpy.data. Everything else gets wrapped in
+    # mutation_transaction() - snapshotting/diffing/rolling back these would
+    # just be pointless overhead and undo-stack noise.
+    _READ_ONLY_COMMANDS = frozenset(
+        {
+            "list_scene_objects",
+            "get_object_info",
+            "get_mesh_data",
+            "get_viewport_screenshot",
+            "get_polyhaven_status",
+            "get_sketchfab_status",
+            "get_nd_status",
+            "get_polyhaven_categories",
+            "search_polyhaven_assets",
+            "search_sketchfab_models",
+            "get_sketchfab_model_preview",
+        }
+    )
+
     def execute_command_internal(self, command):
         """
         Internal command execution with proper context.
@@ -454,7 +474,7 @@ class BlenderMCPServer(
         if handler:
             try:
                 print(f"Executing handler for {cmd_type}")
-                result = handler(**params)
+                result = self._run_handler(cmd_type, handler, params)
                 print("Handler execution complete")
                 return {"status": "success", "result": result}
             except Exception as e:
@@ -463,6 +483,24 @@ class BlenderMCPServer(
                 return {"status": "error", "message": str(e)}
         else:
             return {"status": "error", "message": f"Unknown command type: {cmd_type}"}
+
+    def _run_handler(self, cmd_type, handler, params):
+        """
+        Call a resolved handler, wrapping mutating commands in mutation_transaction.
+
+        Args:
+            cmd_type: The MCP command type, used to pick read-only vs. mutating dispatch.
+            handler: The bound handler method to call.
+            params: Keyword arguments to call the handler with.
+
+        Returns:
+            Result produced by the handler.
+
+        """
+        if cmd_type in self._READ_ONLY_COMMANDS:
+            return handler(**params)
+        with mutation_transaction(cmd_type):
+            return handler(**params)
 
     def get_addon_info(self):
         """
