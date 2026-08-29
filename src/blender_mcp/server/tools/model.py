@@ -18,7 +18,7 @@ Space = Literal["LOCAL", "WORLD"]
 
 
 @mcp.tool()
-async def model_match_reference(
+async def copy_object_transform(
     ctx: Context,
     object_name: str,
     reference_object_name: str,
@@ -51,7 +51,7 @@ async def model_match_reference(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_match_reference",
+            "copy_object_transform",
             {
                 "object_name": object_name,
                 "reference_object_name": reference_object_name,
@@ -68,7 +68,7 @@ async def model_match_reference(
 
 
 @mcp.tool()
-async def model_refine(
+async def add_subdivision_surface_modifier(
     ctx: Context,
     object_name: str,
     levels: int = 1,
@@ -94,7 +94,7 @@ async def model_refine(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_refine",
+            "add_subdivision_surface_modifier",
             {
                 "object_name": object_name,
                 "levels": levels,
@@ -108,7 +108,7 @@ async def model_refine(
 
 
 @mcp.tool()
-async def add_procedural_displacement(
+async def add_displace_modifier(
     ctx: Context,
     object_name: str,
     strength: float = 0.1,
@@ -147,7 +147,7 @@ async def add_procedural_displacement(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "add_procedural_displacement",
+            "add_displace_modifier",
             {
                 "object_name": object_name,
                 "strength": strength,

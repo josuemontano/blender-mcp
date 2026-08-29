@@ -1,4 +1,4 @@
-"""Regression coverage for get_scene_info pagination and the new get_mesh_data tool."""
+"""Regression coverage for list_scene_objects pagination and the new get_mesh_data tool."""
 
 import sys
 import types
@@ -190,14 +190,14 @@ def _new_empty_object(bpy, name):
     return bpy.data.objects.new(name, None)
 
 
-# region get_scene_info pagination
-def test_get_scene_info_default_returns_everything_under_the_default_limit(monkeypatch) -> None:
+# region list_scene_objects pagination
+def test_list_scene_objects_default_returns_everything_under_the_default_limit(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     for i in range(5):
         _new_mesh_object(bpy, f"obj{i}")
 
-    result = server.get_scene_info()
+    result = server.list_scene_objects()
 
     assert result["object_count"] == 5
     assert result["returned_count"] == 5
@@ -206,24 +206,24 @@ def test_get_scene_info_default_returns_everything_under_the_default_limit(monke
     assert result["next_offset"] is None
 
 
-def test_get_scene_info_paginates_and_reports_truncation(monkeypatch) -> None:
+def test_list_scene_objects_paginates_and_reports_truncation(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     for i in range(7):
         _new_mesh_object(bpy, f"obj{i}")
 
-    page1 = server.get_scene_info(limit=3, offset=0)
+    page1 = server.list_scene_objects(limit=3, offset=0)
     assert page1["object_count"] == 7
     assert page1["returned_count"] == 3
     assert page1["truncated"] is True
     assert page1["next_offset"] == 3
 
-    page2 = server.get_scene_info(limit=3, offset=3)
+    page2 = server.list_scene_objects(limit=3, offset=3)
     assert page2["returned_count"] == 3
     assert page2["truncated"] is True
     assert page2["next_offset"] == 6
 
-    page3 = server.get_scene_info(limit=3, offset=6)
+    page3 = server.list_scene_objects(limit=3, offset=6)
     assert page3["returned_count"] == 1
     assert page3["truncated"] is False
     assert page3["next_offset"] is None
@@ -232,12 +232,12 @@ def test_get_scene_info_paginates_and_reports_truncation(monkeypatch) -> None:
     assert seen == {f"obj{i}" for i in range(7)}
 
 
-def test_get_scene_info_offset_past_end_returns_empty_page(monkeypatch) -> None:
+def test_list_scene_objects_offset_past_end_returns_empty_page(monkeypatch) -> None:
     addon, bpy, _objects, _scene = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "only_obj")
 
-    result = server.get_scene_info(limit=10, offset=50)
+    result = server.list_scene_objects(limit=10, offset=50)
 
     assert result["returned_count"] == 0
     assert result["truncated"] is False

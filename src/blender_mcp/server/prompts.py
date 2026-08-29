@@ -14,7 +14,7 @@ def asset_creation_strategy() -> str:
     """
     return """When creating 3D content in Blender, always start by checking if integrations are available:
 
-    0. Before anything, always check the scene from get_scene_info()
+    0. Before anything, always check the scene from list_scene_objects()
 
     **IMPORTANT: Visual Verification**
     - Use get_viewport_screenshot() BEFORE making changes to see the current state
@@ -25,9 +25,9 @@ def asset_creation_strategy() -> str:
         1. PolyHaven
             Use get_integration_status(provider="polyhaven") to verify its status
             If PolyHaven is enabled:
-            - For objects/models: Use download_polyhaven_asset() with asset_type="models"
-            - For materials/textures: Use download_polyhaven_asset() with asset_type="textures"
-            - For environment lighting: Use download_polyhaven_asset() with asset_type="hdris"
+            - For objects/models: Use import_polyhaven_asset() with asset_type="models"
+            - For materials/textures: Use import_polyhaven_asset() with asset_type="textures"
+            - For environment lighting: Use import_polyhaven_asset() with asset_type="hdris"
         2. Sketchfab
             Sketchfab is good at Realistic models, and has a wider variety of models than PolyHaven.
             Use get_integration_status(provider="sketchfab") to verify its status
@@ -37,9 +37,9 @@ def asset_creation_strategy() -> str:
             - Note that only downloadable models can be accessed, and API key must be properly configured
             - Sketchfab has a wider variety of models than PolyHaven, especially for specific subjects
     2. For primitives and direct mesh/model editing, use the dedicated tools instead of execute_blender_code:
-        - mesh_create_primitive() for cubes, spheres, cylinders, cones, tori, planes, and curves
+        - create_primitive_object() for cubes, spheres, cylinders, cones, tori, planes, and curves
         - mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(), mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize() for direct mesh edits
-        - model_match_reference(), model_refine(), add_procedural_displacement(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations (use mesh_create_primitive() with purpose="blockout" for placeholder proxies)
+        - copy_object_transform(), add_subdivision_surface_modifier(), add_displace_modifier(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations (use create_primitive_object() with purpose="blockout" for placeholder proxies)
 
     2.5. For non-destructive hard-surface workflows (utility objects, ID materials, LOD naming, viewport overlays), use the ND (HugeMenace) tools instead of execute_blender_code:
         - Use get_integration_status(provider="nd") to verify its status
@@ -61,11 +61,11 @@ def asset_creation_strategy() -> str:
     Only fall back to execute_blender_code scripting when:
     - PolyHaven and Sketchfab are both disabled and no suitable asset exists in any of the libraries
     - The task specifically requires a basic material/color
-    - The needed operation has no dedicated mesh_*/model_* tool (e.g. a primitive is explicitly requested - use mesh_create_primitive() instead, or a mesh edit covered by mesh_extrude/mesh_inset/mesh_bevel/mesh_bridge/mesh_boolean/mesh_subdivide/mesh_remesh/mesh_solidify/mesh_symmetrize/model_match_reference/model_refine/add_procedural_displacement/model_mirror/model_array/model_radial_array)
+    - The needed operation has no dedicated mesh_*/model_* tool (e.g. a primitive is explicitly requested - use create_primitive_object() instead, or a mesh edit covered by mesh_extrude/mesh_inset/mesh_bevel/mesh_bridge/mesh_boolean/mesh_subdivide/mesh_remesh/mesh_solidify/mesh_symmetrize/copy_object_transform/add_subdivision_surface_modifier/add_displace_modifier/model_mirror/model_array/model_radial_array)
 
     **Best Practices:**
     - Always take a screenshot after completing a task to verify the visual result
-    - Always call get_scene_info() after completing a task to verify the changes worked
+    - Always call list_scene_objects() after completing a task to verify the changes worked
     - When executing multiple operations, take intermediate screenshots to confirm each step
     - If something looks wrong in the screenshot or scene info, investigate and fix before proceeding
     """

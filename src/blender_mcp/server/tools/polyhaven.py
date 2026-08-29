@@ -97,7 +97,7 @@ async def search_polyhaven_assets(
 
 
 @mcp.tool()
-async def download_polyhaven_asset(
+async def import_polyhaven_asset(
     ctx: Context,
     asset_id: str,
     asset_type: str,
@@ -128,7 +128,7 @@ async def download_polyhaven_asset(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "download_polyhaven_asset",
+            "import_polyhaven_asset",
             {
                 "asset_id": asset_id,
                 "asset_type": asset_type,

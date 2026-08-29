@@ -87,7 +87,7 @@ def test_send_command_raises_on_succeed_false(monkeypatch) -> None:
     )
 
     with pytest.raises(Exception, match="No mesh objects imported from GLB"):
-        conn.send_command_locked("download_polyhaven_asset")
+        conn.send_command_locked("import_polyhaven_asset")
 
     assert conn.sock is not None
 
@@ -108,4 +108,4 @@ def test_send_command_passes_through_real_success(monkeypatch) -> None:
         {"status": "success", "result": {"succeed": True, "name": "Cube"}}, monkeypatch
     )
 
-    assert conn.send_command_locked("download_polyhaven_asset") == {"succeed": True, "name": "Cube"}
+    assert conn.send_command_locked("import_polyhaven_asset") == {"succeed": True, "name": "Cube"}

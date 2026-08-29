@@ -18,7 +18,7 @@ PrimitivePurpose = Literal["blockout"]
 
 
 @mcp.tool()
-async def mesh_create_primitive(
+async def create_primitive_object(
     ctx: Context,
     primitive_type: PrimitiveType,
     name: str | None = None,

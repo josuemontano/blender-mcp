@@ -17,7 +17,7 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
+async def list_scene_objects(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
     """
     Inspect the current Blender scene and page through its objects.
 
@@ -37,7 +37,7 @@ async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("get_scene_info", {"limit": limit, "offset": offset})
+        result = blender.send_command("list_scene_objects", {"limit": limit, "offset": offset})
         return ok(result)
     except Exception as e:
         logger.error(f"Error getting scene info from Blender: {e}")

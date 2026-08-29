@@ -322,7 +322,7 @@ class BlenderMCPServer(
         """
         # Base handlers that are always available
         handlers = {
-            "get_scene_info": self.get_scene_info,
+            "list_scene_objects": self.list_scene_objects,
             "get_addon_info": self.get_addon_info,
             "get_object_info": self.get_object_info,
             "get_mesh_data": self.get_mesh_data,
@@ -340,9 +340,9 @@ class BlenderMCPServer(
             "mesh_remesh": self.mesh_remesh,
             "mesh_solidify": self.mesh_solidify,
             "mesh_symmetrize": self.mesh_symmetrize,
-            "model_match_reference": self.model_match_reference,
-            "model_refine": self.model_refine,
-            "add_procedural_displacement": self.add_procedural_displacement,
+            "copy_object_transform": self.copy_object_transform,
+            "add_subdivision_surface_modifier": self.add_subdivision_surface_modifier,
+            "add_displace_modifier": self.add_displace_modifier,
             "model_mirror": self.model_mirror,
             "model_array": self.model_array,
             "model_radial_array": self.model_radial_array,
@@ -353,7 +353,7 @@ class BlenderMCPServer(
             polyhaven_handlers = {
                 "get_polyhaven_categories": self.get_polyhaven_categories,
                 "search_polyhaven_assets": self.search_polyhaven_assets,
-                "download_polyhaven_asset": self.download_polyhaven_asset,
+                "import_polyhaven_asset": self.import_polyhaven_asset,
                 "apply_polyhaven_texture": self.apply_polyhaven_texture,
             }
             handlers.update(polyhaven_handlers)
@@ -450,7 +450,7 @@ class BlenderMCPServer(
 
     _SCENE_INFO_MAX_LIMIT = 200
 
-    def get_scene_info(self, limit=25, offset=0):
+    def list_scene_objects(self, limit=25, offset=0):
         """
         Get information about the current Blender scene, paginated over its objects.
 
@@ -498,7 +498,7 @@ class BlenderMCPServer(
             print(f"Scene info collected: {len(objects)} of {total} objects")
             return scene_info
         except Exception as e:
-            print(f"Error in get_scene_info: {e!s}")
+            print(f"Error in list_scene_objects: {e!s}")
             traceback.print_exc()
             return {"error": str(e)}
 

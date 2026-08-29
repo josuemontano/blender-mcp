@@ -544,8 +544,8 @@ MESH_HANDLER_CALLS = [
     ("mesh_subdivide", {}),
     ("mesh_remesh", {}),
     ("mesh_solidify", {}),
-    ("model_refine", {}),
-    ("add_procedural_displacement", {}),
+    ("add_subdivision_surface_modifier", {}),
+    ("add_displace_modifier", {}),
     ("mesh_symmetrize", {}),
     ("model_mirror", {}),
     ("model_array", {}),
@@ -685,7 +685,7 @@ def test_mesh_boolean_deletes_cutter_when_requested(monkeypatch) -> None:
     assert bpy.data.objects.get("cutter2") is None
 
 
-def test_model_match_reference_copies_only_flagged_components(monkeypatch) -> None:
+def test_copy_object_transform_copies_only_flagged_components(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "A")
@@ -697,7 +697,7 @@ def test_model_match_reference_copies_only_flagged_components(monkeypatch) -> No
     ref.rotation_euler = FakeVector(0.1, 0.2, 0.3)
     ref.scale = FakeVector(2, 2, 2)
 
-    result = server.model_match_reference(
+    result = server.copy_object_transform(
         object_name="A",
         reference_object_name="B",
         match_location=True,
@@ -712,17 +712,17 @@ def test_model_match_reference_copies_only_flagged_components(monkeypatch) -> No
     assert result["scale"] == pytest.approx([2, 2, 2])
 
 
-def test_model_match_reference_rejects_invalid_space(monkeypatch) -> None:
+def test_copy_object_transform_rejects_invalid_space(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "A")
     _new_mesh_object(bpy, "B")
 
     with pytest.raises(ValueError, match="Invalid space"):
-        server.model_match_reference(object_name="A", reference_object_name="B", space="OBJECT")
+        server.copy_object_transform(object_name="A", reference_object_name="B", space="OBJECT")
 
 
-def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatch) -> None:
+def test_copy_object_transform_local_space_copies_quaternion_directly(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "A")
@@ -731,7 +731,7 @@ def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatc
     ref.rotation_mode = "QUATERNION"
     ref.rotation_quaternion = FakeQuaternion((0.5, 0.5, 0.5, 0.5))
 
-    server.model_match_reference(
+    server.copy_object_transform(
         object_name="A",
         reference_object_name="B",
         match_location=False,
@@ -743,7 +743,7 @@ def test_model_match_reference_local_space_copies_quaternion_directly(monkeypatc
     assert obj.rotation_quaternion == FakeQuaternion((0.5, 0.5, 0.5, 0.5))
 
 
-def test_model_match_reference_world_space_differs_from_local_across_parenting(
+def test_copy_object_transform_world_space_differs_from_local_across_parenting(
     monkeypatch,
 ) -> None:
     addon, bpy = _load_addon(monkeypatch)
@@ -763,7 +763,7 @@ def test_model_match_reference_world_space_differs_from_local_across_parenting(
 
     # ref's world position is (5, 5, 5); WORLD-space matching must land obj
     # there too, even though obj is parented 100 units away on X.
-    result = server.model_match_reference(
+    result = server.copy_object_transform(
         object_name="A",
         reference_object_name="B",
         match_rotation=False,
@@ -800,12 +800,12 @@ def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(
     assert bpy.data.objects["blockout_cube"]["blockout"] is True
 
 
-def test_model_refine_reports_evaluated_and_modifier_when_not_applied(monkeypatch) -> None:
+def test_add_subdivision_surface_modifier_reports_evaluated_and_modifier_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
-    result = server.model_refine(object_name="R", apply=False)
+    result = server.add_subdivision_surface_modifier(object_name="R", apply=False)
 
     assert result["applied"] is False
     assert result["modifier"] == "Subdivision"
@@ -813,55 +813,55 @@ def test_model_refine_reports_evaluated_and_modifier_when_not_applied(monkeypatc
     assert "bounds" in result and "min" in result["bounds"] and "max" in result["bounds"]
 
 
-def test_model_refine_reports_no_modifier_when_applied(monkeypatch) -> None:
+def test_add_subdivision_surface_modifier_reports_no_modifier_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R2")
 
-    result = server.model_refine(object_name="R2", apply=True)
+    result = server.add_subdivision_surface_modifier(object_name="R2", apply=True)
 
     assert result["applied"] is True
     assert result["modifier"] is None
 
 
-def test_add_procedural_displacement_removes_texture_orphan_when_applied(monkeypatch) -> None:
+def test_add_displace_modifier_removes_texture_orphan_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D")
 
-    server.add_procedural_displacement(object_name="D", apply=True)
+    server.add_displace_modifier(object_name="D", apply=True)
 
     assert bpy.data.textures.get("D_detail") is None
 
 
-def test_add_procedural_displacement_keeps_texture_when_not_applied(monkeypatch) -> None:
+def test_add_displace_modifier_keeps_texture_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D2")
 
-    server.add_procedural_displacement(object_name="D2", apply=False)
+    server.add_displace_modifier(object_name="D2", apply=False)
 
     assert bpy.data.textures.get("D2_detail") is not None
 
 
-def test_add_procedural_displacement_subdivide_stays_live_when_not_applied(monkeypatch) -> None:
+def test_add_displace_modifier_subdivide_stays_live_when_not_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "D3")
 
-    server.add_procedural_displacement(object_name="D3", apply=False, subdivide=True)
+    server.add_displace_modifier(object_name="D3", apply=False, subdivide=True)
 
     # With apply=False, subdivide must NOT be baked - both modifiers stay live.
     names = [m.name for m in obj.modifiers]
     assert names == ["Subdivision", "Displace"]
 
 
-def test_add_procedural_displacement_subdivide_applies_extra_modifier_first(monkeypatch) -> None:
+def test_add_displace_modifier_subdivide_applies_extra_modifier_first(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "D4")
 
-    server.add_procedural_displacement(object_name="D4", apply=True, subdivide=True)
+    server.add_displace_modifier(object_name="D4", apply=True, subdivide=True)
 
     # With apply=True, the subdivide pass is baked (and removed) before Displace
     # is applied, so no modifiers remain.

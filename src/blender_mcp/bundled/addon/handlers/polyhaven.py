@@ -86,7 +86,7 @@ class PolyhavenHandlersMixin:
         except Exception as e:
             return {"error": str(e)}
 
-    def download_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None):
+    def import_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None):
         try:
             # First get the files information
             files_response = requests.get(f"https://api.polyhaven.com/files/{asset_id}", headers=REQ_HEADERS)

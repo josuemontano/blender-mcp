@@ -18,7 +18,7 @@ class ModelHandlersMixin:
     """Provide handlers for modifying existing scene models."""
 
     # region Model editing handlers
-    def model_match_reference(
+    def copy_object_transform(
         self,
         object_name,
         reference_object_name,
@@ -84,7 +84,7 @@ class ModelHandlersMixin:
             "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
         }
 
-    def model_refine(self, object_name, levels=1, apply=False):
+    def add_subdivision_surface_modifier(self, object_name, levels=1, apply=False):
         """
         Smooth and increase effective resolution via a Subdivision Surface modifier.
 
@@ -108,7 +108,7 @@ class ModelHandlersMixin:
             apply_modifier(obj, mod)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
-    def add_procedural_displacement(
+    def add_displace_modifier(
         self,
         object_name,
         strength=0.1,
