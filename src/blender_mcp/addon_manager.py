@@ -2,13 +2,18 @@
 Bundle, install, and version-check the Blender MCP addon.
 
 Existing users often update only the MCP server (`pipx upgrade blender-mcp`). This module:
-1. Ships a bundled copy of addon.py inside the package
+1. Ships a bundled copy of the addon package inside the package
 2. Can copy it into Blender's user addons directory (`install-addon`)
 3. Handshake with a running addon to detect outdated installs
+
+The addon is a package directory (``__init__.py`` + submodules), not a single
+``.py`` file. Everywhere below that deals with "the addon file" therefore
+means ``<addon dir>/__init__.py`` when the path in question is a directory.
 """
 
 from __future__ import annotations
 
+import filecmp
 import logging
 import os
 import re
@@ -19,19 +24,29 @@ from pathlib import Path
 
 logger = logging.getLogger("BlenderMCPServer")
 
-# Must match ADDON_PROTOCOL_VERSION in addon.py / bundled/addon.py
+# Must match ADDON_PROTOCOL_VERSION in bundled/addon/__init__.py
 EXPECTED_ADDON_PROTOCOL_VERSION = 4
 
 _ADDON_MARKER = 'bl_info = {\n    "name": "Blender MCP"'
-_INSTALLED_FILENAME = "blender_mcp.py"
+_INSTALLED_DIRNAME = "blender_mcp"
 _PROTOCOL_RE = re.compile(r"ADDON_PROTOCOL_VERSION\s*=\s*(\d+)")
 _BL_INFO_NAME_RE = re.compile(r"""["']name["']\s*:\s*["']Blender MCP["']""")
 
 
+def _addon_init_file(path: Path) -> Path:
+    """Return the file that actually carries the addon's metadata for `path`.
+
+    `path` may be a single-file legacy install or a package directory; in the
+    latter case the metadata (bl_info, ADDON_PROTOCOL_VERSION) lives in its
+    __init__.py.
+    """
+    return path / "__init__.py" if path.is_dir() else path
+
+
 def read_addon_protocol_version(path: Path) -> int | None:
-    """Parse ADDON_PROTOCOL_VERSION from an installed addon file."""
+    """Parse ADDON_PROTOCOL_VERSION from an installed addon file or package dir."""
     try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _addon_init_file(path).read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return None
     match = _PROTOCOL_RE.search(text)
@@ -45,7 +60,7 @@ def read_addon_protocol_version(path: Path) -> int | None:
 
 def addon_file_needs_update(path: Path) -> bool:
     """True if path is missing protocol metadata or behind the bundled addon."""
-    if not path.is_file():
+    if not _addon_init_file(path).is_file():
         return True
     installed = read_addon_protocol_version(path)
     if installed is None:
@@ -95,8 +110,8 @@ def check_addon_status_on_startup() -> AddonStatusReport:
                 reason="no_addons_dir",
                 message=(
                     "Could not find a Blender addons folder. If Blender is "
-                    "installed, set BLENDERMCP_ADDONS_DIR, or install addon.py "
-                    "manually from the repo."
+                    "installed, set BLENDERMCP_ADDONS_DIR, or install the addon "
+                    "package manually from the repo."
                 ),
             )
 
@@ -168,18 +183,14 @@ class AddonHandshake:
 
 
 def get_bundled_addon_path() -> Path:
-    """Resolve the addon.py shipped with this package (or repo root in editable installs)."""
+    """Resolve the addon package directory shipped with this package."""
     here = Path(__file__).resolve().parent
-    candidates = [
-        here / "bundled" / "addon.py",
-        here.parents[1] / "addon.py",  # repo root when running from src layout
-    ]
-    for path in candidates:
-        if path.is_file():
-            return path
+    candidate = here / "bundled" / "addon"
+    if candidate.is_dir() and (candidate / "__init__.py").is_file():
+        return candidate
     raise FileNotFoundError(
-        "Bundled Blender MCP addon.py not found. Reinstall blender-mcp or "
-        "copy addon.py from the GitHub repo into Blender manually."
+        "Bundled Blender MCP addon package not found. Reinstall blender-mcp or "
+        "copy the addon package from the GitHub repo into Blender manually."
     )
 
 
@@ -260,25 +271,45 @@ def find_existing_addon_installs(addons_dirs: list[Path] | None = None) -> list[
     return found
 
 
+def _trees_equal(a: Path, b: Path) -> bool:
+    """Recursively compare two directory trees for identical content."""
+    cmp = filecmp.dircmp(a, b)
+    if cmp.left_only or cmp.right_only or cmp.diff_files or cmp.funny_files:
+        return False
+    return all(_trees_equal(a / sub, b / sub) for sub in cmp.common_dirs)
+
+
 def _backup_addon_file(path: Path, source: Path | None = None) -> Path | None:
     """Keep one .bak copy before overwriting, so local edits are recoverable.
 
-    Skipped when the file already matches what we are about to write: a repeat
-    install would otherwise overwrite a .bak holding the user's real previous
-    version with an identical copy of the bundled addon, destroying the very
-    edits the backup exists to preserve.
+    `path` may be a single-file legacy install or a package directory.
+    Skipped when it already matches `source`: a repeat install would
+    otherwise overwrite a .bak holding the user's real previous version with
+    an identical copy of the bundled addon, destroying the very edits the
+    backup exists to preserve.
     """
-    if not path.is_file():
+    if not path.exists():
         return None
     if source is not None:
         try:
-            if path.read_bytes() == source.read_bytes():
+            if path.is_dir() and source.is_dir() and _trees_equal(path, source):
+                return None
+            if (
+                path.is_file()
+                and source.is_file()
+                and path.read_bytes() == source.read_bytes()
+            ):
                 return None
         except OSError as e:
             logger.debug(f"Could not compare {path} with {source}: {e}")
-    backup = path.with_suffix(path.suffix + ".bak")
+    backup = path.with_name(path.name + ".bak")
     try:
-        shutil.copy2(path, backup)
+        if backup.exists():
+            shutil.rmtree(backup) if backup.is_dir() else backup.unlink()
+        if path.is_dir():
+            shutil.copytree(path, backup)
+        else:
+            shutil.copy2(path, backup)
         return backup
     except OSError as e:
         logger.debug(f"Could not back up {path}: {e}")
@@ -308,7 +339,7 @@ def install_addon(
                 False,
                 "Could not find a Blender user addons directory. "
                 "Set BLENDERMCP_ADDONS_DIR to your Blender scripts/addons path, "
-                "or install addon.py manually from the repo.",
+                "or install the addon package manually from the repo.",
             )
         # Update where the addon already lives rather than the newest
         # scripts/addons dir.
@@ -335,19 +366,29 @@ def install_addon(
     replaced: list[str] = []
     if addons_dir.is_dir():
         for path in list(addons_dir.iterdir()):
-            if (
-                path.is_file()
-                and path.suffix == ".py"
-                and _is_blendermcp_addon_file(path)
-            ):
-                _backup_addon_file(path, source)
-                shutil.copy2(source, path)
-                replaced.append(str(path))
+            is_legacy_file = (
+                path.is_file() and path.suffix == ".py" and _is_blendermcp_addon_file(path)
+            )
+            is_package_dir = (
+                path.is_dir()
+                and (path / "__init__.py").is_file()
+                and _is_blendermcp_addon_file(path / "__init__.py")
+            )
+            if not (is_legacy_file or is_package_dir):
+                continue
+            # A legacy single-file install can never match the package
+            # source byte-for-byte, so always back it up rather than trying
+            # to content-compare a file against a directory.
+            _backup_addon_file(path, source if is_package_dir else None)
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            replaced.append(str(path))
 
-    target = addons_dir / _INSTALLED_FILENAME
+    target = addons_dir / _INSTALLED_DIRNAME
+    shutil.copytree(source, target)
     if str(target) not in replaced:
-        _backup_addon_file(target, source)
-        shutil.copy2(source, target)
         replaced.append(str(target))
 
     msg = (
@@ -464,7 +505,7 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     install_p = sub.add_parser(
         "install-addon",
-        help="Copy the bundled addon.py into Blender's user addons folder",
+        help="Copy the bundled addon package into Blender's user addons folder",
     )
     install_p.add_argument(
         "--addons-dir",

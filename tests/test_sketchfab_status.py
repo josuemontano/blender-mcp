@@ -1,10 +1,9 @@
 """Regression coverage for Sketchfab availability reporting."""
 
-import importlib.util
 import sys
 import types
 
-from conftest import ROOT_ADDON as ADDON
+from conftest import load_addon_package
 
 
 def _load_addon(monkeypatch, scene):
@@ -58,9 +57,7 @@ def _load_addon(monkeypatch, scene):
     requests.exceptions = types.SimpleNamespace(Timeout=TimeoutError)
     monkeypatch.setitem(sys.modules, "requests", requests)
 
-    spec = importlib.util.spec_from_file_location("blender_mcp_addon_test", ADDON)
-    addon = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(addon)
+    addon = load_addon_package(monkeypatch, "blender_mcp_addon_sketchfab_test")
     return addon
 
 
@@ -83,7 +80,7 @@ def test_disabled_sketchfab_does_not_report_a_saved_key_as_ready(monkeypatch):
         raise AssertionError("must not validate a disabled integration")
 
     monkeypatch.setattr(
-        addon.requests,
+        addon.handlers.sketchfab.requests,
         "get",
         request_should_not_run,
         raising=False,
@@ -113,7 +110,7 @@ def test_enabled_sketchfab_reports_a_valid_key_as_ready(monkeypatch):
             return {"username": "artist"}
 
     monkeypatch.setattr(
-        addon.requests, "get", lambda *_args, **_kwargs: Response(), raising=False
+        addon.handlers.sketchfab.requests, "get", lambda *_args, **_kwargs: Response(), raising=False
     )
 
     assert server.get_sketchfab_status() == {

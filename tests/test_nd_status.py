@@ -1,10 +1,9 @@
 """Regression coverage for ND (HugeMenace) availability reporting."""
 
-import importlib.util
 import sys
 import types
 
-from conftest import ROOT_ADDON as ADDON
+from conftest import load_addon_package
 
 
 def _load_addon(monkeypatch, scene, nd_installed=False):
@@ -63,9 +62,7 @@ def _load_addon(monkeypatch, scene, nd_installed=False):
     requests.exceptions = types.SimpleNamespace(Timeout=TimeoutError)
     monkeypatch.setitem(sys.modules, "requests", requests)
 
-    spec = importlib.util.spec_from_file_location("blender_mcp_addon_test", ADDON)
-    addon = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(addon)
+    addon = load_addon_package(monkeypatch, "blender_mcp_addon_nd_test")
     return addon
 
 

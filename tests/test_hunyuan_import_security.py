@@ -1,12 +1,11 @@
 """Regression coverage for Hunyuan import URL routing and zip-slip checks."""
 
-import importlib.util
 import io
 import sys
 import types
 import zipfile
 
-from conftest import ROOT_ADDON as ADDON
+from conftest import load_addon_package
 
 
 def _install_bpy_stubs(monkeypatch, scene):
@@ -85,11 +84,7 @@ def _load_addon(monkeypatch):
         blendermcp_use_sketchfab=False,
     )
     bpy = _install_bpy_stubs(monkeypatch, scene)
-    spec = importlib.util.spec_from_file_location(
-        "blender_mcp_addon_hunyuan_test", ADDON
-    )
-    addon = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(addon)
+    addon = load_addon_package(monkeypatch, "blender_mcp_addon_hunyuan_test")
     return addon, bpy
 
 
@@ -123,7 +118,7 @@ def test_hunyuan_import_prefers_glb_urls(monkeypatch):
 
     bpy.ops.import_scene.gltf = gltf_import
     monkeypatch.setattr(
-        addon.requests,
+        addon.handlers.hunyuan3d.requests,
         "get",
         lambda *_args, **_kwargs: _FakeResponse(b"glb-bytes"),
         raising=False,
@@ -151,7 +146,7 @@ def test_hunyuan_zip_rejects_path_traversal(monkeypatch):
     payload = buf.getvalue()
 
     monkeypatch.setattr(
-        addon.requests,
+        addon.handlers.hunyuan3d.requests,
         "get",
         lambda *_args, **_kwargs: _FakeResponse(payload),
         raising=False,
