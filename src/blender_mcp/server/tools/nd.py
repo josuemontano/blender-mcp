@@ -385,7 +385,8 @@ async def nd_viewport_toggle(ctx: Context, toggle: ViewportToggle, enabled: bool
 
     Args:
         ctx: MCP request context.
-        toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION, CLEAR_VIEW, CUSTOM_VIEW, UTILS. (ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.)
+        toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION, CLEAR_VIEW, CUSTOM_VIEW, UTILS. (ND's SILHOUETTE
+            toggle is a genuine modal operator and is intentionally not exposed here.)
         enabled: Desired on/off state. Ignored for CLEAR_VIEW, CUSTOM_VIEW, and UTILS.
 
     Returns:

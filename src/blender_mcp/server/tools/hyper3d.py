@@ -95,9 +95,12 @@ async def generate_hyper3d_model_via_images(
 
     Args:
         ctx: MCP request context.
-        input_image_paths: The **absolute** paths of input images. Even if only one image is provided, wrap it into a list. Required if Hyper3D Rodin in MAIN_SITE mode.
-        input_image_urls: The URLs of input images. Even if only one image is provided, wrap it into a list. Required if Hyper3D Rodin in FAL_AI mode.
-        bbox_condition: Optional [Length, Width, Height] ratio for the model. Only one of {input_image_paths, input_image_urls} should be given at a time, depending on the Hyper3D Rodin's current mode.
+        input_image_paths: The **absolute** paths of input images. Even if only one image is provided, wrap it into a
+            list. Required if Hyper3D Rodin in MAIN_SITE mode.
+        input_image_urls: The URLs of input images. Even if only one image is provided, wrap it into a list. Required
+            if Hyper3D Rodin in FAL_AI mode.
+        bbox_condition: Optional [Length, Width, Height] ratio for the model. Only one of {input_image_paths,
+            input_image_urls} should be given at a time, depending on the Hyper3D Rodin's current mode.
 
     Returns:
         the submitted job's task_uuid and subscription_key.
@@ -166,7 +169,8 @@ async def poll_rodin_job_status(
         request_id: FAL_AI request ID. The job succeeds when its status is "COMPLETED".
 
     Returns:
-        the provider status. Continue polling only while it is non-terminal; import only after a terminal success status.
+        the provider status. Continue polling only while it is non-terminal; import only after a terminal success
+        status.
 
     Raises:
         ToolError: If the operation cannot be completed.

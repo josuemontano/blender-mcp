@@ -37,7 +37,9 @@ async def model_match_reference(
         match_location: Copy the reference object's location.
         match_rotation: Copy the reference object's rotation.
         match_scale: Copy the reference object's scale.
-        space: "WORLD" (default) matches visually even across differently-parented objects, and correctly handles quaternion/axis-angle rotation modes, by decomposing/recomposing world matrices. "LOCAL" copies the raw local location/rotation/scale properties instead.
+        space: "WORLD" (default) matches visually even across differently-parented objects, and correctly handles
+            quaternion/axis-angle rotation modes, by decomposing/recomposing world matrices. "LOCAL" copies the raw
+            local location/rotation/scale properties instead.
 
     Returns:
         the object's name and resulting location/rotation/scale.
@@ -82,7 +84,8 @@ async def model_refine(
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -127,11 +130,15 @@ async def add_procedural_displacement(
         strength: Displacement strength.
         scale: Noise scale of the driving texture.
         texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
-        apply: If True, bake the modifier(s) into the mesh and remove the generated texture datablock. If False (default), leave everything as live modifiers/texture.
-        subdivide: If True, add a Subdivision Surface modifier before adding the Displace modifier, to ensure enough topology exists for visible detail. It is only baked in when apply is also True - with apply=False both modifiers stay live.
+        apply: If True, bake the modifier(s) into the mesh and remove the generated texture datablock. If False
+            (default), leave everything as live modifiers/texture.
+        subdivide: If True, add a Subdivision Surface modifier before adding the Displace modifier, to ensure enough
+            topology exists for visible detail. It is only baked in when apply is also True - with apply=False both
+            modifiers stay live.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -177,7 +184,8 @@ async def model_mirror(
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -220,7 +228,8 @@ async def model_array(
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -268,13 +277,16 @@ async def model_radial_array(
         object_name: Name of the mesh object to array.
         count: Number of copies around the circle (including the original). Must be at least 2.
         axis: One of X, Y, Z — the axis to rotate around.
-        apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both live.
+        apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both
+            live.
         pivot_object_name: Name of an existing object whose world location is used as the pivot.
         pivot_location: [x, y, z] world location to use as the pivot.
-        radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a parented object, the pivot is offset from its world-space location, not its local one.
+        radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a parented object, the
+            pivot is offset from its world-space location, not its local one.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.

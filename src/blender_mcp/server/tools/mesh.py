@@ -38,7 +38,8 @@ async def mesh_create_primitive(
         location: [x, y, z] location for the new object.
         rotation: [x, y, z] rotation in radians for the new object.
         size: Overall size (interpreted per primitive type, e.g. cube edge length, sphere radius).
-        dimensions: Optional [x, y, z] world-space bounding box, applied after creation and overriding size for footprint - use this to get the same physical footprint across different primitive types.
+        dimensions: Optional [x, y, z] world-space bounding box, applied after creation and overriding size for
+            footprint - use this to get the same physical footprint across different primitive types.
         purpose: Set to "blockout" to tag the object as a placeholder proxy for later refinement.
 
     Returns:
@@ -83,7 +84,8 @@ async def mesh_extrude(
         ctx: MCP request context.
         object_name: Name of the mesh object to edit.
         offset: [x, y, z] translation applied to the extruded geometry.
-        face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+        face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use
+            get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -124,7 +126,8 @@ async def mesh_inset(
         object_name: Name of the mesh object to edit.
         thickness: Inset thickness.
         depth: Inset depth (pushes the inset faces along their normal).
-        face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+        face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use
+            get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -169,8 +172,11 @@ async def mesh_bevel(
         offset: Bevel width.
         segments: Number of bevel segments.
         affect: "EDGES" or "VERTICES".
-        edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
-        vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name, element_type="vertices") to discover valid indices. - If neither edge_indices nor vertex_indices is given, the whole mesh is selected.
+        edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges")
+            to discover valid indices.
+        vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name,
+            element_type="vertices") to discover valid indices. - If neither edge_indices nor vertex_indices is
+            given, the whole mesh is selected.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -206,7 +212,8 @@ async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -
     Args:
         ctx: MCP request context.
         object_name: Name of the mesh object to edit.
-        edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
+        edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name,
+            element_type="edges") to discover valid indices.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -281,7 +288,8 @@ async def mesh_boolean(
         object_name: Name of the mesh object the boolean is applied to (the result).
         cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
         operation: One of UNION, DIFFERENCE, INTERSECT.
-        keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete it.
+        keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete
+            it.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -322,7 +330,8 @@ async def mesh_subdivide(
         ctx: MCP request context.
         object_name: Name of the mesh object to edit.
         cuts: Number of cuts per edge.
-        face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
+        face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use
+            get_mesh_data(object_name, element_type="faces") to discover valid indices.
 
     Returns:
         the object's name and updated vertex/edge/polygon counts.
@@ -396,7 +405,8 @@ async def mesh_solidify(
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
     Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
+        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
+        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
 
     Raises:
         ToolError: If the operation cannot be completed.

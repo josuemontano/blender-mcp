@@ -115,7 +115,8 @@ async def download_polyhaven_asset(
         asset_id: Polyhaven asset ID from `search_polyhaven_assets`.
         asset_type: Asset type: `hdris`, `textures`, or `models`.
         resolution: Requested resolution, such as `1k`, `2k`, or `4k`.
-        file_format: Optional provider-supported format, such as HDR/EXR for HDRIs, JPG/PNG for textures, or GLTF/FBX for models.
+        file_format: Optional provider-supported format, such as HDR/EXR for HDRIs, JPG/PNG for textures, or
+            GLTF/FBX for models.
 
     Returns:
         dict: Result produced by the operation.

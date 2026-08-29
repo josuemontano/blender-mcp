@@ -32,7 +32,9 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
 
     Args:
         ctx: MCP request context.
-        provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted, checks all five and returns a dict keyed by provider name. Each provider's result is {"enabled": bool, "message": str} describing whether that integration's features are available and, if not, how to enable it.
+        provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted, checks all five and
+            returns a dict keyed by provider name. Each provider's result is {"enabled": bool, "message": str}
+            describing whether that integration's features are available and, if not, how to enable it.
 
     Returns:
         dict: Result produced by the operation.

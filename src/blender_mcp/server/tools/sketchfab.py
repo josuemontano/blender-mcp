@@ -121,10 +121,12 @@ async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -
     Args:
         ctx: MCP request context.
         uid: Downloadable model UID returned by `search_sketchfab_models`.
-        target_size: Required target size in Blender units for the imported model's largest dimension; for example, 1.0 for a chair or 4.5 for a car.
+        target_size: Required target size in Blender units for the imported model's largest dimension; for example,
+            1.0 for a chair or 4.5 for a car.
 
     Returns:
-        import details including object names, dimensions, and bounding box. The model must be downloadable and you must have proper access rights.
+        import details including object names, dimensions, and bounding box. The model must be downloadable and you
+        must have proper access rights.
 
     Raises:
         ToolError: If the operation cannot be completed.

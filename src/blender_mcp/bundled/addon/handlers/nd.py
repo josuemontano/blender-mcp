@@ -15,7 +15,8 @@ class NDHandlersMixin:
     # region ND (HugeMenace) non-destructive workflow tools
     def nd_boolean(self, object_name, cutter_object_name, mode="DIFFERENCE"):
         """
-        ND non-destructive boolean: live Boolean modifier on object_name, cutter_object_name becomes a wireframe utility parented to it.
+        ND non-destructive boolean: live Boolean modifier on object_name, cutter_object_name becomes a wireframe
+        utility parented to it.
 
         Args:
             object_name: Name of the Blender object to operate on.
@@ -243,7 +244,8 @@ class NDHandlersMixin:
 
     def nd_apply_modifiers(self, object_names):
         """
-        Apply modifiers on the given objects via ND (always REGULAR mode - SOFT/HARD/duplicate need real modifier keys, unreachable from a script).
+        Apply modifiers on the given objects via ND (always REGULAR mode - SOFT/HARD/duplicate need real modifier
+        keys, unreachable from a script).
 
         Args:
             object_names: Names of Blender objects to operate on.
