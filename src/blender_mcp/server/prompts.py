@@ -17,14 +17,14 @@ def asset_creation_strategy() -> str:
 
     1. First use the following tools to verify if the following integrations are enabled:
         1. PolyHaven
-            Use get_polyhaven_status() to verify its status
+            Use get_integration_status(provider="polyhaven") to verify its status
             If PolyHaven is enabled:
             - For objects/models: Use download_polyhaven_asset() with asset_type="models"
             - For materials/textures: Use download_polyhaven_asset() with asset_type="textures"
             - For environment lighting: Use download_polyhaven_asset() with asset_type="hdris"
         2. Sketchfab
             Sketchfab is good at Realistic models, and has a wider variety of models than PolyHaven.
-            Use get_sketchfab_status() to verify its status
+            Use get_integration_status(provider="sketchfab") to verify its status
             If Sketchfab is enabled:
             - For objects/models: First search using search_sketchfab_models() with your query
             - Then download specific models using download_sketchfab_model() with the UID
@@ -37,7 +37,7 @@ def asset_creation_strategy() -> str:
             2. Generate ground using Hyper3D
             3. Generate parts of the items separately and put them together afterwards
 
-            Use get_hyper3d_status() to verify its status
+            Use get_integration_status(provider="hyper3d") to verify its status
             If Hyper3D is enabled:
             - For objects/models, do the following steps:
                 1. Create the model generation task
@@ -62,7 +62,7 @@ def asset_creation_strategy() -> str:
             2. Generate ground using Hunyuan3D
             3. Generate parts of the items separately and put them together afterwards
 
-            Use get_hunyuan3d_status() to verify its status
+            Use get_integration_status(provider="hunyuan3d") to verify its status
             If Hunyuan3D is enabled:
                 if Hunyuan3D mode is "OFFICIAL_API":
                     - For objects/models, do the following steps:
@@ -86,11 +86,11 @@ def asset_creation_strategy() -> str:
 
     2. For primitives and direct mesh/model editing, use the dedicated tools instead of execute_blender_code:
         - mesh_create_primitive() for cubes, spheres, cylinders, cones, tori, planes, and curves
-        - mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(), mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify() for direct mesh edits
-        - model_match_reference(), model_blockout(), model_refine(), model_detail(), model_symmetrize(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations
+        - mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(), mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize() for direct mesh edits
+        - model_match_reference(), model_refine(), add_procedural_displacement(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations (use mesh_create_primitive() with purpose="blockout" for placeholder proxies)
 
     2.5. For non-destructive hard-surface workflows (utility objects, ID materials, LOD naming, viewport overlays), use the ND (HugeMenace) tools instead of execute_blender_code:
-        - Use get_nd_status() to verify its status
+        - Use get_integration_status(provider="nd") to verify its status
         - nd_boolean(), nd_mark_as_util(), nd_clean_utils() for the utility-object boolean workflow
         - nd_create_id_material(), nd_bulk_create_id_materials(), nd_clear_materials(), nd_set_lod_suffix(), nd_name_sync() for export/packaging prep
         - nd_single_vertex(), nd_clear_edge_marks(), nd_clear_vertex_groups(), nd_apply_modifiers() for sketch/data cleanup
@@ -111,7 +111,7 @@ def asset_creation_strategy() -> str:
     - PolyHaven, Sketchfab, Hyper3D, and Hunyuan3D are all disabled and no suitable asset exists in any of the libraries
     - Hyper3D Rodin or Hunyuan3D failed to generate the desired asset
     - The task specifically requires a basic material/color
-    - The needed operation has no dedicated mesh_*/model_* tool (e.g. a primitive is explicitly requested - use mesh_create_primitive() instead, or a mesh edit covered by mesh_extrude/mesh_inset/mesh_bevel/mesh_bridge/mesh_boolean/mesh_subdivide/mesh_remesh/mesh_solidify/model_match_reference/model_blockout/model_refine/model_detail/model_symmetrize/model_mirror/model_array/model_radial_array)
+    - The needed operation has no dedicated mesh_*/model_* tool (e.g. a primitive is explicitly requested - use mesh_create_primitive() instead, or a mesh edit covered by mesh_extrude/mesh_inset/mesh_bevel/mesh_bridge/mesh_boolean/mesh_subdivide/mesh_remesh/mesh_solidify/mesh_symmetrize/model_match_reference/model_refine/add_procedural_displacement/model_mirror/model_array/model_radial_array)
 
     **Best Practices:**
     - Always take a screenshot after completing a task to verify the visual result

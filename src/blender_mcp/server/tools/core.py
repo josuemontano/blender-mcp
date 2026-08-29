@@ -1,6 +1,7 @@
-"""Core/meta tools: addon status."""
+"""Core/meta tools: addon status and integration status."""
 
 import logging
+from typing import Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
@@ -12,9 +13,45 @@ from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
+Provider = Literal["polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd"]
+
+_STATUS_COMMANDS: dict[Provider, str] = {
+    "polyhaven": "get_polyhaven_status",
+    "hyper3d": "get_hyper3d_status",
+    "sketchfab": "get_sketchfab_status",
+    "hunyuan3d": "get_hunyuan3d_status",
+    "nd": "get_nd_status",
+}
+
 
 @mcp.tool()
-async def get_addon_status(ctx: Context, user_prompt: str = "") -> dict:
+async def get_integration_status(ctx: Context, provider: Provider | None = None) -> dict:
+    """
+    Check whether an optional third-party integration is enabled in Blender.
+
+    Parameters:
+    - provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted,
+      checks all five and returns a dict keyed by provider name.
+
+    Each provider's result is {"enabled": bool, "message": str} describing whether that
+    integration's features are available and, if not, how to enable it.
+    """
+    try:
+        blender = get_blender_connection()
+        if provider is not None:
+            result = blender.send_command(_STATUS_COMMANDS[provider])
+            return ok(result)
+        results = {
+            name: blender.send_command(command) for name, command in _STATUS_COMMANDS.items()
+        }
+        return ok(results)
+    except Exception as e:
+        logger.error(f"Error checking integration status: {e}")
+        raise ToolError(f"Error checking integration status: {e}") from e
+
+
+@mcp.tool()
+async def get_addon_status(ctx: Context) -> dict:
     """
     Check whether the connected Blender addon matches this MCP server version.
 

@@ -3,12 +3,9 @@ import mathutils
 
 from ..helpers import (
     _apply_modifier,
-    _exit_edit_mode,
     _get_mesh_object,
     _get_rotation_quaternion,
-    _mesh_counts,
     _modifier_result,
-    _select_geometry,
     _set_active,
     _set_rotation_quaternion,
 )
@@ -68,24 +65,6 @@ class ModelHandlersMixin:
             "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
         }
 
-    def model_blockout(
-        self, name, primitive_type="CUBE", size=(1, 1, 1), location=(0, 0, 0)
-    ):
-        """Create a simple placeholder primitive, tagged as a blockout proxy.
-
-        size sets the object's world-space bounding box dimensions (not scale)
-        so the same size means the same physical footprint across primitive types.
-        """
-        result = self.create_primitive(
-            primitive_type=primitive_type, name=name, location=location
-        )
-        obj = bpy.data.objects[result["name"]]
-        obj.dimensions = tuple(size)
-        obj["blockout"] = True
-        result["scale"] = [obj.scale.x, obj.scale.y, obj.scale.z]
-        result["dimensions"] = [obj.dimensions.x, obj.dimensions.y, obj.dimensions.z]
-        return result
-
     def model_refine(self, object_name, levels=1, apply=False):
         """Smooth and increase effective resolution via a Subdivision Surface modifier."""
         obj = _get_mesh_object(object_name)
@@ -98,7 +77,7 @@ class ModelHandlersMixin:
             _apply_modifier(obj, mod)
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
 
-    def model_detail(
+    def add_procedural_displacement(
         self,
         object_name,
         strength=0.1,
@@ -111,15 +90,18 @@ class ModelHandlersMixin:
 
         Displace only offsets existing vertices - it cannot create fine detail
         on a mesh that doesn't already have enough topology. Set subdivide=True
-        to apply a Subdivision Surface modifier first, or subdivide the mesh
-        yourself before calling this.
+        to add a Subdivision Surface modifier first, or subdivide the mesh
+        yourself before calling this. The Subdivision modifier is only baked in
+        (applied) when apply=True as well - with apply=False both modifiers are
+        left live so the result stays fully non-destructive.
         """
         obj = _get_mesh_object(object_name)
         if subdivide:
             subsurf = obj.modifiers.new(name="Subdivision", type="SUBSURF")
             subsurf.levels = 2
             subsurf.render_levels = 2
-            _apply_modifier(obj, subsurf)
+            if apply:
+                _apply_modifier(obj, subsurf)
         tex = bpy.data.textures.new(name=f"{object_name}_detail", type=texture_type)
         tex.noise_scale = scale
         mod = obj.modifiers.new(name="Displace", type="DISPLACE")
@@ -129,28 +111,6 @@ class ModelHandlersMixin:
             _apply_modifier(obj, mod)
             bpy.data.textures.remove(tex, do_unlink=True)
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}
-
-    _SYMMETRIZE_DIRECTIONS = {
-        "NEGATIVE_X",
-        "POSITIVE_X",
-        "NEGATIVE_Y",
-        "POSITIVE_Y",
-        "NEGATIVE_Z",
-        "POSITIVE_Z",
-    }
-
-    def model_symmetrize(self, object_name, direction="NEGATIVE_X"):
-        """Symmetrize a mesh across an axis, mirroring one half onto the other."""
-        direction = str(direction).upper()
-        if direction not in self._SYMMETRIZE_DIRECTIONS:
-            raise ValueError(
-                f"Invalid direction: {direction}. Must be one of {sorted(self._SYMMETRIZE_DIRECTIONS)}"
-            )
-        obj = _get_mesh_object(object_name)
-        _select_geometry(obj)
-        bpy.ops.mesh.symmetrize(direction=direction)
-        _exit_edit_mode()
-        return {"name": obj.name, **_mesh_counts(obj)}
 
     def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
         """Add a Mirror modifier to an object across the given axis."""
@@ -216,7 +176,7 @@ class ModelHandlersMixin:
             pivot_loc = mathutils.Vector(pivot_location)
         elif radius:
             perp = self._RADIAL_AXIS_PERP[axis].lower()
-            pivot_loc = obj.location.copy()
+            pivot_loc = obj.matrix_world.translation.copy()
             setattr(pivot_loc, perp, getattr(pivot_loc, perp) - radius)
         else:
             raise ValueError(

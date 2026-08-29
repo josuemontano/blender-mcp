@@ -12,15 +12,6 @@ from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
-PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
-SymmetrizeDirection = Literal[
-    "NEGATIVE_X",
-    "POSITIVE_X",
-    "NEGATIVE_Y",
-    "POSITIVE_Y",
-    "NEGATIVE_Z",
-    "POSITIVE_Z",
-]
 Axis = Literal["X", "Y", "Z"]
 Space = Literal["LOCAL", "WORLD"]
 
@@ -34,7 +25,6 @@ async def model_match_reference(
     match_rotation: bool = True,
     match_scale: bool = True,
     space: Space = "WORLD",
-    user_prompt: str = "",
 ) -> dict:
     """
     Align an object's transform to another object's transform in the scene.
@@ -49,7 +39,6 @@ async def model_match_reference(
       objects, and correctly handles quaternion/axis-angle rotation modes, by
       decomposing/recomposing world matrices. "LOCAL" copies the raw local
       location/rotation/scale properties instead.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and resulting location/rotation/scale.
     """
@@ -73,51 +62,11 @@ async def model_match_reference(
 
 
 @mcp.tool()
-async def model_blockout(
-    ctx: Context,
-    name: str,
-    primitive_type: PrimitiveType = "CUBE",
-    size: tuple[float, float, float] = (1, 1, 1),
-    location: tuple[float, float, float] = (0, 0, 0),
-    user_prompt: str = "",
-) -> dict:
-    """
-    Create a simple placeholder primitive, tagged as a blockout proxy for later refinement.
-
-    Parameters:
-    - name: Name for the created blockout object.
-    - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
-    - size: [x, y, z] target world-space bounding box dimensions, consistent across
-      primitive types (e.g. size=(1,1,1) gives a sphere and a cube the same footprint).
-    - location: [x, y, z] location for the new object.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
-
-    Returns the created object's name, type, location, scale, and dimensions.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "model_blockout",
-            {
-                "name": name,
-                "primitive_type": primitive_type,
-                "size": list(size),
-                "location": list(location),
-            },
-        )
-        return ok(result, changed_objects=[name])
-    except Exception as e:
-        logger.error(f"Error creating blockout: {e}")
-        raise ToolError(f"Error creating blockout: {e}") from e
-
-
-@mcp.tool()
 async def model_refine(
     ctx: Context,
     object_name: str,
     levels: int = 1,
     apply: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
@@ -126,7 +75,6 @@ async def model_refine(
     - object_name: Name of the mesh object to refine.
     - levels: Subdivision levels (viewport and render).
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
@@ -149,7 +97,7 @@ async def model_refine(
 
 
 @mcp.tool()
-async def model_detail(
+async def add_procedural_displacement(
     ctx: Context,
     object_name: str,
     strength: float = 0.1,
@@ -157,7 +105,6 @@ async def model_detail(
     texture_type: str = "NOISE",
     apply: bool = False,
     subdivide: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
@@ -171,11 +118,11 @@ async def model_detail(
     - strength: Displacement strength.
     - scale: Noise scale of the driving texture.
     - texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
-    - apply: If True, bake the modifier into the mesh and remove the generated texture
-      datablock. If False (default), leave both as live modifier/texture.
-    - subdivide: If True, apply a Subdivision Surface modifier before adding the Displace
-      modifier, to ensure enough topology exists for visible detail.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    - apply: If True, bake the modifier(s) into the mesh and remove the generated texture
+      datablock. If False (default), leave everything as live modifiers/texture.
+    - subdivide: If True, add a Subdivision Surface modifier before adding the Displace
+      modifier, to ensure enough topology exists for visible detail. It is only baked in
+      when apply is also True - with apply=False both modifiers stay live.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
@@ -184,7 +131,7 @@ async def model_detail(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_detail",
+            "add_procedural_displacement",
             {
                 "object_name": object_name,
                 "strength": strength,
@@ -196,40 +143,8 @@ async def model_detail(
         )
         return ok(result, changed_objects=[object_name])
     except Exception as e:
-        logger.error(f"Error adding model detail: {e}")
-        raise ToolError(f"Error adding model detail: {e}") from e
-
-
-@mcp.tool()
-async def model_symmetrize(
-    ctx: Context,
-    object_name: str,
-    direction: SymmetrizeDirection = "NEGATIVE_X",
-    user_prompt: str = "",
-) -> dict:
-    """
-    Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
-
-    Parameters:
-    - object_name: Name of the mesh object to symmetrize.
-    - direction: Side overwritten by its mirror. One of NEGATIVE_X, POSITIVE_X, NEGATIVE_Y, POSITIVE_Y, NEGATIVE_Z, POSITIVE_Z.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
-
-    Returns the object's name and updated vertex/edge/polygon counts.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "model_symmetrize",
-            {
-                "object_name": object_name,
-                "direction": direction,
-            },
-        )
-        return ok(result, changed_objects=[object_name])
-    except Exception as e:
-        logger.error(f"Error symmetrizing model: {e}")
-        raise ToolError(f"Error symmetrizing model: {e}") from e
+        logger.error(f"Error adding procedural displacement: {e}")
+        raise ToolError(f"Error adding procedural displacement: {e}") from e
 
 
 @mcp.tool()
@@ -240,7 +155,6 @@ async def model_mirror(
     merge: bool = True,
     clip: bool = True,
     apply: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Add a Mirror modifier to an object across the given axis.
@@ -251,7 +165,6 @@ async def model_mirror(
     - merge: Weld coincident vertices at the mirror seam.
     - clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
@@ -282,7 +195,6 @@ async def model_array(
     count: int = 2,
     relative_offset: tuple[float, float, float] = (1, 0, 0),
     apply: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Add a linear Array modifier to an object, duplicating it along an offset direction.
@@ -292,7 +204,6 @@ async def model_array(
     - count: Number of copies (including the original).
     - relative_offset: [x, y, z] offset between copies, relative to the object's bounding box.
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
@@ -325,7 +236,6 @@ async def model_radial_array(
     pivot_object_name: str | None = None,
     pivot_location: tuple[float, float, float] | None = None,
     radius: float | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Duplicate an object radially around a pivot, evenly spaced about an axis.
@@ -343,8 +253,8 @@ async def model_radial_array(
     - apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both live.
     - pivot_object_name: Name of an existing object whose world location is used as the pivot.
     - pivot_location: [x, y, z] world location to use as the pivot.
-    - radius: Distance to auto-place the pivot from the object, perpendicular to axis.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    - radius: Distance to auto-place the pivot from the object, perpendicular to axis. For a
+      parented object, the pivot is offset from its world-space location, not its local one.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space

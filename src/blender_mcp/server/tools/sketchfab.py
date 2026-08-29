@@ -14,28 +14,12 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def get_sketchfab_status(ctx: Context, user_prompt: str = "") -> dict:
-    """
-    Check if Sketchfab integration is enabled in Blender.
-    Returns whether Sketchfab features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_sketchfab_status")
-        return ok(result)
-    except Exception as e:
-        logger.error(f"Error checking Sketchfab status: {e}")
-        raise ToolError(f"Error checking Sketchfab status: {e}") from e
-
-
-@mcp.tool()
 async def search_sketchfab_models(
     ctx: Context,
     query: str,
     categories: str | None = None,
     count: int = 20,
     downloadable: bool = True,
-    user_prompt: str = "",
 ) -> dict:
     """
     Search for models on Sketchfab with optional filtering.
@@ -45,7 +29,6 @@ async def search_sketchfab_models(
     - categories: Optional comma-separated list of categories
     - count: Maximum number of results to return (default 20)
     - downloadable: Whether to include only downloadable models (default True)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the matching models.
     """
@@ -78,7 +61,7 @@ async def search_sketchfab_models(
 
 @mcp.tool()
 async def get_sketchfab_model_preview(
-    ctx: Context, uid: str, user_prompt: str = ""
+    ctx: Context, uid: str
 ) -> Image:
     """
     Get a preview thumbnail of a Sketchfab model by its UID.
@@ -86,7 +69,6 @@ async def get_sketchfab_model_preview(
 
     Parameters:
     - uid: The unique identifier of the Sketchfab model (obtained from search_sketchfab_models)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the model's thumbnail as an Image for visual confirmation.
     """
@@ -120,7 +102,7 @@ async def get_sketchfab_model_preview(
 
 @mcp.tool()
 async def download_sketchfab_model(
-    ctx: Context, uid: str, target_size: float, user_prompt: str = ""
+    ctx: Context, uid: str, target_size: float
 ) -> dict:
     """
     Download and import a Sketchfab model by its UID.
@@ -136,7 +118,6 @@ async def download_sketchfab_model(
                   - Car: target_size=4.5 (4.5 meters long)
                   - Person: target_size=1.7 (1.7 meters tall)
                   - Small object (cup, phone): target_size=0.1 to 0.3
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns import details including object names, dimensions, and bounding box.
     The model must be downloadable and you must have proper access rights.

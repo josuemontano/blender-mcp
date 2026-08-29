@@ -42,9 +42,35 @@ class NDHandlersMixin:
         return {"names": names, "marked_as_util": not unmark}
 
     def nd_clean_utils(self):
-        """Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide."""
+        """Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
+
+        Reports exactly what was removed by diffing bpy.data.objects (and each
+        surviving object's modifiers) before and after the call - a true
+        dry-run isn't feasible without reimplementing ND's own cleanup logic.
+        """
+        before_objects = {obj.name for obj in bpy.data.objects}
+        before_modifiers = {
+            obj.name: [(mod.name, mod.type) for mod in obj.modifiers] for obj in bpy.data.objects
+        }
         _nd_call("clean_utils", bpy.ops.nd.clean_utils, "INVOKE_DEFAULT")
-        return {"status": "cleaned"}
+        after_objects = {obj.name for obj in bpy.data.objects}
+        removed_objects = sorted(before_objects - after_objects)
+        removed_modifiers = []
+        for name, mods in before_modifiers.items():
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                continue
+            after_mods = {(mod.name, mod.type) for mod in obj.modifiers}
+            for mod_name, mod_type in mods:
+                if (mod_name, mod_type) not in after_mods:
+                    removed_modifiers.append(
+                        {"object": name, "modifier": mod_name, "type": mod_type}
+                    )
+        return {
+            "status": "cleaned",
+            "removed_objects": removed_objects,
+            "removed_modifiers": removed_modifiers,
+        }
 
     def nd_create_id_material(self, object_names, material_name):
         """Create/assign an ND ID material to the given mesh/curve objects."""
@@ -118,25 +144,46 @@ class NDHandlersMixin:
         _nd_call("apply_modifiers", bpy.ops.nd.apply_modifiers, "INVOKE_DEFAULT")
         return {"names": [obj.name for obj in objs]}
 
-    def nd_viewport_toggle(self, toggle):
-        """Toggle an ND viewport display setting: CAVITY, WIREFRAMES, FACE_ORIENTATION, CLEAR_VIEW, CUSTOM_VIEW, or UTILS.
+    _NATIVE_OVERLAY_TOGGLES = {
+        "CAVITY": "show_cavity",
+        "WIREFRAMES": "show_wireframes",
+        "FACE_ORIENTATION": "show_face_orientation",
+    }
+
+    def nd_viewport_toggle(self, toggle, enabled):
+        """Set an ND-related viewport display toggle to an explicit on/off state.
+
+        For CAVITY, WIREFRAMES, and FACE_ORIENTATION this bypasses ND entirely
+        and sets Blender's own View3DOverlay properties directly, so it's a
+        true idempotent setter - calling it again with the same `enabled`
+        value is a no-op.
+
+        CLEAR_VIEW, CUSTOM_VIEW, and UTILS expose no readable on/off state in
+        what's vendored here, so `enabled` is ignored for those three and the
+        call still just flips ND's internal toggle operator - it is NOT
+        guaranteed idempotent for them until ND exposes readable state.
 
         ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.
         """
         toggle = str(toggle).upper()
+        overlay_prop = self._NATIVE_OVERLAY_TOGGLES.get(toggle)
+        if overlay_prop is not None:
+            area, region = _find_view3d()
+            if area is None:
+                raise RuntimeError("No 3D viewport found to toggle")
+            space = area.spaces.active
+            setattr(space.overlay, overlay_prop, bool(enabled))
+            return {"toggle": toggle, "enabled": bool(enabled)}
+
         op_by_toggle = {
-            "CAVITY": bpy.ops.nd.toggle_cavity,
-            "WIREFRAMES": bpy.ops.nd.toggle_wireframes,
-            "FACE_ORIENTATION": bpy.ops.nd.toggle_face_orientation,
             "CLEAR_VIEW": bpy.ops.nd.toggle_clear_view,
             "CUSTOM_VIEW": bpy.ops.nd.toggle_custom_view,
             "UTILS": bpy.ops.nd.toggle_utils,
         }
         op = op_by_toggle.get(toggle)
         if op is None:
-            raise ValueError(
-                f"Invalid toggle: {toggle}. Must be one of {', '.join(op_by_toggle)}"
-            )
+            valid = ", ".join([*self._NATIVE_OVERLAY_TOGGLES, *op_by_toggle])
+            raise ValueError(f"Invalid toggle: {toggle}. Must be one of {valid}")
         op_name = f"toggle_{toggle.lower()}"
         if toggle == "UTILS":
             _nd_call(op_name, op)
@@ -148,7 +195,7 @@ class NDHandlersMixin:
                 raise RuntimeError("No 3D viewport found to toggle")
             with bpy.context.temp_override(area=area, region=region):
                 _nd_call(op_name, op)
-        return {"toggle": toggle}
+        return {"toggle": toggle, "enabled": None}
 
     def nd_capture_utils(self):
         """Display and select all ND utility objects in the scene."""

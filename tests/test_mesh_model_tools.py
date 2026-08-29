@@ -330,6 +330,9 @@ class _FakeBMesh:
     def select_flush(self, _value):
         pass
 
+    def select_flush_mode(self):
+        pass
+
 
 def _load_addon(monkeypatch):
     scene = types.SimpleNamespace(
@@ -388,6 +391,7 @@ def _load_addon(monkeypatch):
             objects=types.SimpleNamespace(link=lambda _obj: None)
         ),
         evaluated_depsgraph_get=lambda: object(),
+        tool_settings=types.SimpleNamespace(mesh_select_mode=(True, False, False)),
     )
     bpy.types = types.SimpleNamespace(
         AddonPreferences=object,
@@ -532,8 +536,8 @@ MESH_HANDLER_CALLS = [
     ("mesh_remesh", {}),
     ("mesh_solidify", {}),
     ("model_refine", {}),
-    ("model_detail", {}),
-    ("model_symmetrize", {}),
+    ("add_procedural_displacement", {}),
+    ("mesh_symmetrize", {}),
     ("model_mirror", {}),
     ("model_array", {}),
     ("model_radial_array", {"radius": 2.0}),
@@ -557,6 +561,45 @@ def test_mesh_handlers_reject_non_mesh_object(monkeypatch, handler_name, extra_k
 
     with pytest.raises(ValueError, match="is not a mesh"):
         getattr(server, handler_name)(object_name="empty_obj", **extra_kwargs)
+
+
+def test_mesh_extrude_rejects_out_of_range_face_index_before_entering_edit_mode(
+    monkeypatch,
+):
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    _new_mesh_object(bpy, "F")
+
+    mode_calls = []
+    monkeypatch.setattr(
+        bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode)
+    )
+
+    with pytest.raises(ValueError, match="out of range"):
+        server.mesh_extrude(object_name="F", face_indices=[999])
+
+    # Validation happens before edit mode is entered - mode_set is never called.
+    assert mode_calls == []
+
+
+def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch):
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    _new_mesh_object(bpy, "F2")
+
+    mode_calls = []
+    monkeypatch.setattr(
+        bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode)
+    )
+    monkeypatch.setattr(
+        bpy.ops.mesh, "extrude_region_move", lambda **kwargs: {"CANCELLED"}
+    )
+
+    with pytest.raises(RuntimeError, match="did not finish"):
+        server.mesh_extrude(object_name="F2")
+
+    # Edit mode is entered, the operator fails, but exit still happens via finally.
+    assert mode_calls == ["EDIT", "OBJECT"]
 
 
 def test_mesh_boolean_rejects_invalid_operation(monkeypatch):
@@ -702,15 +745,21 @@ def test_model_match_reference_world_space_differs_from_local_across_parenting(
     assert result["location"] == pytest.approx([-95, 5, 5])
 
 
-def test_model_blockout_dimensions_consistent_across_primitive_types(monkeypatch):
+def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(monkeypatch):
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
 
-    cube_result = server.model_blockout(
-        name="blockout_cube", primitive_type="CUBE", size=(2, 2, 2)
+    cube_result = server.create_primitive(
+        name="blockout_cube",
+        primitive_type="CUBE",
+        dimensions=(2, 2, 2),
+        purpose="blockout",
     )
-    sphere_result = server.model_blockout(
-        name="blockout_sphere", primitive_type="SPHERE", size=(2, 2, 2)
+    sphere_result = server.create_primitive(
+        name="blockout_sphere",
+        primitive_type="SPHERE",
+        dimensions=(2, 2, 2),
+        purpose="blockout",
     )
 
     assert cube_result["dimensions"] == pytest.approx([2, 2, 2])
@@ -742,37 +791,49 @@ def test_model_refine_reports_no_modifier_when_applied(monkeypatch):
     assert result["modifier"] is None
 
 
-def test_model_detail_removes_texture_orphan_when_applied(monkeypatch):
+def test_add_procedural_displacement_removes_texture_orphan_when_applied(monkeypatch):
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D")
 
-    server.model_detail(object_name="D", apply=True)
+    server.add_procedural_displacement(object_name="D", apply=True)
 
     assert bpy.data.textures.get("D_detail") is None
 
 
-def test_model_detail_keeps_texture_when_not_applied(monkeypatch):
+def test_add_procedural_displacement_keeps_texture_when_not_applied(monkeypatch):
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "D2")
 
-    server.model_detail(object_name="D2", apply=False)
+    server.add_procedural_displacement(object_name="D2", apply=False)
 
     assert bpy.data.textures.get("D2_detail") is not None
 
 
-def test_model_detail_subdivide_applies_extra_modifier_first(monkeypatch):
+def test_add_procedural_displacement_subdivide_stays_live_when_not_applied(monkeypatch):
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "D3")
 
-    server.model_detail(object_name="D3", apply=False, subdivide=True)
+    server.add_procedural_displacement(object_name="D3", apply=False, subdivide=True)
 
-    # The subdivide pass is applied (baked and removed) before Displace is added,
-    # so only the live Displace modifier remains.
+    # With apply=False, subdivide must NOT be baked - both modifiers stay live.
     names = [m.name for m in obj.modifiers]
-    assert names == ["Displace"]
+    assert names == ["Subdivision", "Displace"]
+
+
+def test_add_procedural_displacement_subdivide_applies_extra_modifier_first(monkeypatch):
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_mesh_object(bpy, "D4")
+
+    server.add_procedural_displacement(object_name="D4", apply=True, subdivide=True)
+
+    # With apply=True, the subdivide pass is baked (and removed) before Displace
+    # is applied, so no modifiers remain.
+    names = [m.name for m in obj.modifiers]
+    assert names == []
 
 
 def test_model_radial_array_requires_a_pivot(monkeypatch):
@@ -808,6 +869,29 @@ def test_model_radial_array_with_radius_offsets_pivot(monkeypatch):
     # axis="Z" offsets along its perpendicular axis, X (see _RADIAL_AXIS_PERP).
     assert empty.location.x == pytest.approx(-3.0)
     assert empty.rotation_euler.z == pytest.approx(2 * math.pi / 4)
+
+
+def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_object(
+    monkeypatch,
+):
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+
+    parent = _new_mesh_object(bpy, "Parent")
+    parent.location = _FakeVector(100, 0, 0)
+    obj = _new_mesh_object(bpy, "R")
+    obj.location = _FakeVector(0, 0, 0)
+    obj.parent = parent
+
+    # obj's world location is (100, 0, 0) even though its local location is
+    # (0, 0, 0) - the pivot must be offset from the world position, not the
+    # parent-local one, or every rotated copy would land on top of the parent.
+    server.model_radial_array(object_name="R", count=4, axis="Z", radius=3.0)
+
+    empty = bpy.data.objects.get("R_radial_pivot")
+    assert empty is not None
+    assert empty.location.x == pytest.approx(97.0)
+    assert empty.location.y == pytest.approx(0.0)
 
 
 def test_model_radial_array_with_explicit_pivot_location(monkeypatch):

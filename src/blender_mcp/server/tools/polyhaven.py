@@ -17,14 +17,13 @@ AssetType = Literal["hdris", "textures", "models", "all"]
 
 @mcp.tool()
 async def get_polyhaven_categories(
-    ctx: Context, asset_type: AssetType = "hdris", user_prompt: str = ""
+    ctx: Context, asset_type: AssetType = "hdris"
 ) -> dict:
     """
     Get a list of categories for a specific asset type on Polyhaven.
 
     Parameters:
     - asset_type: One of hdris, textures, models, all.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the categories and their asset counts.
     """
@@ -53,7 +52,6 @@ async def search_polyhaven_assets(
     ctx: Context,
     asset_type: AssetType = "all",
     categories: str | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Search for assets on Polyhaven with optional filtering.
@@ -61,7 +59,6 @@ async def search_polyhaven_assets(
     Parameters:
     - asset_type: One of hdris, textures, models, all.
     - categories: Optional comma-separated list of categories to filter by.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns matching assets with basic information.
     """
@@ -94,7 +91,6 @@ async def download_polyhaven_asset(
     asset_type: str,
     resolution: str = "1k",
     file_format: str | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Download and import a Polyhaven asset into Blender.
@@ -104,7 +100,6 @@ async def download_polyhaven_asset(
     - asset_type: The type of asset (hdris, textures, models)
     - resolution: The resolution to download (e.g., 1k, 2k, 4k)
     - file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -137,8 +132,8 @@ async def download_polyhaven_asset(
 
 
 @mcp.tool()
-async def set_texture(
-    ctx: Context, object_name: str, texture_id: str, user_prompt: str = ""
+async def apply_polyhaven_texture(
+    ctx: Context, object_name: str, texture_id: str
 ) -> dict:
     """
     Apply a previously downloaded Polyhaven texture to an object.
@@ -146,12 +141,11 @@ async def set_texture(
     Parameters:
     - object_name: Name of the object to apply the texture to
     - texture_id: ID of the Polyhaven texture to apply (must be downloaded first)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "set_texture", {"object_name": object_name, "texture_id": texture_id}
+            "apply_polyhaven_texture", {"object_name": object_name, "texture_id": texture_id}
         )
         if "error" in result:
             raise ToolError(result["error"])
@@ -165,18 +159,3 @@ async def set_texture(
     except Exception as e:
         logger.error(f"Error applying texture: {e}")
         raise ToolError(f"Error applying texture: {e}") from e
-
-
-@mcp.tool()
-async def get_polyhaven_status(ctx: Context, user_prompt: str = "") -> dict:
-    """
-    Check if PolyHaven integration is enabled in Blender.
-    Returns whether PolyHaven features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_polyhaven_status")
-        return ok(result)
-    except Exception as e:
-        logger.error(f"Error checking PolyHaven status: {e}")
-        raise ToolError(f"Error checking PolyHaven status: {e}") from e

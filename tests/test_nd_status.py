@@ -1,24 +1,80 @@
 """Regression coverage for ND (HugeMenace) availability reporting."""
 
+import contextlib
 import sys
 import types
+
+import pytest
 
 from conftest import load_addon_package
 
 
-def _load_addon(monkeypatch, scene, nd_installed=False):
+class _FakeModifier:
+    def __init__(self, name, type_):
+        self.name = name
+        self.type = type_
+
+
+class _FakeObject:
+    def __init__(self, name, modifiers=None):
+        self.name = name
+        self.modifiers = list(modifiers or [])
+
+
+class _FakeObjectsCollection(dict):
+    def get(self, name, default=None):
+        return super().get(name, default)
+
+    def __iter__(self):
+        return iter(list(self.values()))
+
+
+class _FakeOverlay:
+    def __init__(self):
+        self.show_cavity = False
+        self.show_wireframes = False
+        self.show_face_orientation = False
+
+
+class _FakeArea:
+    def __init__(self):
+        self.type = "VIEW_3D"
+        self.regions = [types.SimpleNamespace(type="WINDOW")]
+        self.spaces = types.SimpleNamespace(
+            active=types.SimpleNamespace(overlay=_FakeOverlay())
+        )
+
+
+@contextlib.contextmanager
+def _temp_override(**_kwargs):
+    yield
+
+
+def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
     bpy = types.ModuleType("bpy")
-    bpy.context = types.SimpleNamespace(scene=scene)
+    area = _FakeArea()
+    bpy.context = types.SimpleNamespace(
+        scene=scene,
+        screen=types.SimpleNamespace(areas=[area]),
+        temp_override=_temp_override,
+    )
     bpy.types = types.SimpleNamespace(
         AddonPreferences=object,
         Operator=object,
         Panel=object,
         Scene=type("Scene", (), {}),
     )
+    bpy.data = types.SimpleNamespace(objects=objects if objects is not None else _FakeObjectsCollection())
 
     ops = types.SimpleNamespace()
     if nd_installed:
-        ops.nd = types.SimpleNamespace(bool_vanilla=lambda *_a, **_k: {"FINISHED"})
+        ops.nd = types.SimpleNamespace(
+            bool_vanilla=lambda *_a, **_k: {"FINISHED"},
+            clean_utils=lambda *_a, **_k: {"FINISHED"},
+            toggle_clear_view=lambda *_a, **_k: {"FINISHED"},
+            toggle_custom_view=lambda *_a, **_k: {"FINISHED"},
+            toggle_utils=lambda *_a, **_k: {"FINISHED"},
+        )
     bpy.ops = ops
 
     props = types.ModuleType("bpy.props")
@@ -110,4 +166,103 @@ def test_enabled_nd_with_addon_installed_is_ready(monkeypatch):
     assert status == {
         "enabled": True,
         "message": "ND integration is enabled and the ND addon is installed and ready to use.",
+    }
+
+
+def test_nd_viewport_toggle_cavity_sets_overlay_property_idempotently(monkeypatch):
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+    overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
+
+    result = server.nd_viewport_toggle(toggle="cavity", enabled=True)
+
+    assert result == {"toggle": "CAVITY", "enabled": True}
+    assert overlay.show_cavity is True
+
+    result_again = server.nd_viewport_toggle(toggle="CAVITY", enabled=True)
+
+    assert result_again == {"toggle": "CAVITY", "enabled": True}
+    assert overlay.show_cavity is True
+
+
+def test_nd_viewport_toggle_face_orientation_can_be_turned_off(monkeypatch):
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+    overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
+    overlay.show_face_orientation = True
+
+    result = server.nd_viewport_toggle(toggle="FACE_ORIENTATION", enabled=False)
+
+    assert result == {"toggle": "FACE_ORIENTATION", "enabled": False}
+    assert overlay.show_face_orientation is False
+
+
+def test_nd_viewport_toggle_clear_view_routes_through_nd_operator_and_ignores_enabled_state(
+    monkeypatch,
+):
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+    calls = []
+    monkeypatch.setattr(
+        sys.modules["bpy"].ops.nd,
+        "toggle_clear_view",
+        lambda *_a, **_k: calls.append("called") or {"FINISHED"},
+    )
+
+    result = server.nd_viewport_toggle(toggle="clear_view", enabled=True)
+
+    assert result == {"toggle": "CLEAR_VIEW", "enabled": None}
+    assert calls == ["called"]
+
+
+def test_nd_viewport_toggle_rejects_unknown_toggle(monkeypatch):
+    addon = _load_addon(monkeypatch, _scene(nd_enabled=True), nd_installed=True)
+    server = addon.BlenderMCPServer()
+
+    with pytest.raises(ValueError, match="Invalid toggle"):
+        server.nd_viewport_toggle(toggle="SILHOUETTE", enabled=True)
+
+
+def test_nd_clean_utils_reports_removed_objects_and_modifiers(monkeypatch):
+    objects = _FakeObjectsCollection()
+    kept = _FakeObject("Kept", modifiers=[_FakeModifier("Array", "ARRAY")])
+    orphan = _FakeObject("UtilCutter")
+    objects["Kept"] = kept
+    objects["UtilCutter"] = orphan
+
+    def fake_clean_utils(*_a, **_k):
+        del objects["UtilCutter"]
+        kept.modifiers = []
+        return {"FINISHED"}
+
+    addon = _load_addon(
+        monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects
+    )
+    monkeypatch.setattr(sys.modules["bpy"].ops.nd, "clean_utils", fake_clean_utils)
+    server = addon.BlenderMCPServer()
+
+    result = server.nd_clean_utils()
+
+    assert result["status"] == "cleaned"
+    assert result["removed_objects"] == ["UtilCutter"]
+    assert result["removed_modifiers"] == [
+        {"object": "Kept", "modifier": "Array", "type": "ARRAY"}
+    ]
+
+
+def test_nd_clean_utils_reports_nothing_removed_when_scene_is_already_clean(monkeypatch):
+    objects = _FakeObjectsCollection()
+    objects["Solo"] = _FakeObject("Solo", modifiers=[_FakeModifier("Bevel", "BEVEL")])
+
+    addon = _load_addon(
+        monkeypatch, _scene(nd_enabled=True), nd_installed=True, objects=objects
+    )
+    server = addon.BlenderMCPServer()
+
+    result = server.nd_clean_utils()
+
+    assert result == {
+        "status": "cleaned",
+        "removed_objects": [],
+        "removed_modifiers": [],
     }

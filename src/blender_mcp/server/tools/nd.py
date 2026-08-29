@@ -25,7 +25,6 @@ async def nd_boolean(
     object_name: str,
     cutter_object_name: str,
     mode: BooleanMode = "DIFFERENCE",
-    user_prompt: str = "",
 ) -> dict:
     """
     ND non-destructive boolean: live Boolean modifier on object_name, with cutter_object_name
@@ -35,7 +34,6 @@ async def nd_boolean(
     - object_name: Name of the mesh object the boolean is applied to (the result/target).
     - cutter_object_name: Name of the other mesh object used as the cutter/operand.
     - mode: One of UNION, DIFFERENCE, INTERSECT.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the target and cutter object names and updated vertex/edge/polygon counts.
     """
@@ -60,7 +58,6 @@ async def nd_mark_as_util(
     ctx: Context,
     object_names: list[str],
     unmark: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Mark/unmark objects as ND utility objects (wireframe display, hidden from render and most
@@ -69,7 +66,6 @@ async def nd_mark_as_util(
     Parameters:
     - object_names: Names of the objects to mark/unmark.
     - unmark: If True, restore normal (SOLID/visible) display instead of marking as a utility.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the affected object names.
     """
@@ -86,12 +82,14 @@ async def nd_mark_as_util(
 
 
 @mcp.tool()
-async def nd_clean_utils(ctx: Context, user_prompt: str = "") -> dict:
+async def nd_clean_utils(ctx: Context) -> dict:
     """
     Remove orphaned boolean/array/mirror/lattice modifiers and their ND utility objects, scene-wide.
 
-    Parameters:
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    A true dry-run isn't feasible without reimplementing ND's own cleanup logic, so this
+    always performs the cleanup - but reports exactly what was removed by diffing the
+    scene before and after. Returns "removed_objects" (names of deleted ND utility objects)
+    and "removed_modifiers" (each as {"object", "modifier", "type"}).
     """
     try:
         blender = get_blender_connection()
@@ -107,7 +105,6 @@ async def nd_create_id_material(
     ctx: Context,
     object_names: list[str],
     material_name: str,
-    user_prompt: str = "",
 ) -> dict:
     """
     Create/assign a single ND ID material to the given mesh/curve objects.
@@ -115,7 +112,6 @@ async def nd_create_id_material(
     Parameters:
     - object_names: Names of the objects to assign the material to.
     - material_name: Name of the ID material to create/reuse.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -130,15 +126,12 @@ async def nd_create_id_material(
 
 
 @mcp.tool()
-async def nd_bulk_create_id_materials(
-    ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> dict:
+async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> dict:
     """
     Assign a random distinct ND ID material to each given mesh/curve object.
 
     Parameters:
     - object_names: Names of the objects to assign distinct ID materials to.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -152,15 +145,12 @@ async def nd_bulk_create_id_materials(
 
 
 @mcp.tool()
-async def nd_clear_materials(
-    ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> dict:
+async def nd_clear_materials(ctx: Context, object_names: list[str]) -> dict:
     """
     Remove all material slots from the given mesh/curve objects.
 
     Parameters:
     - object_names: Names of the objects to clear materials from.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -178,7 +168,6 @@ async def nd_set_lod_suffix(
     ctx: Context,
     object_names: list[str],
     mode: LodMode = "HIGH",
-    user_prompt: str = "",
 ) -> dict:
     """
     Suffix object (and data-block) names with _high or _low, replacing any existing LOD suffix.
@@ -186,7 +175,6 @@ async def nd_set_lod_suffix(
     Parameters:
     - object_names: Names of the objects to rename.
     - mode: One of HIGH, LOW.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -200,15 +188,12 @@ async def nd_set_lod_suffix(
 
 
 @mcp.tool()
-async def nd_name_sync(
-    ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> dict:
+async def nd_name_sync(ctx: Context, object_names: list[str]) -> dict:
     """
     Sync each object's data-block name to match its object name.
 
     Parameters:
     - object_names: Names of the objects to sync.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -223,14 +208,12 @@ async def nd_name_sync(
 async def nd_single_vertex(
     ctx: Context,
     location: tuple[float, float, float] = (0, 0, 0),
-    user_prompt: str = "",
 ) -> dict:
     """
     Create an ND single-vertex sketch object at location, left in Object mode.
 
     Parameters:
     - location: [x, y, z] world location for the new vertex object.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the new object's name and location.
     """
@@ -245,15 +228,12 @@ async def nd_single_vertex(
 
 
 @mcp.tool()
-async def nd_clear_edge_marks(
-    ctx: Context, object_name: str, user_prompt: str = ""
-) -> dict:
+async def nd_clear_edge_marks(ctx: Context, object_name: str) -> dict:
     """
     Remove sharp/seam/freestyle edge marks from a mesh object.
 
     Parameters:
     - object_name: Name of the mesh object to clear edge marks from.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -267,15 +247,12 @@ async def nd_clear_edge_marks(
 
 
 @mcp.tool()
-async def nd_clear_vertex_groups(
-    ctx: Context, object_name: str, user_prompt: str = ""
-) -> dict:
+async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
     """
     Remove all vertex groups from a mesh object.
 
     Parameters:
     - object_name: Name of the mesh object to clear vertex groups from.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -289,9 +266,7 @@ async def nd_clear_vertex_groups(
 
 
 @mcp.tool()
-async def nd_apply_modifiers(
-    ctx: Context, object_names: list[str], user_prompt: str = ""
-) -> dict:
+async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
     """
     Apply modifiers on the given objects via ND. Always runs ND's default REGULAR apply mode
     (selective, with ND's built-in exclusions for bevel/weighted-normals/etc.) - the
@@ -300,7 +275,6 @@ async def nd_apply_modifiers(
 
     Parameters:
     - object_names: Names of the objects to apply modifiers on.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
     """
     try:
         blender = get_blender_connection()
@@ -315,19 +289,27 @@ async def nd_apply_modifiers(
 
 @mcp.tool()
 async def nd_viewport_toggle(
-    ctx: Context, toggle: ViewportToggle, user_prompt: str = ""
+    ctx: Context, toggle: ViewportToggle, enabled: bool
 ) -> dict:
     """
-    Toggle an ND viewport display setting.
+    Set an ND-related viewport display toggle to an explicit on/off state.
+
+    For CAVITY, WIREFRAMES, and FACE_ORIENTATION this is a true idempotent setter backed
+    by Blender's own viewport overlay properties - calling it again with the same `enabled`
+    value is a no-op. For CLEAR_VIEW, CUSTOM_VIEW, and UTILS, ND exposes no readable on/off
+    state, so `enabled` is ignored and the call just flips ND's internal toggle operator -
+    it is NOT guaranteed idempotent for those three.
 
     Parameters:
     - toggle: One of CAVITY, WIREFRAMES, FACE_ORIENTATION, CLEAR_VIEW, CUSTOM_VIEW, UTILS.
       (ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    - enabled: Desired on/off state. Ignored for CLEAR_VIEW, CUSTOM_VIEW, and UTILS.
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("nd_viewport_toggle", {"toggle": toggle})
+        result = blender.send_command(
+            "nd_viewport_toggle", {"toggle": toggle, "enabled": enabled}
+        )
         return ok(result)
     except Exception as e:
         logger.error(f"Error toggling ND viewport setting: {e}")
@@ -335,13 +317,8 @@ async def nd_viewport_toggle(
 
 
 @mcp.tool()
-async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> dict:
-    """
-    Display and select all ND utility objects in the scene.
-
-    Parameters:
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
-    """
+async def nd_capture_utils(ctx: Context) -> dict:
+    """Display and select all ND utility objects in the scene."""
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_capture_utils", {})
@@ -349,18 +326,3 @@ async def nd_capture_utils(ctx: Context, user_prompt: str = "") -> dict:
     except Exception as e:
         logger.error(f"Error capturing ND utility objects: {e}")
         raise ToolError(f"Error capturing ND utility objects: {e}") from e
-
-
-@mcp.tool()
-async def get_nd_status(ctx: Context, user_prompt: str = "") -> dict:
-    """
-    Check if ND (HugeMenace) non-destructive workflow integration is enabled in Blender.
-    Returns whether ND features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_nd_status")
-        return ok(result)
-    except Exception as e:
-        logger.error(f"Error checking ND status: {e}")
-        raise ToolError(f"Error checking ND status: {e}") from e

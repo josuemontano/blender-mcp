@@ -485,7 +485,7 @@ class PolyhavenHandlersMixin:
         except Exception as e:
             return {"error": f"Failed to download asset: {str(e)}"}
 
-    def set_texture(self, object_name, texture_id):
+    def apply_polyhaven_texture(self, object_name, texture_id):
         """Apply a previously downloaded Polyhaven texture to an object by creating a new material"""
         try:
             # Get the object

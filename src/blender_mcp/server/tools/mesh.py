@@ -13,6 +13,7 @@ from ._envelope import ok
 logger = logging.getLogger("BlenderMCPServer")
 
 PrimitiveType = Literal["CUBE", "SPHERE", "CYLINDER", "CONE", "TORUS", "PLANE", "CURVE"]
+PrimitivePurpose = Literal["blockout"]
 
 
 @mcp.tool()
@@ -23,7 +24,8 @@ async def mesh_create_primitive(
     location: tuple[float, float, float] = (0, 0, 0),
     rotation: tuple[float, float, float] = (0, 0, 0),
     size: float = 1.0,
-    user_prompt: str = "",
+    dimensions: tuple[float, float, float] | None = None,
+    purpose: PrimitivePurpose | None = None,
 ) -> dict:
     """
     Create a primitive mesh or curve object in the scene.
@@ -34,9 +36,13 @@ async def mesh_create_primitive(
     - location: [x, y, z] location for the new object.
     - rotation: [x, y, z] rotation in radians for the new object.
     - size: Overall size (interpreted per primitive type, e.g. cube edge length, sphere radius).
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    - dimensions: Optional [x, y, z] world-space bounding box, applied after creation and
+      overriding size for footprint - use this to get the same physical footprint across
+      different primitive types.
+    - purpose: Set to "blockout" to tag the object as a placeholder proxy for later refinement.
 
-    Returns the created object's name, type, location, and mesh counts.
+    Returns the created object's name, type, location, and mesh counts (plus dimensions/scale
+    when `dimensions` was given).
     """
     try:
         blender = get_blender_connection()
@@ -48,6 +54,8 @@ async def mesh_create_primitive(
                 "location": list(location),
                 "rotation": list(rotation),
                 "size": size,
+                "dimensions": list(dimensions) if dimensions is not None else None,
+                "purpose": purpose,
             },
         )
         changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
@@ -63,7 +71,6 @@ async def mesh_extrude(
     object_name: str,
     offset: tuple[float, float, float] = (0, 0, 1),
     face_indices: list[int] | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Extrude the selected faces of a mesh object along an offset vector.
@@ -72,7 +79,6 @@ async def mesh_extrude(
     - object_name: Name of the mesh object to edit.
     - offset: [x, y, z] translation applied to the extruded geometry.
     - face_indices: Optional list of face indices to extrude. If omitted, all faces are extruded. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -99,7 +105,6 @@ async def mesh_inset(
     thickness: float = 0.05,
     depth: float = 0.0,
     face_indices: list[int] | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Inset the selected faces of a mesh object, creating a smaller face surrounded by new faces.
@@ -109,7 +114,6 @@ async def mesh_inset(
     - thickness: Inset thickness.
     - depth: Inset depth (pushes the inset faces along their normal).
     - face_indices: Optional list of face indices to inset. If omitted, all faces are inset. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -139,7 +143,6 @@ async def mesh_bevel(
     affect: Literal["EDGES", "VERTICES"] = "EDGES",
     edge_indices: list[int] | None = None,
     vertex_indices: list[int] | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Bevel the selected edges or vertices of a mesh object.
@@ -152,7 +155,6 @@ async def mesh_bevel(
     - edge_indices: Optional list of edge indices to bevel. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
     - vertex_indices: Optional list of vertex indices to bevel. Use get_mesh_data(object_name, element_type="vertices") to discover valid indices.
     - If neither edge_indices nor vertex_indices is given, the whole mesh is selected.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -176,16 +178,13 @@ async def mesh_bevel(
 
 
 @mcp.tool()
-async def mesh_bridge(
-    ctx: Context, object_name: str, edge_indices: list[int], user_prompt: str = ""
-) -> dict:
+async def mesh_bridge(ctx: Context, object_name: str, edge_indices: list[int]) -> dict:
     """
     Bridge two open edge loops of a mesh object with new faces.
 
     Parameters:
     - object_name: Name of the mesh object to edit.
     - edge_indices: Required list of edge indices forming the two loops to bridge. Use get_mesh_data(object_name, element_type="edges") to discover valid indices.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -204,6 +203,39 @@ async def mesh_bridge(
         raise ToolError(f"Error bridging mesh edge loops: {e}") from e
 
 
+SymmetrizeDirection = Literal[
+    "NEGATIVE_X", "POSITIVE_X", "NEGATIVE_Y", "POSITIVE_Y", "NEGATIVE_Z", "POSITIVE_Z"
+]
+
+
+@mcp.tool()
+async def mesh_symmetrize(
+    ctx: Context, object_name: str, direction: SymmetrizeDirection = "NEGATIVE_X"
+) -> dict:
+    """
+    Symmetrize a mesh across an axis, mirroring one half of the geometry onto the other.
+
+    Parameters:
+    - object_name: Name of the mesh object to edit.
+    - direction: Which half to keep and mirror from, e.g. "NEGATIVE_X" keeps the -X half and mirrors it onto +X.
+
+    Returns the object's name and updated vertex/edge/polygon counts.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command(
+            "mesh_symmetrize",
+            {
+                "object_name": object_name,
+                "direction": direction,
+            },
+        )
+        return ok(result, changed_objects=[object_name])
+    except Exception as e:
+        logger.error(f"Error symmetrizing mesh: {e}")
+        raise ToolError(f"Error symmetrizing mesh: {e}") from e
+
+
 @mcp.tool()
 async def mesh_boolean(
     ctx: Context,
@@ -211,7 +243,6 @@ async def mesh_boolean(
     cutter_object_name: str,
     operation: Literal["UNION", "DIFFERENCE", "INTERSECT"] = "DIFFERENCE",
     keep_cutter: bool = True,
-    user_prompt: str = "",
 ) -> dict:
     """
     Apply a boolean operation between two mesh objects.
@@ -221,7 +252,6 @@ async def mesh_boolean(
     - cutter_object_name: Name of the other mesh object used as the cutter/operand. Must differ from object_name.
     - operation: One of UNION, DIFFERENCE, INTERSECT.
     - keep_cutter: If True (default), the cutter object is kept after the operation is applied. Set False to delete it.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -249,7 +279,6 @@ async def mesh_subdivide(
     object_name: str,
     cuts: int = 1,
     face_indices: list[int] | None = None,
-    user_prompt: str = "",
 ) -> dict:
     """
     Subdivide the selected faces of a mesh object, adding more geometry.
@@ -258,7 +287,6 @@ async def mesh_subdivide(
     - object_name: Name of the mesh object to edit.
     - cuts: Number of cuts per edge.
     - face_indices: Optional list of face indices to subdivide. If omitted, all faces are subdivided. Use get_mesh_data(object_name, element_type="faces") to discover valid indices.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -279,16 +307,13 @@ async def mesh_subdivide(
 
 
 @mcp.tool()
-async def mesh_remesh(
-    ctx: Context, object_name: str, voxel_size: float = 0.1, user_prompt: str = ""
-) -> dict:
+async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -> dict:
     """
     Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
 
     Parameters:
     - object_name: Name of the mesh object to remesh.
     - voxel_size: Size of the voxels used to rebuild the mesh; smaller values produce more detail.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and updated vertex/edge/polygon counts.
     """
@@ -312,8 +337,7 @@ async def mesh_solidify(
     ctx: Context,
     object_name: str,
     thickness: float = 0.01,
-    apply: bool = True,
-    user_prompt: str = "",
+    apply: bool = False,
 ) -> dict:
     """
     Give a mesh's surface thickness via a Solidify modifier.
@@ -321,8 +345,7 @@ async def mesh_solidify(
     Parameters:
     - object_name: Name of the mesh object to solidify.
     - thickness: Thickness to add.
-    - apply: If True (default), bake the modifier into the mesh. If False, leave it as a live modifier.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
+    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
     Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
     counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space

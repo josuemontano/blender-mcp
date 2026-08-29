@@ -348,11 +348,10 @@ class BlenderMCPServer(
             "mesh_subdivide": self.mesh_subdivide,
             "mesh_remesh": self.mesh_remesh,
             "mesh_solidify": self.mesh_solidify,
+            "mesh_symmetrize": self.mesh_symmetrize,
             "model_match_reference": self.model_match_reference,
-            "model_blockout": self.model_blockout,
             "model_refine": self.model_refine,
-            "model_detail": self.model_detail,
-            "model_symmetrize": self.model_symmetrize,
+            "add_procedural_displacement": self.add_procedural_displacement,
             "model_mirror": self.model_mirror,
             "model_array": self.model_array,
             "model_radial_array": self.model_radial_array,
@@ -364,7 +363,7 @@ class BlenderMCPServer(
                 "get_polyhaven_categories": self.get_polyhaven_categories,
                 "search_polyhaven_assets": self.search_polyhaven_assets,
                 "download_polyhaven_asset": self.download_polyhaven_asset,
-                "set_texture": self.set_texture,
+                "apply_polyhaven_texture": self.apply_polyhaven_texture,
             }
             handlers.update(polyhaven_handlers)
 

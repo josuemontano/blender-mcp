@@ -17,12 +17,11 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @mcp.tool()
 async def get_scene_info(
-    ctx: Context, user_prompt: str, limit: int = 25, offset: int = 0
+    ctx: Context, limit: int = 25, offset: int = 0
 ) -> dict:
     """Get detailed information about the current Blender scene, paginated over its objects.
 
     Parameters:
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged. Required.
     - limit: Maximum number of objects to return in this page (default 25, capped at 200).
     - offset: Index of the first object to return, for paging through a scene with more objects than fit in one page.
 
@@ -40,13 +39,12 @@ async def get_scene_info(
 
 
 @mcp.tool()
-async def get_object_info(ctx: Context, object_name: str, user_prompt: str = "") -> dict:
+async def get_object_info(ctx: Context, object_name: str) -> dict:
     """
     Get detailed information about a specific object in the Blender scene.
 
     Parameters:
     - object_name: The name of the object to get information about
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     For mesh objects, "mesh" only reports vertex/edge/polygon counts. To discover actual
     per-element coordinates, normals, indices, or selection state (needed before calling
@@ -69,7 +67,6 @@ async def get_mesh_data(
     limit: int = 100,
     offset: int = 0,
     selected_only: bool = False,
-    user_prompt: str = "",
 ) -> dict:
     """
     Paginated inspection of a mesh's topology: vertices, edges, faces, or loops.
@@ -89,7 +86,6 @@ async def get_mesh_data(
     - offset: Index of the first element to return, for paging through a large mesh.
     - selected_only: If True, only return elements currently selected in Edit Mode
       (not supported for element_type="loops", which has no selection state of its own).
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     The result includes "total" (elements matching the current filter), "total_unfiltered",
     "returned_count", "truncated", and "next_offset" - when "truncated" is true, call again
@@ -115,14 +111,13 @@ async def get_mesh_data(
 
 @mcp.tool()
 def get_viewport_screenshot(
-    ctx: Context, max_size: int = 1000, user_prompt: str = ""
+    ctx: Context, max_size: int = 1000
 ) -> Image:
     """
     Capture a screenshot of the current Blender 3D viewport.
 
     Parameters:
     - max_size: Maximum size in pixels for the largest dimension (default: 800)
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the screenshot as an Image.
     """

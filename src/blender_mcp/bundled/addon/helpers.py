@@ -1,3 +1,5 @@
+import contextlib
+
 import bmesh
 import bpy
 import mathutils
@@ -81,6 +83,42 @@ def _select_geometry(obj, vert_indices=None, edge_indices=None, face_indices=Non
 
 def _exit_edit_mode():
     bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _validate_indices(obj, attr, indices):
+    """Raise a clear error if any index is out of range for obj.data.<attr>, before edit mode is entered."""
+    if indices is None:
+        return
+    total = len(getattr(obj.data, attr))
+    for i in indices:
+        if not (0 <= i < total):
+            raise ValueError(
+                f"Index {i} out of range for {attr} (0-{total - 1}) on '{obj.name}'"
+            )
+
+
+@contextlib.contextmanager
+def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
+    """Enter edit mode on obj, select the given indices, and always exit edit mode afterward.
+
+    Indices are validated against the base mesh before edit mode is entered, so
+    an out-of-range index raises a clear ValueError instead of bmesh's bare
+    IndexError - and the mode restoration in the finally block happens even if
+    the caller's operator inside the `with` block raises.
+    """
+    _validate_indices(obj, "vertices", vert_indices)
+    _validate_indices(obj, "edges", edge_indices)
+    _validate_indices(obj, "polygons", face_indices)
+    _select_geometry(
+        obj,
+        vert_indices=vert_indices,
+        edge_indices=edge_indices,
+        face_indices=face_indices,
+    )
+    try:
+        yield
+    finally:
+        _exit_edit_mode()
 
 
 def _paginate(total, offset, limit, max_limit):

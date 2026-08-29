@@ -247,7 +247,6 @@ async def model_from_reference(
     name: str | None = None,
     provider: Provider = "auto",
     timeout_s: float = 180,
-    user_prompt: str = "",
 ) -> dict:
     """
     Generate a 3D model from a reference image and import it into the scene.
@@ -259,7 +258,6 @@ async def model_from_reference(
     - name: Optional name for the imported object. Defaults to a generic generated name.
     - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
     - timeout_s: Maximum seconds to wait for generation to finish before giving up.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the import result.
     """
@@ -304,7 +302,6 @@ async def model_generate_from_description(
     name: str | None = None,
     provider: Provider = "auto",
     timeout_s: float = 180,
-    user_prompt: str = "",
 ) -> dict:
     """
     Generate a 3D model from a text description and import it into the scene.
@@ -317,7 +314,6 @@ async def model_generate_from_description(
     - name: Optional name for the imported object. Defaults to a generic generated name.
     - provider: One of auto (default, prefers Hyper3D if enabled), hyper3d, hunyuan3d.
     - timeout_s: Maximum seconds to wait for generation to finish before giving up.
-    - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the import result.
     """
