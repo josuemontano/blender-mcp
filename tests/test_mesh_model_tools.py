@@ -204,6 +204,11 @@ class FakeObject:
         self.selected = False
         self.mode = "OBJECT"
         self._selected_objects = selected_objects
+        self.editmode_sync_calls = 0
+
+    def update_from_editmode(self) -> bool:
+        self.editmode_sync_calls += 1
+        return False
 
     def _local_matrix(self):
         if self.rotation_mode == "QUATERNION":

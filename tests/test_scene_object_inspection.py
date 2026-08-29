@@ -101,8 +101,19 @@ class FakeObjectsCollection(dict):
             name=name,
             type="MESH" if data is not None else "EMPTY",
             location=FakeVector(),
+            rotation_euler=FakeVector(),
+            scale=FakeVector(1.0, 1.0, 1.0),
+            material_slots=[],
             data=data,
+            editmode_sync_calls=0,
         )
+        obj.visible_get = lambda: True
+
+        def _update_from_editmode():
+            obj.editmode_sync_calls += 1
+            return False
+
+        obj.update_from_editmode = _update_from_editmode
         self[name] = obj
         return obj
 
@@ -390,6 +401,30 @@ def test_get_mesh_data_limit_is_clamped_to_max(monkeypatch) -> None:
     # 5-vertex mesh still returns everything in one page rather than erroring.
     assert result["returned_count"] == 5
     assert result["truncated"] is False
+
+
+def test_get_mesh_data_syncs_from_editmode_before_reading(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_mesh_object(bpy, "obj")
+
+    server.get_mesh_data(object_name="obj", element_type="vertices")
+
+    assert obj.editmode_sync_calls == 1
+
+
+# endregion
+
+
+# region get_object_info
+def test_get_object_info_syncs_from_editmode_before_reading(monkeypatch) -> None:
+    addon, bpy, _objects, _scene = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    obj = _new_empty_object(bpy, "empty_obj")
+
+    server.get_object_info("empty_obj")
+
+    assert obj.editmode_sync_calls == 1
 
 
 # endregion
