@@ -453,10 +453,7 @@ class Hunyuan3DHandlersMixin:
                     "succeed": False,
                     "error": "OBJ file not found after extraction",
                 }
-            if bpy.app.version >= (4, 0, 0):
-                bpy.ops.wm.obj_import(filepath=obj_file_path)
-            else:
-                bpy.ops.import_scene.obj(filepath=obj_file_path)
+            bpy.ops.wm.obj_import(filepath=obj_file_path)
             imported_objs = [
                 obj for obj in bpy.context.selected_objects if obj.type == "MESH"
             ]

@@ -160,8 +160,8 @@ The system consists of two main components:
 
 ### Prerequisites
 
-- **Blender** 3.0 or newer
-- **Python** 3.12 or newer
+- **Blender** 5.1 or newer
+- **Python** 3.13 or newer
 - **pipx**
 
 <details>
@@ -213,10 +213,10 @@ MCP clients started from a GUI (Claude Desktop, Cursor, VS Code from the Dock/St
 On machines with conda (auto-activated base), pyenv, or asdf, `pipx install` can pick up an interpreter that makes installation fail. Pin the Python version pipx uses to build the server's environment:
 
 ```bash
-pipx install blender-mcp --python python3.12
+pipx install blender-mcp --python python3.13
 ```
 
-This still satisfies this package's `requires-python >=3.12`. (The repo's `.python-version` is only a hint for contributors and does **not** affect an already-published install.)
+This still satisfies this package's `requires-python >=3.13`. (The repo's `.python-version` is only a hint for contributors and does **not** affect an already-published install.)
 
 If a previous failed attempt keeps replaying after a fix, reinstall clean:
 

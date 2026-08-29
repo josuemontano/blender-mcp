@@ -443,7 +443,7 @@ class PolyhavenHandlersMixin:
                         elif file_format == "fbx":
                             bpy.ops.import_scene.fbx(filepath=main_file_path)
                         elif file_format == "obj":
-                            bpy.ops.import_scene.obj(filepath=main_file_path)
+                            bpy.ops.wm.obj_import(filepath=main_file_path)
                         elif file_format == "blend":
                             # For blend files, we need to append or link
                             with bpy.data.libraries.load(
@@ -699,17 +699,8 @@ class PolyhavenHandlersMixin:
 
             # Handle ARM texture (Ambient Occlusion, Roughness, Metallic)
             if "arm" in texture_nodes:
-                # Blender 4.0 removed ShaderNodeSeparateRGB (renamed to
-                # ShaderNodeSeparateColor, added in 3.3). Branch on the running
-                # Blender version so pre-4.0 behavior is untouched.
-                if bpy.app.version >= (4, 0):
-                    sep = nodes.new(
-                        type="ShaderNodeSeparateColor"
-                    )  # defaults to mode='RGB'
-                    in_socket, ch_r, ch_g, ch_b = "Color", "Red", "Green", "Blue"
-                else:
-                    sep = nodes.new(type="ShaderNodeSeparateRGB")
-                    in_socket, ch_r, ch_g, ch_b = "Image", "R", "G", "B"
+                sep = nodes.new(type="ShaderNodeSeparateColor")  # defaults to mode='RGB'
+                in_socket, ch_r, ch_g, ch_b = "Color", "Red", "Green", "Blue"
                 sep.location = (-200, -100)
                 links.new(texture_nodes["arm"].outputs["Color"], sep.inputs[in_socket])
 
