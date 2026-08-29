@@ -6,68 +6,103 @@ from .app import mcp
 @mcp.prompt()
 def asset_creation_strategy() -> str:
     """
-    Defines the preferred strategy for creating assets in Blender.
+    Define the staged workflow agents should follow when creating or editing Blender scenes.
 
     Returns:
         str: Result produced by the operation.
 
     """
-    return """When creating 3D content in Blender, always start by checking if integrations are available:
+    return """Work through this Blender task in stages. Do not skip ahead to editing before the
+    earlier stages have been done, and stop at any gate below rather than pushing forward on a
+    result you haven't checked.
 
-    0. Before anything, always check the scene from list_scene_objects()
+    1. Verify capability first.
+        - Call get_addon_status() before any other tool call. If up_to_date is False or a
+          warning is present, treat that as a real constraint (a schema this server sends
+          may not be understood by the connected addon) - do not just proceed and hope.
+        - Only check get_integration_status(provider=...) for "polyhaven", "sketchfab", or
+          "nd" if the task actually needs that provider (importing an asset/HDRI/texture, or
+          an ND-specific hard-surface workflow). Do not check every provider on every task.
 
-    **IMPORTANT: Visual Verification**
-    - Use get_viewport_screenshot() BEFORE making changes to see the current state
-    - Use get_viewport_screenshot() AFTER executing code or importing assets to verify the result
-    - This helps confirm your changes worked as expected and catch any visual issues
+    2. Inspect before touching anything.
+        - Call list_scene_objects() to see what exists. It is paginated ("limit"/"offset" in,
+          "truncated"/"next_offset" out inside "data") and each entry is only
+          {"name", "type", "location"} with location in local/object-space - it does not carry
+          bounding boxes, modifiers, or materials.
+        - For a specific target object, follow up with get_object_info(name) for its local
+          transform, world_bounding_box (mesh objects only), dimensions, and modifiers - one
+          call per object, so only fetch world_bounding_box for objects where spatial
+          relationship or clipping actually matters for this task, not for every object in
+          the scene by default.
+        - For a mesh edit that needs vertex/edge/face indices, call get_mesh_data(name) (also
+          paginated) to get current indices before building the edit.
 
-    1. First use the following tools to verify if the following integrations are enabled:
-        1. PolyHaven
-            Use get_integration_status(provider="polyhaven") to verify its status
-            If PolyHaven is enabled:
-            - For objects/models: Use import_polyhaven_asset() with asset_type="models"
-            - For materials/textures: Use import_polyhaven_asset() with asset_type="textures"
-            - For environment lighting: Use import_polyhaven_asset() with asset_type="hdris"
-        2. Sketchfab
-            Sketchfab is good at Realistic models, and has a wider variety of models than PolyHaven.
-            Use get_integration_status(provider="sketchfab") to verify its status
-            If Sketchfab is enabled:
-            - For objects/models: First search using search_sketchfab_models() with your query
-            - Then download specific models using download_sketchfab_model() with the UID
-            - Note that only downloadable models can be accessed, and API key must be properly configured
-            - Sketchfab has a wider variety of models than PolyHaven, especially for specific subjects
-    2. For primitives and direct mesh/model editing, use the dedicated tools instead of execute_blender_code:
-        - create_primitive_object() for cubes, spheres, cylinders, cones, tori, planes, and curves
-        - mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(), mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize() for direct mesh edits
-        - copy_object_transform(), add_subdivision_surface_modifier(), add_displace_modifier(), model_mirror(), model_array(), model_radial_array() for higher-level modeling operations (use create_primitive_object() with purpose="blockout" for placeholder proxies)
-        - clear_materials(), clear_vertex_groups(), clear_edge_marks(), sync_data_name() for general mesh/data cleanup
-        - viewport_overlay_toggle() for native viewport overlays (cavity, wireframes, face orientation)
+    3. Choose a dedicated, non-destructive tool over execute_blender_code.
+        - Primitives: create_primitive_object() (cube, sphere, cylinder, cone, torus, plane,
+          curve; purpose="blockout" for placeholder proxies).
+        - Direct mesh edits: mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(),
+          mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize().
+        - Higher-level modeling: copy_object_transform(), add_subdivision_surface_modifier(),
+          add_displace_modifier(), model_mirror(), model_array(), model_radial_array().
+        - Cleanup/data: clear_materials(), clear_vertex_groups(), clear_edge_marks(),
+          sync_data_name().
+        - Viewport: viewport_overlay_toggle() for native overlays (cavity, wireframe, face
+          orientation).
+        - Non-destructive hard-surface work (utility booleans, ID materials, LOD naming): the
+          ND tools - nd_boolean(), nd_mark_as_util(), nd_clean_utils(),
+          nd_create_id_material(), nd_bulk_create_id_materials(), nd_set_lod_suffix(),
+          nd_single_vertex(), nd_apply_modifiers(), nd_pulse_viewport_toggle(),
+          nd_capture_utils() - only after confirming get_integration_status(provider="nd").
+        - Asset/material/HDRI needs, only after confirming the provider is enabled: PolyHaven's
+          import_polyhaven_asset() (asset_type="models"/"textures"/"hdris") and
+          apply_polyhaven_texture(); Sketchfab's search_sketchfab_models() then
+          download_sketchfab_model(uid). For a specific existing real-world object, try
+          Sketchfab first, then PolyHaven; for generic objects/furniture, try PolyHaven first;
+          for lighting, use PolyHaven HDRIs.
+        - Modifier tools take apply: bool. apply=False (default) keeps a live, reversible
+          modifier - prefer this. apply=True bakes it into the mesh: irreversible from this
+          server's perspective and it invalidates any vertex/edge/face indices you fetched
+          earlier (see stage 4).
+        - Reach for execute_blender_code only when none of the above cover the operation, or
+          the task specifically needs basic material/color assignment (there is currently no
+          dedicated tool for that - write the smallest script that does just this one thing,
+          never delete/purge data or touch files unless that was explicitly requested, and
+          verify the result afterward with get_object_info rather than assuming the script
+          worked). Do not use it for anything listed above - each of those already has a
+          dedicated tool.
 
-    2.5. For non-destructive hard-surface workflows (ND utility objects, ID materials, LOD naming), use the ND (HugeMenace) tools instead of execute_blender_code:
-        - Use get_integration_status(provider="nd") to verify its status
-        - nd_boolean(), nd_mark_as_util(), nd_clean_utils() for the utility-object boolean workflow
-        - nd_create_id_material(), nd_bulk_create_id_materials(), nd_set_lod_suffix() for export/packaging prep
-        - nd_single_vertex(), nd_apply_modifiers() for sketch/modifier cleanup
-        - nd_pulse_viewport_toggle(), nd_capture_utils() for ND-specific viewport helpers
+    4. Re-query after anything that changes topology.
+        - mesh_extrude/inset/bevel/bridge/boolean/subdivide/remesh/symmetrize, and any call
+          made with apply=True, invalidate previously-fetched vertex/edge/face indices. If the
+          tool's response includes a warning about this, call get_mesh_data(name) again before
+          reusing indices in a further edit - do not reuse stale indices.
+        - get_mesh_data coordinates are local/object-space (modifiers not evaluated);
+          get_object_info's world_bounding_box is world-space. These are not directly
+          comparable for a parented or transformed object, and there is no matrix_world field
+          to convert between them yourself.
 
-    3. Always check the world_bounding_box for each item so that:
-        - Ensure that all objects that should not be clipping are not clipping.
-        - Items have right spatial relationship.
+    5. Verify with structured state, not just a screenshot.
+        - A screenshot (get_viewport_screenshot()) is useful for placement, lighting, and
+          silhouette, but it cannot confirm topology, units, hierarchy, modifiers, or
+          materials. Pair any visual check with list_scene_objects()/get_object_info()/
+          get_mesh_data() to confirm the things a screenshot can't show.
+        - Use a screenshot before/after a visually-meaningful change (placement, deformation,
+          lighting, material) - not as a substitute for the structured checks above.
 
-    4. Recommended asset source priority:
-        - For specific existing objects: First try Sketchfab, then PolyHaven
-        - For generic objects/furniture: First try PolyHaven, then Sketchfab
-        - For environment lighting: Use PolyHaven HDRIs
-        - For materials/textures: Use PolyHaven textures
+    6. Stop-and-check gates - do not continue past these without addressing them:
+        - "ok": false means the request reached Blender but nothing changed - this includes an
+          ND operator the user cancelled (Esc): "error" stays null, "changed_objects" is
+          empty, and the scene is unchanged. Don't retry the same call expecting a different
+          result; tell the user or pick a different approach.
+        - Any non-empty "warnings" list - read it before doing anything else with that result.
+        - A raised tool error means Blender rejected the input (bad name, invalid value) - fix
+          the input, don't repeat the same call.
+        - "truncated": true in a paginated result means you haven't seen everything - page
+          through with next_offset before concluding the scene doesn't contain something.
+        - A capability mismatch surfaced in stage 1.
 
-    Only fall back to execute_blender_code scripting when:
-    - PolyHaven and Sketchfab are both disabled and no suitable asset exists in any of the libraries
-    - The task specifically requires a basic material/color
-    - The needed operation has no dedicated mesh_*/model_* tool (e.g. a primitive is explicitly requested - use create_primitive_object() instead, or a mesh edit covered by mesh_extrude/mesh_inset/mesh_bevel/mesh_bridge/mesh_boolean/mesh_subdivide/mesh_remesh/mesh_solidify/mesh_symmetrize/copy_object_transform/add_subdivision_surface_modifier/add_displace_modifier/model_mirror/model_array/model_radial_array)
-
-    **Best Practices:**
-    - Always take a screenshot after completing a task to verify the visual result
-    - Always call list_scene_objects() after completing a task to verify the changes worked
-    - When executing multiple operations, take intermediate screenshots to confirm each step
-    - If something looks wrong in the screenshot or scene info, investigate and fix before proceeding
+    When reporting completion, state what actually changed - "changed_objects" and
+    "changed_resources" from the tool responses, not just "done" - and disclose any
+    irreversible action taken (apply=True, a cleanup tool) plus any limitation you hit
+    (e.g. couldn't get world-space mesh coordinates, a provider was disabled).
     """
