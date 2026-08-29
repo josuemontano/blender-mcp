@@ -20,15 +20,21 @@ PulseToggle = Literal["CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"]
 _CANCELLED_WARNING = "ND operator was cancelled - the scene is unchanged"
 
 
-def _nd_outcome(result, changed_objects: list[str] | None = None) -> dict:
+def _nd_outcome(
+    result,
+    changed_objects: list[str] | None = None,
+    changed_resources: list[str] | None = None,
+) -> dict:
     """
     Build the tool envelope for an ND operator result, gating success and
-    changed_objects on the handler's `cancelled` flag instead of optimistically
-    reporting the objects the tool targeted.
+    changed_objects/changed_resources on the handler's `cancelled` flag instead of
+    optimistically reporting the objects/resources the tool targeted.
 
     Args:
         result: The raw dict returned by the Blender-side ND handler.
         changed_objects: Object names to report as changed when the operator was not cancelled.
+        changed_resources: Non-object datablock names (e.g. materials) to report as changed when
+            the operator was not cancelled.
 
     Returns:
         dict: The envelope produced by `ok()`.
@@ -36,7 +42,7 @@ def _nd_outcome(result, changed_objects: list[str] | None = None) -> dict:
     """
     if isinstance(result, dict) and result.get("cancelled"):
         return ok(result, success=False, changed_objects=[], warnings=[_CANCELLED_WARNING])
-    return ok(result, changed_objects=changed_objects)
+    return ok(result, changed_objects=changed_objects, changed_resources=changed_resources)
 
 
 @mcp.tool()
@@ -200,7 +206,7 @@ async def nd_create_id_material(
             "nd_create_id_material",
             {"object_names": object_names, "material_name": material_name},
         )
-        return _nd_outcome(result, changed_objects=object_names)
+        return _nd_outcome(result, changed_objects=object_names, changed_resources=[material_name])
     except Exception as e:
         logger.error(f"Error creating ND ID material: {e}")
         raise ToolError(f"Error creating ND ID material: {e}") from e
@@ -219,7 +225,7 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
     changed_objects and a warning explaining the scene is unchanged.
 
     Returns:
-        "names" (the affected object names).
+        "names" (the affected object names) and "material_names" (the distinct materials created).
 
     Raises:
         ToolError: If the operation cannot be completed.
@@ -228,7 +234,8 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_bulk_create_id_materials", {"object_names": object_names})
-        return _nd_outcome(result, changed_objects=object_names)
+        materials = result.get("material_names", []) if isinstance(result, dict) else []
+        return _nd_outcome(result, changed_objects=object_names, changed_resources=materials)
     except Exception as e:
         logger.error(f"Error bulk-creating ND ID materials: {e}")
         raise ToolError(f"Error bulk-creating ND ID materials: {e}") from e
