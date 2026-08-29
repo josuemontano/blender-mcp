@@ -76,7 +76,7 @@ async def nd_boolean(
                 "mode": mode,
             },
         )
-        return ok(result, changed_objects=[object_name, cutter_object_name], warnings=_cancelled_warnings(result))
+        return _nd_outcome(result, changed_objects=[object_name, cutter_object_name])
     except Exception as e:
         logger.error(f"Error applying ND boolean: {e}")
         raise ToolError(f"Error applying ND boolean: {e}") from e
@@ -150,7 +150,8 @@ async def nd_clean_utils(ctx: Context, confirm: bool = False) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_clean_utils", {"confirm": confirm})
-        return ok(result, warnings=_cancelled_warnings(result))
+        removed = result.get("removed_objects", []) if isinstance(result, dict) else []
+        return _nd_outcome(result, changed_objects=removed)
     except Exception as e:
         logger.error(f"Error cleaning ND utility objects: {e}")
         raise ToolError(f"Error cleaning ND utility objects: {e}") from e
@@ -183,7 +184,7 @@ async def nd_create_id_material(
             "nd_create_id_material",
             {"object_names": object_names, "material_name": material_name},
         )
-        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result, changed_objects=object_names)
     except Exception as e:
         logger.error(f"Error creating ND ID material: {e}")
         raise ToolError(f"Error creating ND ID material: {e}") from e
@@ -208,7 +209,7 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_bulk_create_id_materials", {"object_names": object_names})
-        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result, changed_objects=object_names)
     except Exception as e:
         logger.error(f"Error bulk-creating ND ID materials: {e}")
         raise ToolError(f"Error bulk-creating ND ID materials: {e}") from e
@@ -239,7 +240,7 @@ async def nd_set_lod_suffix(
         blender = get_blender_connection()
         result = blender.send_command("nd_set_lod_suffix", {"object_names": object_names, "mode": mode})
         changed = result.get("names", object_names) if isinstance(result, dict) else object_names
-        return ok(result, changed_objects=changed, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result, changed_objects=changed)
     except Exception as e:
         logger.error(f"Error setting ND LOD suffix: {e}")
         raise ToolError(f"Error setting ND LOD suffix: {e}") from e
@@ -267,8 +268,8 @@ async def nd_single_vertex(
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_single_vertex", {"location": list(location)})
-        changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
-        return ok(result, changed_objects=changed, warnings=_cancelled_warnings(result))
+        name = result.get("name") if isinstance(result, dict) else None
+        return _nd_outcome(result, changed_objects=[name] if name else [])
     except Exception as e:
         logger.error(f"Error creating ND single vertex: {e}")
         raise ToolError(f"Error creating ND single vertex: {e}") from e
@@ -298,7 +299,7 @@ async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_apply_modifiers", {"object_names": object_names})
-        return ok(result, changed_objects=object_names, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result, changed_objects=object_names)
     except Exception as e:
         logger.error(f"Error applying ND modifiers: {e}")
         raise ToolError(f"Error applying ND modifiers: {e}") from e
@@ -329,7 +330,7 @@ async def nd_pulse_viewport_toggle(ctx: Context, toggle: PulseToggle) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_pulse_viewport_toggle", {"toggle": toggle})
-        return ok(result, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result)
     except Exception as e:
         logger.error(f"Error pulsing ND viewport toggle: {e}")
         raise ToolError(f"Error pulsing ND viewport toggle: {e}") from e
@@ -353,7 +354,7 @@ async def nd_capture_utils(ctx: Context) -> dict:
     try:
         blender = get_blender_connection()
         result = blender.send_command("nd_capture_utils", {})
-        return ok(result, warnings=_cancelled_warnings(result))
+        return _nd_outcome(result)
     except Exception as e:
         logger.error(f"Error capturing ND utility objects: {e}")
         raise ToolError(f"Error capturing ND utility objects: {e}") from e

@@ -316,6 +316,10 @@ class FakeObjectsCollection(dict):
         super().__init__()
         self._selected_objects = selected_objects
 
+    def __iter__(self):
+        # Real bpy_prop_collection iteration yields datablocks, not their names/keys.
+        return iter(list(self.values()))
+
     def get(self, name, default=None):
         return dict.get(self, name, default)
 
@@ -371,6 +375,7 @@ def _load_addon(monkeypatch):
     scene = types.SimpleNamespace(
         blendermcp_use_polyhaven=False,
         blendermcp_use_sketchfab=False,
+        cursor=types.SimpleNamespace(location=FakeVector()),
     )
 
     selected_objects = []
@@ -464,6 +469,7 @@ def _load_addon(monkeypatch):
             shade_smooth=_noop,
             voxel_remesh=_noop,
         ),
+        nd=types.SimpleNamespace(),
     )
 
     props = types.ModuleType("bpy.props")
@@ -1091,3 +1097,54 @@ def test_model_radial_array_cleans_up_helper_empty_when_applied(monkeypatch) -> 
     server.model_radial_array(object_name="R2", count=6, axis="Z", apply=True, radius=2.0)
 
     assert bpy.data.objects.get("R2_radial_pivot") is None
+
+
+def test_nd_single_vertex_reports_the_created_object_by_diff(monkeypatch) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+
+    def _single_vertex(**_kwargs):
+        obj = bpy.data.objects.new("Vertex.001", object())
+        obj.location = FakeVector(*bpy.context.scene.cursor.location)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        return {"FINISHED"}
+
+    monkeypatch.setattr(bpy.ops.nd, "single_vertex", _single_vertex, raising=False)
+
+    result = server.nd_single_vertex(location=(1.0, 2.0, 3.0))
+
+    assert result["name"] == "Vertex.001"
+    assert result["location"] == [1.0, 2.0, 3.0]
+    assert result["cancelled"] is False
+
+
+def test_nd_single_vertex_cancelled_with_no_active_object_returns_none_without_raising(
+    monkeypatch,
+) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+
+    monkeypatch.setattr(bpy.ops.nd, "single_vertex", lambda **_kwargs: {"CANCELLED"}, raising=False)
+
+    # No pre-existing active/selected object - the old active-object dereference would raise here.
+    result = server.nd_single_vertex(location=(1.0, 2.0, 3.0))
+
+    assert result == {"name": None, "location": None, "cancelled": True}
+
+
+def test_nd_single_vertex_cancelled_does_not_report_stale_active_object(monkeypatch) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    prior = _new_mesh_object(bpy, "Prior")
+    prior.select_set(True)
+    bpy.context.view_layer.objects.active = prior
+
+    monkeypatch.setattr(bpy.ops.nd, "single_vertex", lambda **_kwargs: {"CANCELLED"}, raising=False)
+
+    result = server.nd_single_vertex(location=(1.0, 2.0, 3.0))
+
+    assert result["name"] is None
+    assert result["cancelled"] is True
+    # The pre-existing active object is restored, not reported as the new vertex.
+    assert bpy.context.view_layer.objects.active is prior

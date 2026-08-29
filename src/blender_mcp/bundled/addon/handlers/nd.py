@@ -203,15 +203,22 @@ class NDHandlersMixin:
         """
         Create an ND single-vertex sketch object at location, left in Object mode.
 
+        Identifies the created object by diffing bpy.data.objects before/after the
+        operator call rather than reading the active object - a cancelled call (or
+        one that unexpectedly creates none/more than one object) would otherwise
+        report a stale pre-existing active object, or raise if nothing was active.
+
         Args:
             location: World-space location.
 
         Returns:
-            Result produced by the operation.
+            Result produced by the operation; "name"/"location" are None if the
+            operator was cancelled or didn't create exactly one new object.
 
         """
         prev_cursor = tuple(bpy.context.scene.cursor.location)
         bpy.context.scene.cursor.location = tuple(location)
+        before_names = {obj.name for obj in bpy.data.objects}
         try:
             with preserve_mode_and_selection():
                 try:
@@ -219,9 +226,12 @@ class NDHandlersMixin:
                 finally:
                     if bpy.context.mode != "OBJECT":
                         exit_edit_mode()
-                obj = bpy.context.view_layer.objects.active
+                created_names = {obj.name for obj in bpy.data.objects} - before_names
         finally:
             bpy.context.scene.cursor.location = prev_cursor
+        if len(created_names) != 1:
+            return {"name": None, "location": None, "cancelled": cancelled}
+        obj = bpy.data.objects[next(iter(created_names))]
         return {
             "name": obj.name,
             "location": [obj.location.x, obj.location.y, obj.location.z],

@@ -1,0 +1,31 @@
+from blender_mcp.server.tools._envelope import ok
+from blender_mcp.server.tools.nd import _CANCELLED_WARNING, _nd_outcome
+
+
+def test_ok_success_false_reports_not_ok() -> None:
+    result = ok({"a": 1}, success=False)
+
+    assert result["ok"] is False
+    assert result["data"] == {"a": 1}
+
+
+def test_ok_default_success_is_unchanged() -> None:
+    result = ok({"a": 1})
+
+    assert result["ok"] is True
+
+
+def test_nd_outcome_cancelled_reports_not_ok_and_no_changed_objects() -> None:
+    result = _nd_outcome({"cancelled": True}, changed_objects=["a", "b"])
+
+    assert result["ok"] is False
+    assert result["changed_objects"] == []
+    assert result["warnings"] == [_CANCELLED_WARNING]
+
+
+def test_nd_outcome_not_cancelled_reports_ok_and_changed_objects() -> None:
+    result = _nd_outcome({"cancelled": False}, changed_objects=["a"])
+
+    assert result["ok"] is True
+    assert result["changed_objects"] == ["a"]
+    assert result["warnings"] == []
