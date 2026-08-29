@@ -9,7 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from ._envelope import STALE_INDEX_WARNING, ok
+from ._envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -109,7 +109,7 @@ async def add_subdivision_surface_modifier(
                 "apply": apply,
             },
         )
-        warnings = [STALE_INDEX_WARNING] if apply else None
+        warnings = [SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING] if apply else [SHADE_SMOOTH_WARNING]
         return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error refining model: {e}")

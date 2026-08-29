@@ -37,6 +37,11 @@ STALE_INDEX_WARNING = (
     "index-based edits."
 )
 
+SHADE_SMOOTH_WARNING = (
+    "This operation always calls shade_smooth() on the object's base mesh, changing its per-face shading "
+    "even when apply=False and the modifier stays live."
+)
+
 
 def ok(
     data: Any = None,
