@@ -22,8 +22,11 @@ from blender_mcp.server.connection import BlenderConnection, ad_hoc_failure_mess
 class FakeSocket:
     """Minimal stand-in so send_command_locked never touches a real socket."""
 
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+
     def sendall(self, data: bytes) -> None:
-        pass
+        self.sent.append(data)
 
     def settimeout(self, value: float) -> None:
         pass
@@ -31,8 +34,16 @@ class FakeSocket:
 
 def _connection_returning(payload: dict, monkeypatch) -> BlenderConnection:
     conn = BlenderConnection(host="localhost", port=0)
-    conn.sock = FakeSocket()
-    monkeypatch.setattr(conn, "receive_full_response", lambda sock: json.dumps(payload).encode("utf-8"))
+    sock = FakeSocket()
+    conn.sock = sock
+
+    def fake_receive_full_response(_sock):
+        # Echo back whatever id send_command_locked generated for the
+        # command it just sent, same as a real addon response would.
+        sent_command = json.loads(sock.sent[-1].decode("utf-8"))
+        return json.dumps({**payload, "id": sent_command.get("id")}).encode("utf-8")
+
+    monkeypatch.setattr(conn, "receive_full_response", fake_receive_full_response)
     return conn
 
 

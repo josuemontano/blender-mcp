@@ -47,6 +47,22 @@ def get_mesh_object(name):
     return obj
 
 
+def sync_from_editmode(obj) -> None:
+    """
+    Flush Edit-Mode's live data back into obj.data before reading it.
+
+    Blender's API docs ("Modes and Mesh Access") warn that obj.data is out of
+    sync with the edit mesh while the object is in Edit Mode - Edit-Mode owns
+    its own copy and only writes it back on exit. update_from_editmode() is
+    the API's escape hatch to flush it back without leaving Edit Mode. Safe
+    to call unconditionally; it's a no-op when obj isn't in Edit Mode.
+
+    Args:
+        obj: Value for obj.
+    """
+    obj.update_from_editmode()
+
+
 @contextlib.contextmanager
 def preserve_mode_and_selection():
     """
@@ -194,6 +210,7 @@ def edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
         face_indices: Indices of faces to operate on.
 
     """
+    sync_from_editmode(obj)
     _validate_indices(obj, "vertices", vert_indices)
     _validate_indices(obj, "edges", edge_indices)
     _validate_indices(obj, "polygons", face_indices)

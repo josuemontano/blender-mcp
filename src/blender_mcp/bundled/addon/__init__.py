@@ -23,7 +23,10 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-ADDON_PROTOCOL_VERSION = 6
+# Bumped to 7: the socket protocol is now newline-delimited JSON with a
+# request/response "id" (see server_core.py's handle_client) - a breaking
+# wire change, not just a new capability.
+ADDON_PROTOCOL_VERSION = 7
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]

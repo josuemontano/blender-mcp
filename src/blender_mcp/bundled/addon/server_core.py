@@ -19,7 +19,7 @@ from .handlers.nd import NDHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
-from .helpers import get_mesh_object, paginate, get_blendermcp_addon_preferences
+from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blendermcp_addon_preferences
 
 
 class BlenderMCPServer(
@@ -240,6 +240,14 @@ class BlenderMCPServer(
 
         return 0.05
 
+    # Messages are newline-delimited JSON. Bound how large a single message
+    # can grow before we give up on it - without this, malformed input (or
+    # a client that never sends a terminator) would make `buffer` grow
+    # forever. The largest legitimate payloads are paginated mesh/element
+    # dumps (capped well under 1000 elements); screenshots are written to
+    # disk and never cross the socket. 64 MiB is generous headroom above that.
+    _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+
     def handle_client(self, client) -> None:
         """
         Handle connected client.
@@ -266,22 +274,39 @@ class BlenderMCPServer(
                         break
 
                     buffer += data
-                    try:
-                        # Try to parse command
-                        command = json.loads(buffer.decode("utf-8"))
-                        buffer = b""
+
+                    # A single json.loads() over the whole buffer can't tell
+                    # "incomplete message" apart from "complete message plus
+                    # the start of the next one" - both raise
+                    # json.JSONDecodeError, and treating the latter as
+                    # "incomplete, wait for more" means the buffer can never
+                    # parse again (the trailing bytes are never valid on
+                    # their own). Splitting on the newline terminator each
+                    # side appends after every message removes that
+                    # ambiguity: each complete line is exactly one message.
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        if not line:
+                            continue
+                        try:
+                            command = line.decode("utf-8")
+                            command = json.loads(command)
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            print(f"Discarding malformed message: {e!s}")
+                            continue
 
                         # Hand off to the main thread. Never call
                         # bpy.app.timers.register() from here - it is not
                         # thread-safe and the callback can be silently lost.
                         print(f"Queued command: {command.get('type')}")
                         self.command_queue.put((command, client))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        # Incomplete data, wait for more. A multi-byte UTF-8
-                        # character can land split across a recv() chunk
-                        # boundary, which fails decode() before json.loads()
-                        # ever runs - that's incomplete data too, not garbage.
-                        pass
+
+                    if len(buffer) > self._MAX_MESSAGE_BYTES:
+                        print(
+                            f"Client sent an oversized message without a terminator "
+                            f"({len(buffer)} bytes) - disconnecting"
+                        )
+                        break
                 except TimeoutError:
                     # Expected; loop round and re-check self.running.
                     continue
@@ -556,6 +581,7 @@ class BlenderMCPServer(
         obj = bpy.data.objects.get(name)
         if not obj:
             raise ValueError(f"Object not found: {name}")
+        sync_from_editmode(obj)
 
         # Basic object info
         obj_info = {
@@ -647,6 +673,7 @@ class BlenderMCPServer(
         if element_type not in self._MESH_DATA_ELEMENT_TYPES:
             raise ValueError(f"Invalid element_type: {element_type}. Must be one of {self._MESH_DATA_ELEMENT_TYPES}")
         obj = get_mesh_object(object_name)
+        sync_from_editmode(obj)
         mesh = obj.data
 
         if element_type == "vertices":

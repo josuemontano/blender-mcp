@@ -470,10 +470,14 @@ For headless setups or CI, credentials can also be injected by environment varia
 
 ### Communication Protocol
 
-The system uses a simple JSON-based protocol over TCP sockets:
+The system uses a JSON-based protocol over TCP sockets. Each message is a
+single line of JSON terminated by `\n` (newline-delimited JSON), so multiple
+messages on the same connection can never be mistaken for one another:
 
-- **Commands** are sent as JSON objects with a `type` and optional `params`
-- **Responses** are JSON objects with a `status` and `result` or `message`
+- **Commands** are sent as JSON objects with an `id`, a `type`, and optional
+  `params`
+- **Responses** are JSON objects with the same `id` echoed back, and a
+  `status` plus `result` or `message`
 
 ## Limitations & Security Considerations
 

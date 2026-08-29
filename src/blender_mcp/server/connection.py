@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 import threading
+import uuid
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -69,6 +70,11 @@ def ad_hoc_failure_message(result: object) -> str | None:
 class BlenderConnection:
     """Manage a serialized socket connection to a Blender addon."""
 
+    # Messages are newline-delimited JSON (see server_core.py's handle_client
+    # for why framing is required). Keep this in sync with that file's
+    # _MAX_MESSAGE_BYTES.
+    _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+
     host: str
     port: int
     sock: socket.socket = None  # Changed from 'socket' to 'sock' to avoid naming conflict
@@ -76,6 +82,9 @@ class BlenderConnection:
     # Without this, a second command's response can be read as the first's, and
     # the stream stays desynced until the 180s timeout fires.
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Bytes received past the current message's `\n` terminator, carried over
+    # to the next receive_full_response() call instead of being discarded.
+    _recv_buffer: bytes = field(default=b"", repr=False)
 
     def connect(self) -> bool:
         """
@@ -91,6 +100,7 @@ class BlenderConnection:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
+            self._recv_buffer = b""
             logger.info(f"Connected to Blender at {self.host}:{self.port}")
             return True
         except Exception as e:
@@ -109,8 +119,17 @@ class BlenderConnection:
                 self.sock = None
 
     def receive_full_response(self, sock, buffer_size=8192):
-        """
-        Receive the complete response, potentially in multiple chunks.
+        r"""
+        Receive exactly one newline-delimited JSON response.
+
+        Messages are terminated by a single `\n` (see server_core.py's
+        handle_client for why explicit framing is needed - trying to
+        json.loads() a growing buffer can't tell "incomplete message" apart
+        from "complete message plus the start of the next one", and treating
+        the latter as incomplete means it can never parse again). Any bytes
+        received past the terminator are kept in self._recv_buffer for the
+        next call, in case the addon ever sends more than one frame per
+        recv().
 
         Args:
             sock: Value for sock.
@@ -120,65 +139,31 @@ class BlenderConnection:
             Result produced by the operation.
 
         Raises:
-            Exception: If the operation cannot be completed.
+            Exception: If the connection closes or the message never
+                terminates within the size cap.
             BrokenPipeError: If the peer closes its write end during a receive.
             ConnectionError: If the socket connection fails while receiving.
             ConnectionResetError: If the peer resets the connection while receiving.
+            TimeoutError: If no complete message arrives before the timeout.
 
         """
-        chunks = []
-        # Use a consistent timeout value that matches the addon's timeout
         sock.settimeout(180.0)  # Match the addon's timeout
 
-        try:
-            while True:
-                try:
-                    chunk = sock.recv(buffer_size)
-                    if not chunk:
-                        # If we get an empty chunk, the connection might be closed
-                        if not chunks:  # If we haven't received anything yet, this is an error
-                            raise Exception("Connection closed before receiving any data")
-                        break
+        while b"\n" not in self._recv_buffer:
+            if len(self._recv_buffer) > self._MAX_MESSAGE_BYTES:
+                raise Exception(
+                    f"Response exceeded max size ({len(self._recv_buffer)} bytes) without a terminator"
+                )
+            chunk = sock.recv(buffer_size)
+            if not chunk:
+                if not self._recv_buffer:
+                    raise Exception("Connection closed before receiving any data")
+                raise Exception("Connection closed mid-message")
+            self._recv_buffer += chunk
 
-                    chunks.append(chunk)
-
-                    # Check if we've received a complete JSON object
-                    try:
-                        data = b"".join(chunks)
-                        json.loads(data.decode("utf-8"))
-                        # If we get here, it parsed successfully
-                        logger.info(f"Received complete response ({len(data)} bytes)")
-                        return data
-                    except json.JSONDecodeError:
-                        # Incomplete JSON, continue receiving
-                        continue
-                except TimeoutError:
-                    # If we hit a timeout during receiving, break the loop and try to use what we have
-                    logger.warning("Socket timeout during chunked receive")
-                    break
-                except (ConnectionError, BrokenPipeError, ConnectionResetError) as e:
-                    logger.error(f"Socket connection error during receive: {e!s}")
-                    raise  # Re-raise to be handled by the caller
-        except TimeoutError:
-            logger.warning("Socket timeout during chunked receive")
-        except Exception as e:
-            logger.error(f"Error during receive: {e!s}")
-            raise
-
-        # If we get here, we either timed out or broke out of the loop
-        # Try to use what we have
-        if chunks:
-            data = b"".join(chunks)
-            logger.info(f"Returning data after receive completion ({len(data)} bytes)")
-            try:
-                # Try to parse what we have
-                json.loads(data.decode("utf-8"))
-                return data
-            except json.JSONDecodeError as exc:
-                # If we can't parse it, it's incomplete
-                raise Exception("Incomplete JSON response received") from exc
-        else:
-            raise Exception("No data received")
+        line, self._recv_buffer = self._recv_buffer.split(b"\n", 1)
+        logger.info(f"Received complete response ({len(line)} bytes)")
+        return line
 
     def send_command(self, command_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """
@@ -202,8 +187,9 @@ class BlenderConnection:
                 f"(protocol {handshake.protocol_version}). Update the addon and reconnect."
             )
         # Hold the lock across send+receive: the response is matched to the
-        # command purely by ordering on the stream, so overlapping calls would
-        # hand each other's responses back.
+        # command purely by ordering on the stream (backstopped by the id
+        # check below), so overlapping calls would hand each other's
+        # responses back.
         with self._lock:
             return self.send_command_locked(command_type, params)
 
@@ -211,14 +197,15 @@ class BlenderConnection:
         if not self.sock and not self.connect():
             raise ConnectionError("Not connected to Blender")
 
-        command = {"type": command_type, "params": params or {}}
+        command = {"id": uuid.uuid4().hex, "type": command_type, "params": params or {}}
 
         try:
             # Log the command being sent
             logger.info(f"Sending command: {command_type} with params: {params}")
 
-            # Send the command
-            self.sock.sendall(json.dumps(command).encode("utf-8"))
+            # Send the command. Newline-terminated - see receive_full_response
+            # for why this protocol needs explicit framing.
+            self.sock.sendall(json.dumps(command).encode("utf-8") + b"\n")
             logger.info("Command sent, waiting for response...")
 
             # Set a timeout for receiving - use the same timeout as in receive_full_response
@@ -230,6 +217,16 @@ class BlenderConnection:
 
             response = json.loads(response_data.decode("utf-8"))
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
+
+            if response.get("id") != command["id"]:
+                # The lock already serializes one in-flight request per
+                # connection, so this should be unreachable - but if the
+                # stream ever desyncs, fail loudly instead of silently
+                # returning another command's response.
+                raise Exception(
+                    f"Response id {response.get('id')!r} does not match request id {command['id']!r} - "
+                    "the connection to Blender is desynced"
+                )
 
             if response.get("status") == "error":
                 logger.error(f"Blender error: {response.get('message')}")

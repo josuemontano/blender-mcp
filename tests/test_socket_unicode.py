@@ -1,16 +1,24 @@
-"""
-Regression coverage for split multi-byte UTF-8 sequences in the socket buffer.
+r"""
+Regression coverage for message boundaries in the addon's socket buffer.
 
-The bug: `handle_client` accumulates `recv()` chunks into `buffer` and does
-`buffer.decode('utf-8')` before attempting `json.loads()`. Only
-`json.JSONDecodeError` was caught, treated as "incomplete data, wait for more".
-If a multi-byte UTF-8 character (e.g. an accented letter, CJK text, or an
-emoji in an object name or in LLM-generated code) is split across a `recv()`
-chunk boundary, `.decode('utf-8')` raises `UnicodeDecodeError` instead -
-uncaught here, so it falls through to the outer `except Exception`, which
-logs and `break`s. The command is dropped and the connection is torn down,
-even though the rest of the payload was already sitting in the OS receive
-buffer waiting to be read.
+`handle_client` frames messages with a `b"\n"` terminator: each `recv()`
+chunk is appended to `buffer`, then every complete `\n`-delimited line is
+decoded and parsed as one JSON message, with any leftover bytes kept for the
+next chunk. Two things this needs to get right:
+
+- A multi-byte UTF-8 character (e.g. an accented letter, CJK text, or an
+  emoji in an object name or in LLM-generated code) can still land split
+  across a `recv()` chunk boundary - but never across the `\n` terminator
+  itself, since `\n` (0x0A) can't occur inside a multi-byte UTF-8 sequence.
+  So decoding only happens once a full line has been assembled.
+- Two full messages arriving in a *single* `recv()` (e.g. the OS coalesces
+  two `sendall()` calls, or a client doesn't wait for a response before
+  sending the next command) must both be parsed and queued - not just the
+  first one, and not left permanently stuck. Before framing was added, a
+  single `json.loads()` over the whole buffer raised `json.JSONDecodeError:
+  Extra data` for this case, which was indistinguishable from "incomplete
+  data" and so the buffer was never cleared - the connection could never
+  parse another message again.
 
 A real loopback socket won't reliably reproduce an exact byte-offset split
 (the OS may coalesce separate `sendall()` calls into one `recv()`), so this
@@ -75,9 +83,9 @@ def _split_after_lead_byte(payload: bytes) -> int:
 
 
 def test_split_multibyte_utf8_boundary_is_not_dropped() -> None:
-    payload = json.dumps({"type": "ping", "params": {"note": "café ☕ 日本語"}}, ensure_ascii=False).encode("utf-8")
-    split_idx = _split_after_lead_byte(payload)
-    chunk1, chunk2 = payload[:split_idx], payload[split_idx:]
+    body = json.dumps({"type": "ping", "params": {"note": "café ☕ 日本語"}}, ensure_ascii=False).encode("utf-8")
+    split_idx = _split_after_lead_byte(body)
+    chunk1, chunk2 = body[:split_idx], body[split_idx:] + b"\n"
 
     # Sanity check: confirm the split really does land mid-character, i.e.
     # this fixture actually exercises the bug and isn't accidentally valid.
@@ -104,13 +112,15 @@ def test_split_multibyte_utf8_boundary_keeps_handler_loop_alive() -> None:
 
     If the split killed the loop, this second command would never be queued.
     """
-    first = json.dumps({"type": "ping", "params": {"note": "emoji test 🎨"}}, ensure_ascii=False).encode("utf-8")
-    split_idx = _split_after_lead_byte(first)
-    second = json.dumps({"type": "ping", "params": {}}).encode("utf-8")
+    first_body = json.dumps({"type": "ping", "params": {"note": "emoji test 🎨"}}, ensure_ascii=False).encode("utf-8")
+    split_idx = _split_after_lead_byte(first_body)
+    second = json.dumps({"type": "ping", "params": {}}).encode("utf-8") + b"\n"
 
     server = _make_server()
     server.running = True
-    server.handle_client(ScriptedSocket([first[:split_idx], first[split_idx:], second]))
+    server.handle_client(
+        ScriptedSocket([first_body[:split_idx], first_body[split_idx:] + b"\n", second])
+    )
 
     queued = []
     while not server.command_queue.empty():
@@ -118,3 +128,50 @@ def test_split_multibyte_utf8_boundary_keeps_handler_loop_alive() -> None:
         queued.append(command)
 
     assert len(queued) == 2, f"expected both commands queued, got {queued}"
+
+
+def test_two_messages_concatenated_in_one_recv_are_both_queued() -> None:
+    r"""
+    Two full, newline-terminated messages landing in a single recv() chunk.
+
+    Before framing was added, `handle_client` tried `json.loads()` on the
+    whole accumulated buffer. A buffer containing "one complete JSON object
+    followed by another complete JSON object" raises `json.JSONDecodeError:
+    Extra data` - indistinguishable there from "incomplete, wait for more" -
+    so the buffer was kept and could never parse again: this is the
+    "permanently unparsable concatenated JSON" bug. With `\n`-framing, each
+    line is parsed independently, so both messages in one chunk must be
+    queued.
+    """
+    first = json.dumps({"type": "ping", "params": {"n": 1}}).encode("utf-8") + b"\n"
+    second = json.dumps({"type": "ping", "params": {"n": 2}}).encode("utf-8") + b"\n"
+
+    server = _make_server()
+    server.running = True
+    server.handle_client(ScriptedSocket([first + second]))
+
+    queued = []
+    while not server.command_queue.empty():
+        command, _client = server.command_queue.get_nowait()
+        queued.append(command["params"]["n"])
+
+    assert queued == [1, 2], f"expected both concatenated commands queued in order, got {queued}"
+
+
+def test_oversized_message_without_terminator_disconnects_instead_of_growing_forever() -> None:
+    r"""
+    Malformed/never-terminated input must not make the buffer grow forever.
+
+    A client (malicious or buggy) that sends bytes without ever completing a
+    `\n`-terminated message used to accumulate in `buffer` with no bound.
+    Once the buffer exceeds `_MAX_MESSAGE_BYTES`, the connection is dropped
+    instead.
+    """
+    server = _make_server()
+    server.running = True
+    server._MAX_MESSAGE_BYTES = 100  # keep the test fast
+    garbage_chunk = b"x" * 200
+
+    server.handle_client(ScriptedSocket([garbage_chunk]))
+
+    assert server.command_queue.empty(), "garbage input must never be queued as a command"
