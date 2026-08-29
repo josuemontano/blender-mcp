@@ -10,7 +10,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from test_mutation_transaction import _load_addon
 
-from blender_mcp.server.tools import camera
+from blender_mcp.server.tools import camera, camera_phase1
 
 CAMERA_COMMANDS = {
     "get_camera_rig_info",
@@ -25,6 +25,20 @@ CAMERA_COMMANDS = {
     "create_crane_camera_rig",
     "create_camera_path_rig",
     "configure_camera_dof",
+}
+
+CAMERA_PHASE_ONE_COMMANDS = {
+    "keyframe_camera_rig",
+    "set_camera_interpolation",
+    "create_focus_pull",
+    "create_dolly_zoom",
+    "add_camera_shake",
+    "create_camera_markers",
+    "match_camera_transform",
+    "duplicate_camera_rig",
+    "add_camera_constraint",
+    "configure_camera_render_gate",
+    "validate_camera_rig",
 }
 
 
@@ -44,6 +58,10 @@ def _run(function, **kwargs):
 
 def test_all_phase_zero_camera_tools_are_public() -> None:
     assert all(callable(getattr(camera, name)) for name in CAMERA_COMMANDS)
+
+
+def test_all_phase_one_camera_tools_are_public() -> None:
+    assert all(callable(getattr(camera_phase1, name)) for name in CAMERA_PHASE_ONE_COMMANDS)
 
 
 def test_camera_patch_forbids_unknown_rna_and_invalid_optics() -> None:
@@ -152,6 +170,118 @@ def test_dispatch_advertises_all_camera_commands_and_only_inspection_is_read_onl
     assert CAMERA_COMMANDS.issubset(commands)
     assert "get_camera_rig_info" in server._READ_ONLY_COMMANDS
     assert not (CAMERA_COMMANDS - {"get_camera_rig_info"}) & server._READ_ONLY_COMMANDS
+
+
+def test_dispatch_advertises_phase_one_and_validation_is_read_only(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+
+    commands = server._build_command_handlers()
+
+    assert CAMERA_PHASE_ONE_COMMANDS.issubset(commands)
+    assert "validate_camera_rig" in server._READ_ONLY_COMMANDS
+    assert not (CAMERA_PHASE_ONE_COMMANDS - {"validate_camera_rig"}) & server._READ_ONLY_COMMANDS
+
+
+def test_phase_one_keyframes_serialize_strict_records(monkeypatch) -> None:
+    connection = _StubConnection({"changed_objects": ["Hero"]})
+    # _call closes over camera.get_blender_connection because it is shared with the Phase 0 module.
+    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+
+    result = _run(
+        camera_phase1.keyframe_camera_rig,
+        keyframes=[
+            camera_phase1.CameraKeyframe(
+                object_name="Hero",
+                owner="CAMERA_DATA",
+                data_path="lens",
+                value=85,
+                frame=12,
+            )
+        ],
+        interpolation="LINEAR",
+    )
+
+    assert connection.calls == [
+        (
+            "keyframe_camera_rig",
+            {
+                "keyframes": [
+                    {
+                        "object_name": "Hero",
+                        "owner": "CAMERA_DATA",
+                        "data_path": "lens",
+                        "value": 85.0,
+                        "frame": 12,
+                    }
+                ],
+                "policy": "REPLACE",
+                "interpolation": "LINEAR",
+                "handle_left": "AUTO_CLAMPED",
+                "handle_right": "AUTO_CLAMPED",
+            },
+        )
+    ]
+    assert result["changed_objects"] == ["Hero"]
+
+
+def test_phase_one_preflights_ambiguous_subjects_and_marker_actions(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ToolError, match="exactly one subject"):
+        _run(
+            camera_phase1.create_dolly_zoom,
+            scene_name="Scene",
+            camera_name="Hero",
+            movement_object_name="Dolly",
+            start_frame=1,
+            end_frame=20,
+            start_distance=5,
+            end_distance=10,
+        )
+    with pytest.raises(ToolError, match="markers must not be empty"):
+        _run(camera_phase1.create_camera_markers, scene_name="Scene", action="CREATE")
+    with pytest.raises(ToolError, match="LIST does not accept"):
+        _run(
+            camera_phase1.create_camera_markers,
+            scene_name="Scene",
+            action="LIST",
+            markers=[camera_phase1.MarkerEdit(name="Shot", frame=1, camera_name="Hero")],
+        )
+
+    assert connection.calls == []
+
+
+def test_phase_one_strict_models_validate_ranges_and_constraint_intent() -> None:
+    with pytest.raises(ValidationError):
+        camera_phase1.RenderBorderPatch(min_x=0.8, max_x=0.2)
+    with pytest.raises(ValidationError):
+        camera_phase1.SafeAreasPatch(title=(0.9, 1.1))
+    with pytest.raises(ValidationError, match="constraint_name"):
+        camera_phase1.CameraKeyframe(
+            object_name="Hero",
+            owner="CONSTRAINT",
+            data_path="influence",
+            value=1,
+            frame=1,
+        )
+
+
+def test_marker_list_dispatch_is_read_only(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+    monkeypatch.setattr(
+        server,
+        "_build_command_handlers",
+        lambda: {"create_camera_markers": lambda **_params: {"action": "LIST", "camera_cuts": []}},
+    )
+
+    response = server.execute_command_internal(
+        {"type": "create_camera_markers", "params": {"scene_name": "Scene", "action": "LIST", "markers": []}}
+    )
+
+    assert response == {"status": "success", "result": {"action": "LIST", "camera_cuts": []}}
 
 
 def test_handler_camera_patch_rolls_back_assignments(monkeypatch) -> None:

@@ -14,6 +14,7 @@ import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
 from .handlers.camera import CameraHandlersMixin
+from .handlers.camera_phase1 import CameraPhaseOneHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin

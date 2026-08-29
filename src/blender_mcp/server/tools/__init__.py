@@ -1,6 +1,7 @@
 """Import every tool submodule for its @mcp.tool() registration side effect."""
 
 from . import camera as camera
+from . import camera_phase1 as camera_phase1
 from . import core as core
 from . import cloth as cloth
 from . import execute as execute

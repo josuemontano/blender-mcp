@@ -147,7 +147,7 @@ def test_handler_supplied_change_and_warning_metadata_wins(monkeypatch) -> None:
     assert result["warnings"] == ["cache invalidated"]
 
 
-def test_all_twenty_three_public_commands_are_registered() -> None:
+def test_all_twenty_eight_public_commands_are_registered() -> None:
     names = {
         "get_cloth_simulation_info",
         "get_cloth_object_info",
@@ -172,6 +172,11 @@ def test_all_twenty_three_public_commands_are_registered() -> None:
         "sample_cloth_simulation",
         "manage_cloth_cache",
         "remove_cloth_components",
+        "create_cloth_proxy_rig",
+        "duplicate_cloth_setup_variant",
+        "prepare_cloth_render_surface",
+        "export_cloth_simulation",
+        "analyze_cloth_performance",
     }
 
     assert all(callable(getattr(cloth, name)) for name in names)
@@ -618,3 +623,141 @@ def test_field_strength_is_the_only_direct_field_animation_control(monkeypatch) 
     _addon, handler = _load_cloth_handler(monkeypatch)
 
     assert handler._ANIMATABLE_FIELDS["FIELD_SETTINGS"] == {"strength"}
+
+
+def test_proxy_rig_serializes_explicit_topology_permission(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.create_cloth_proxy_rig,
+        render_object_name="Cape Render",
+        proxy_object_name="Cape Proxy",
+        proxy_source_policy="DECIMATE_RENDER",
+        allow_topology_change=True,
+        decimate_ratio=0.2,
+        validation_frames=[1, 12, 24],
+    )
+
+    command, params = connection.calls[0]
+    assert command == "create_cloth_proxy_rig"
+    assert params["allow_topology_change"] is True
+    assert params["decimate_ratio"] == 0.2
+    assert params["validation_frames"] == [1, 12, 24]
+
+
+def test_variant_requires_explicit_dependency_policies(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.duplicate_cloth_setup_variant,
+        source_object_name="Cape Preview",
+        variant_object_name="Cape Final",
+        variant_collection_name="Cape Final Setup",
+        name_suffix=" Final",
+        mesh_data_policy="COPY",
+        material_policy="SHARE",
+        animation_policy="SHARE",
+        collider_policy="SHARE",
+        force_field_policy="SHARE",
+        render_surface_policy="DUPLICATE",
+    )
+
+    command, params = connection.calls[0]
+    assert command == "duplicate_cloth_setup_variant"
+    assert params["mesh_data_policy"] == "COPY"
+    assert params["render_surface_policy"] == "DUPLICATE"
+
+
+def test_render_surface_serializes_typed_modifier_patches(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.prepare_cloth_render_surface,
+        object_name="Cape",
+        cloth_modifier_name="Cloth",
+        subdivision=cloth.ClothSubdivisionPatch(levels=1, render_levels=2),
+        solidify=cloth.ClothSolidifyPatch(thickness=0.003, use_even_offset=True),
+    )
+
+    command, params = connection.calls[0]
+    assert command == "prepare_cloth_render_surface"
+    assert params["subdivision"] == {"levels": 1, "render_levels": 2}
+    assert params["solidify"] == {"thickness": 0.003, "use_even_offset": True}
+    assert params["weighted_normal"] is None
+    assert params["rest_frame"] == 1
+
+
+def test_cloth_envelope_lifts_changed_resources(monkeypatch) -> None:
+    connection = _StubConnection(
+        {
+            "changed_objects": ["Cape Final"],
+            "changed_resources": ["Cape Final Mesh", "Cape Final Material"],
+        }
+    )
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    result = _run(
+        cloth.analyze_cloth_performance,
+        object_name="Cape",
+        modifier_name="Cloth",
+        frames=[1],
+    )
+
+    assert result["changed_objects"] == ["Cape Final"]
+    assert result["changed_resources"] == ["Cape Final Mesh", "Cape Final Material"]
+
+
+def test_export_forwards_complete_delivery_contract(monkeypatch, tmp_path) -> None:
+    connection = _StubConnection({"filepath": str(tmp_path / "cape.usdc")})
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.export_cloth_simulation,
+        scene_name="Shot",
+        filepath=str(tmp_path / "cape.usdc"),
+        file_format="USD",
+        object_names=["Cape"],
+        frame_start=1,
+        frame_end=24,
+        frame_step=2,
+        coordinate_space="WORLD",
+        units="METERS",
+        forward_axis="NEGATIVE_Z",
+        up_axis="Y",
+        topology_policy="REQUIRE_STABLE",
+        evaluation_policy="REQUIRE_BAKED",
+        overwrite=True,
+    )
+
+    command, params = connection.calls[0]
+    assert command == "export_cloth_simulation"
+    assert params["scene_name"] == "Shot"
+    assert params["object_names"] == ["Cape"]
+    assert params["frame_step"] == 2
+    assert params["overwrite"] is True
+
+
+def test_phase_two_validation_helpers_reject_duplicate_frames_and_parallel_axes(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+
+    with pytest.raises(ValueError, match="duplicates"):
+        handler._validate_frames([1, 1], maximum=4)
+    with pytest.raises(ValueError, match="different axes"):
+        handler._validate_distinct_axes("NEGATIVE_Z", "Z")
+
+
+def test_phase_two_commands_are_dispatched_and_transaction_targets_are_declared(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+    commands = server._build_command_handlers()
+
+    assert "create_cloth_proxy_rig" in commands
+    assert "duplicate_cloth_setup_variant" in commands
+    assert "prepare_cloth_render_surface" in commands
+    assert "export_cloth_simulation" in commands
+    assert "analyze_cloth_performance" in commands
+    assert "render_object_name" in server._TARGET_NAME_PARAMS
+    assert "source_object_name" in server._TARGET_NAME_PARAMS

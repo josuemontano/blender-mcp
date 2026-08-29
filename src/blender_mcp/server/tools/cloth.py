@@ -50,6 +50,16 @@ ClothComponentType = Literal[
     "ATTACHMENT_MODIFIER",
     "COLLISION_COLLECTION_MEMBERSHIP",
 ]
+ProxySourcePolicy = Literal["EXISTING", "DUPLICATE_RENDER", "DECIMATE_RENDER"]
+VariantDataPolicy = Literal["COPY", "SHARE"]
+VariantDependencyPolicy = Literal["DUPLICATE", "SHARE"]
+RenderSurfacePolicy = Literal["DUPLICATE", "OMIT"]
+ClothExportFormat = Literal["ALEMBIC", "USD"]
+ClothExportSpace = Literal["WORLD", "LOCAL"]
+ClothExportUnits = Literal["SCENE", "METERS", "CENTIMETERS", "MILLIMETERS"]
+ClothExportAxis = Literal["X", "Y", "Z", "NEGATIVE_X", "NEGATIVE_Y", "NEGATIVE_Z"]
+ClothTopologyPolicy = Literal["REQUIRE_STABLE", "ALLOW_VARYING"]
+ClothEvaluationPolicy = Literal["REQUIRE_BAKED", "EVALUATE"]
 
 
 class _StrictModel(BaseModel):
@@ -224,6 +234,62 @@ class PointCachePatch(_StrictModel):
     filepath: str | None = None
 
 
+class CorrectiveSmoothPatch(_StrictModel):
+    """Allowlisted post-cloth Corrective Smooth controls."""
+
+    factor: float | None = None
+    iterations: int | None = None
+    scale: float | None = None
+    rest_source: Literal["ORCO", "BIND"] | None = None
+    smooth_type: Literal["SIMPLE", "LENGTH_WEIGHTED"] | None = None
+    use_only_smooth: bool | None = None
+    use_pin_boundary: bool | None = None
+    vertex_group: str | None = None
+
+
+class ClothSubdivisionPatch(_StrictModel):
+    """Allowlisted post-cloth Subdivision Surface controls."""
+
+    levels: int | None = None
+    render_levels: int | None = None
+    quality: int | None = None
+    subdivision_type: Literal["CATMULL_CLARK", "SIMPLE"] | None = None
+    uv_smooth: (
+        Literal[
+            "NONE",
+            "PRESERVE_CORNERS",
+            "PRESERVE_CORNERS_AND_JUNCTIONS",
+            "PRESERVE_CORNERS_JUNCTIONS_AND_CONCAVE",
+            "PRESERVE_BOUNDARIES",
+            "SMOOTH_ALL",
+        ]
+        | None
+    ) = None
+    use_creases: bool | None = None
+
+
+class ClothSolidifyPatch(_StrictModel):
+    """Allowlisted post-cloth Solidify controls."""
+
+    thickness: float | None = None
+    offset: float | None = None
+    material_offset: int | None = None
+    material_offset_rim: int | None = None
+    use_even_offset: bool | None = None
+    use_quality_normals: bool | None = None
+    use_rim: bool | None = None
+
+
+class ClothWeightedNormalPatch(_StrictModel):
+    """Allowlisted Blender 5.1 Weighted Normal controls."""
+
+    weight: int | None = None
+    mode: Literal["FACE_AREA", "CORNER_ANGLE", "FACE_AREA_WITH_ANGLE"] | None = None
+    thresh: float | None = None
+    keep_sharp: bool | None = None
+    use_face_influence: bool | None = None
+
+
 def _dump(model: BaseModel | None) -> dict | None:
     return model.model_dump(exclude_none=True, exclude_unset=True) if model is not None else None
 
@@ -232,9 +298,12 @@ def _call(command: str, params: dict, changed_objects: list[str] | None = None) 
     try:
         result = get_blender_connection().send_command(command, params)
         changed = result.get("changed_objects", changed_objects or []) if isinstance(result, dict) else changed_objects
-        if isinstance(result, dict) and "changed_objects" in result:
-            result = {key: value for key, value in result.items() if key != "changed_objects"}
-        return ok(result, changed_objects=changed or [])
+        resources = result.get("changed_resources", []) if isinstance(result, dict) else []
+        if isinstance(result, dict):
+            result = {
+                key: value for key, value in result.items() if key not in {"changed_objects", "changed_resources"}
+            }
+        return ok(result, changed_objects=changed or [], changed_resources=resources)
     except Exception as exc:
         logger.error("Error running %s: %s", command, exc)
         raise ToolError(f"Error running {command}: {exc}") from exc
@@ -900,6 +969,231 @@ async def remove_cloth_components(
             "collection_name": collection_name,
             "confirm_baked_removal": confirm_baked_removal,
             "confirm_affected_bakes": confirm_affected_bakes,
+        },
+        [object_name],
+    )
+
+
+@mcp.tool()
+async def create_cloth_proxy_rig(
+    ctx: Context,
+    render_object_name: str,
+    proxy_object_name: str,
+    proxy_source_policy: ProxySourcePolicy = "EXISTING",
+    bind_type: Literal["SURFACE_DEFORM", "MESH_DEFORM"] = "SURFACE_DEFORM",
+    cloth_modifier_name: str = "Cloth",
+    bind_modifier_name: str = "Cloth Proxy Bind",
+    existing_policy: ExistingPolicy = "ERROR",
+    allow_topology_change: bool = False,
+    decimate_ratio: float = 0.25,
+    vertex_group_name: str | None = None,
+    surface_deform_falloff: float = 4.0,
+    mesh_deform_precision: int = 5,
+    rest_frame: int = 1,
+    validation_frames: list[int] | None = None,
+) -> dict:
+    """Create a live low-resolution cloth proxy relationship for one render mesh.
+
+    EXISTING uses an explicit proxy object. DUPLICATE_RENDER preserves topology; DECIMATE_RENDER
+    creates a new proxy and is accepted only with ``allow_topology_change=True``. The render mesh
+    receives a bound Surface Deform or Mesh Deform modifier and is never destructively converted.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "create_cloth_proxy_rig",
+        {
+            "render_object_name": render_object_name,
+            "proxy_object_name": proxy_object_name,
+            "proxy_source_policy": proxy_source_policy,
+            "bind_type": bind_type,
+            "cloth_modifier_name": cloth_modifier_name,
+            "bind_modifier_name": bind_modifier_name,
+            "existing_policy": existing_policy,
+            "allow_topology_change": allow_topology_change,
+            "decimate_ratio": decimate_ratio,
+            "vertex_group_name": vertex_group_name,
+            "surface_deform_falloff": surface_deform_falloff,
+            "mesh_deform_precision": mesh_deform_precision,
+            "rest_frame": rest_frame,
+            "validation_frames": validation_frames or [],
+        },
+        [render_object_name],
+    )
+
+
+@mcp.tool()
+async def duplicate_cloth_setup_variant(
+    ctx: Context,
+    source_object_name: str,
+    variant_object_name: str,
+    variant_collection_name: str,
+    name_suffix: str,
+    mesh_data_policy: VariantDataPolicy,
+    material_policy: VariantDataPolicy,
+    animation_policy: VariantDataPolicy,
+    collider_policy: VariantDependencyPolicy,
+    force_field_policy: VariantDependencyPolicy,
+    render_surface_policy: RenderSurfacePolicy,
+    cache_directory: str | None = None,
+) -> dict:
+    """Duplicate a cloth setup with explicit sharing policies and independent point caches.
+
+    Vertex groups copy with the object. Shape keys follow ``mesh_data_policy``; material slots and
+    actions follow their own policies. Collision/effector dependencies and render surfaces are
+    discovered from the source setup, then either shared or duplicated as explicitly requested.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "duplicate_cloth_setup_variant",
+        {
+            "source_object_name": source_object_name,
+            "variant_object_name": variant_object_name,
+            "variant_collection_name": variant_collection_name,
+            "name_suffix": name_suffix,
+            "mesh_data_policy": mesh_data_policy,
+            "material_policy": material_policy,
+            "animation_policy": animation_policy,
+            "collider_policy": collider_policy,
+            "force_field_policy": force_field_policy,
+            "render_surface_policy": render_surface_policy,
+            "cache_directory": cache_directory,
+        },
+        [source_object_name],
+    )
+
+
+@mcp.tool()
+async def prepare_cloth_render_surface(
+    ctx: Context,
+    object_name: str,
+    cloth_modifier_name: str,
+    corrective_smooth: CorrectiveSmoothPatch | None = None,
+    subdivision: ClothSubdivisionPatch | None = None,
+    solidify: ClothSolidifyPatch | None = None,
+    weighted_normal: ClothWeightedNormalPatch | None = None,
+    corrective_smooth_name: str = "Cloth Corrective Smooth",
+    subdivision_name: str = "Cloth Render Subdivision",
+    solidify_name: str = "Cloth Render Thickness",
+    weighted_normal_name: str = "Cloth Weighted Normal",
+    existing_policy: ExistingPolicy = "ERROR",
+    rest_frame: int = 1,
+) -> dict:
+    """Add or update a reversible render-only modifier stack after Cloth.
+
+    Requested modifiers are ordered Corrective Smooth, Subdivision, Solidify, then Weighted Normal.
+    Nothing is applied, source geometry/materials/UVs are retained, and evaluated cost evidence is
+    returned. Existing modifiers are reused only when explicitly requested.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "prepare_cloth_render_surface",
+        {
+            "object_name": object_name,
+            "cloth_modifier_name": cloth_modifier_name,
+            "corrective_smooth": _dump(corrective_smooth),
+            "subdivision": _dump(subdivision),
+            "solidify": _dump(solidify),
+            "weighted_normal": _dump(weighted_normal),
+            "corrective_smooth_name": corrective_smooth_name,
+            "subdivision_name": subdivision_name,
+            "solidify_name": solidify_name,
+            "weighted_normal_name": weighted_normal_name,
+            "existing_policy": existing_policy,
+            "rest_frame": rest_frame,
+        },
+        [object_name],
+    )
+
+
+@mcp.tool()
+async def export_cloth_simulation(
+    ctx: Context,
+    scene_name: str,
+    filepath: str,
+    file_format: ClothExportFormat,
+    object_names: list[str],
+    frame_start: int,
+    frame_end: int,
+    frame_step: int,
+    coordinate_space: ClothExportSpace,
+    units: ClothExportUnits,
+    forward_axis: ClothExportAxis,
+    up_axis: ClothExportAxis,
+    topology_policy: ClothTopologyPolicy,
+    evaluation_policy: ClothEvaluationPolicy,
+    include_uvs: bool = True,
+    include_normals: bool = True,
+    include_vertex_colors: bool = True,
+    include_materials: bool = True,
+    overwrite: bool = False,
+    max_frames: int = 500,
+) -> dict:
+    """Export exact cloth objects to Alembic or USD using Blender 5.1's native exporter.
+
+    The path, range, transforms, units, axes, topology policy, attributes, and overwrite boundary
+    are explicit. REQUIRE_BAKED rejects unbaked Cloth modifiers; EVALUATE may populate in-memory
+    caches. Alembic supports only unit frame steps and Blender's fixed -Z/Y export orientation.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "export_cloth_simulation",
+        {
+            "scene_name": scene_name,
+            "filepath": filepath,
+            "file_format": file_format,
+            "object_names": object_names,
+            "frame_start": frame_start,
+            "frame_end": frame_end,
+            "frame_step": frame_step,
+            "coordinate_space": coordinate_space,
+            "units": units,
+            "forward_axis": forward_axis,
+            "up_axis": up_axis,
+            "topology_policy": topology_policy,
+            "evaluation_policy": evaluation_policy,
+            "include_uvs": include_uvs,
+            "include_normals": include_normals,
+            "include_vertex_colors": include_vertex_colors,
+            "include_materials": include_materials,
+            "overwrite": overwrite,
+            "max_frames": max_frames,
+        },
+        object_names,
+    )
+
+
+@mcp.tool()
+async def analyze_cloth_performance(
+    ctx: Context,
+    object_name: str,
+    modifier_name: str,
+    frames: list[int],
+    warm_repeats: int = 2,
+    max_total_evaluations: int = 60,
+    include_short_bake: bool = False,
+    confirm_short_bake: bool = False,
+    short_bake_frame_start: int | None = None,
+    short_bake_frame_end: int | None = None,
+) -> dict:
+    """Profile bounded first-pass/warm frame evaluation and optional isolated short baking.
+
+    The optional bake runs on a temporary object with an independent in-memory cache and requires
+    confirmation. Source caches are never freed or overwritten. Timings are measurements for this
+    run only and are returned separately from structural cost evidence.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "analyze_cloth_performance",
+        {
+            "object_name": object_name,
+            "modifier_name": modifier_name,
+            "frames": frames,
+            "warm_repeats": warm_repeats,
+            "max_total_evaluations": max_total_evaluations,
+            "include_short_bake": include_short_bake,
+            "confirm_short_bake": confirm_short_bake,
+            "short_bake_frame_start": short_bake_frame_start,
+            "short_bake_frame_end": short_bake_frame_end,
         },
         [object_name],
     )
