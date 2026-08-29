@@ -147,7 +147,7 @@ def test_handler_supplied_change_and_warning_metadata_wins(monkeypatch) -> None:
     assert result["warnings"] == ["cache invalidated"]
 
 
-def test_all_twelve_public_commands_are_registered() -> None:
+def test_all_twenty_three_public_commands_are_registered() -> None:
     names = {
         "get_cloth_simulation_info",
         "get_cloth_object_info",
@@ -161,9 +161,21 @@ def test_all_twelve_public_commands_are_registered() -> None:
         "configure_cloth_collider",
         "estimate_cloth_resources",
         "validate_cloth_setup",
+        "configure_cloth_sewing",
+        "configure_cloth_pressure",
+        "configure_cloth_internal_springs",
+        "configure_cloth_rest_shape",
+        "configure_cloth_field_weights",
+        "animate_cloth_parameters",
+        "create_cloth_attachment",
+        "create_character_cloth_setup",
+        "sample_cloth_simulation",
+        "manage_cloth_cache",
+        "remove_cloth_components",
     }
 
     assert all(callable(getattr(cloth, name)) for name in names)
+    assert set(cloth.mcp._tool_manager._tools) >= names
 
 
 def _load_cloth_handler(monkeypatch):
@@ -392,5 +404,217 @@ def test_dispatch_advertises_cloth_and_marks_only_inspection_read_only(monkeypat
     commands = server._build_command_handlers()
 
     assert "get_cloth_simulation_info" in commands
+    assert "create_character_cloth_setup" in commands
+    assert "manage_cloth_cache" in commands
     assert "validate_cloth_setup" in server._READ_ONLY_COMMANDS
     assert "configure_cloth_solver" not in server._READ_ONLY_COMMANDS
+
+
+def test_sewing_dry_run_forwards_exact_pairs_without_reporting_changes(monkeypatch) -> None:
+    connection = _StubConnection({"dry_run": True, "analysis": {"pairs": 1}})
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    result = _run(
+        cloth.configure_cloth_sewing,
+        object_name="Garment",
+        modifier_name="Cloth",
+        seam_pairs=[cloth.SewingPair(source_vertex=4, target_vertex=9)],
+        sewing_force_max=25.0,
+    )
+
+    assert result["changed_objects"] == []
+    assert connection.calls == [
+        (
+            "configure_cloth_sewing",
+            {
+                "object_name": "Garment",
+                "modifier_name": "Cloth",
+                "seam_pairs": [{"source_vertex": 4, "target_vertex": 9}],
+                "sewing_force_max": 25.0,
+                "create_missing_edges": False,
+                "dry_run": True,
+                "max_pair_distance": None,
+            },
+        )
+    ]
+
+
+def test_animation_records_and_cache_index_are_strictly_serialized(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.animate_cloth_parameters,
+        object_name="Balloon",
+        cloth_modifier_name="Cloth",
+        keyframes=[
+            cloth.ClothAnimationKeyframe(
+                owner="CLOTH_SETTINGS",
+                property_name="uniform_pressure_force",
+                value=3.5,
+                frame=12,
+                interpolation="LINEAR",
+            )
+        ],
+    )
+    _run(
+        cloth.manage_cloth_cache,
+        object_name="Balloon",
+        modifier_name="Cloth",
+        action="CONFIGURE",
+        patch=cloth.PointCachePatch(index=3, frame_start=1, frame_end=80),
+    )
+
+    assert connection.calls[0][1]["keyframes"] == [
+        {
+            "owner": "CLOTH_SETTINGS",
+            "property_name": "uniform_pressure_force",
+            "value": 3.5,
+            "frame": 12.0,
+            "target_name": None,
+            "array_index": -1,
+            "interpolation": "LINEAR",
+        }
+    ]
+    assert connection.calls[1][1]["patch"] == {"frame_start": 1, "frame_end": 80, "index": 3}
+
+
+def test_character_setup_forwards_explicit_modifier_names(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+
+    _run(
+        cloth.create_character_cloth_setup,
+        garment_object_name="Coat",
+        armature_object_name="Rig",
+        body_collider_object_names=["Torso Proxy"],
+        pin_group_name="Shoulders",
+        collision_collection_name="Character Colliders",
+        collider_modifier_name="Body Cloth Collision",
+        subdivision_modifier_name="Render Subdivision",
+        solidify_modifier_name="Render Thickness",
+        rest_frame=10,
+        cache_frame_start=10,
+        cache_frame_end=120,
+    )
+
+    params = connection.calls[0][1]
+    assert params["collider_modifier_name"] == "Body Cloth Collision"
+    assert params["subdivision_modifier_name"] == "Render Subdivision"
+    assert params["solidify_modifier_name"] == "Render Thickness"
+    assert params["rest_frame"] == 10
+
+
+def test_prospective_external_cache_identity_uses_patch_values(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+    handler.bpy.path = types.SimpleNamespace(abspath=lambda path: f"/project/{path.removeprefix('//')}")
+    cache = types.SimpleNamespace(
+        use_external=False,
+        filepath="",
+        name="Old",
+        index=0,
+    )
+
+    identity = handler._prospective_cache_identity(
+        cache,
+        {"use_external": True, "filepath": "//cache/coat", "name": "Coat", "index": 4},
+    )
+
+    assert identity == ("EXTERNAL", "/project/cache/coat", "Coat", 4)
+
+
+def test_dynamic_read_only_classifies_sewing_dry_run_and_cache_inspection(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+    calls = []
+
+    server._resolve_targets = lambda _params: (_ for _ in ()).throw(AssertionError("must remain read-only"))
+    sewing = server._run_handler(
+        "configure_cloth_sewing",
+        lambda **params: calls.append(params) or {"dry_run": True},
+        {"dry_run": True},
+    )
+    cache = server._run_handler(
+        "manage_cloth_cache",
+        lambda **params: calls.append(params) or {"point_cache": {}},
+        {"action": "INSPECT"},
+    )
+
+    assert sewing == {"dry_run": True}
+    assert cache == {"point_cache": {}}
+    assert calls == [{"dry_run": True}, {"action": "INSPECT"}]
+
+
+def test_sewing_plan_reports_duplicate_loose_edges(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+
+    class Vector:
+        def __init__(self, values):
+            self.values = values
+
+        def __sub__(self, other):
+            return Vector(tuple(first - second for first, second in zip(self.values, other.values, strict=True)))
+
+        @property
+        def length(self):
+            return sum(value * value for value in self.values) ** 0.5
+
+    obj = types.SimpleNamespace(
+        data=types.SimpleNamespace(
+            vertices=[types.SimpleNamespace(co=Vector((index, 0, 0))) for index in range(6)],
+            polygons=[types.SimpleNamespace(vertices=(0, 1, 2)), types.SimpleNamespace(vertices=(3, 4, 5))],
+            edges=[types.SimpleNamespace(vertices=(1, 3), index=6), types.SimpleNamespace(vertices=(1, 3), index=7)],
+        )
+    )
+
+    plan = handler._sewing_plan(obj, [{"source_vertex": 1, "target_vertex": 3}], None)
+
+    assert plan["duplicate_requested_mesh_edges"] == 1
+    assert plan["pairs"][0]["edge_indices"] == [6, 7]
+
+
+def test_point_cache_operator_override_contains_exact_cache(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+    scene = object()
+    view_layer = object()
+    obj = object()
+    cache = object()
+    monkeypatch.setattr(handler, "_scene_context_for_object", lambda _obj: (scene, view_layer))
+
+    _scene, _view_layer, override = handler._point_cache_context(obj, cache)
+
+    assert override["point_cache"] is cache
+    assert override["object"] is obj
+    assert override["scene"] is scene
+    assert override["view_layer"] is view_layer
+
+
+def test_owned_membership_lookup_is_exact(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+    obj = {
+        "blendermcp_cloth_component_a": (
+            '{"owned": true, "role": "collision_membership", "collection": "Character Colliders"}'
+        ),
+        "blendermcp_cloth_component_b": ('{"owned": true, "role": "collision_membership", "collection": "Other"}'),
+    }
+
+    record = handler._owned_membership_record(obj, "Character Colliders")
+
+    assert record["collection"] == "Character Colliders"
+    assert handler._owned_membership_record(obj, "Missing") is None
+
+
+def test_p1_dispatch_targets_and_geometry_capture_are_declared(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+
+    assert "cloth_object_name" in server._TARGET_NAME_PARAMS
+    assert "garment_object_name" in server._TARGET_NAME_PARAMS
+    assert "body_collider_object_names" in server._TARGET_NAMES_PARAMS
+    assert "configure_cloth_sewing" in server._GEOMETRY_MUTATING_COMMANDS
+
+
+def test_field_strength_is_the_only_direct_field_animation_control(monkeypatch) -> None:
+    _addon, handler = _load_cloth_handler(monkeypatch)
+
+    assert handler._ANIMATABLE_FIELDS["FIELD_SETTINGS"] == {"strength"}

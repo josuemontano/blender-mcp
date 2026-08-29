@@ -9,12 +9,15 @@ import json
 import math
 import os
 import statistics
+import time
 import uuid
 
 from collections import Counter
 from itertools import pairwise
 
+import bmesh
 import bpy
+import mathutils
 
 from ..helpers import paginate, preserve_mode_and_selection, set_active, sync_from_editmode
 
@@ -82,6 +85,83 @@ _CLOTH_COLLISION_FIELDS = {
     "vertex_group_self_collisions",
 }
 _COLLIDER_FIELDS = {"use", "thickness_outer", "cloth_friction", "damping", "use_culling", "use_normal"}
+_PRESSURE_FIELDS = {
+    "use_pressure",
+    "uniform_pressure_force",
+    "use_pressure_volume",
+    "target_volume",
+    "pressure_factor",
+    "fluid_density",
+    "vertex_group_pressure",
+}
+_INTERNAL_SPRING_FIELDS = {
+    "use_internal_springs",
+    "internal_spring_max_length",
+    "internal_spring_max_diversion",
+    "internal_spring_normal_check",
+    "internal_tension_stiffness",
+    "internal_compression_stiffness",
+    "internal_tension_stiffness_max",
+    "internal_compression_stiffness_max",
+    "internal_friction",
+    "vertex_group_intern",
+}
+_FIELD_WEIGHT_FIELDS = {
+    "all",
+    "gravity",
+    "force",
+    "vortex",
+    "magnetic",
+    "wind",
+    "curve_guide",
+    "texture",
+    "harmonic",
+    "charge",
+    "lennardjones",
+    "turbulence",
+    "drag",
+    "boid",
+    "smokeflow",
+    "apply_to_hair_growing",
+}
+_POINT_CACHE_FIELDS = {
+    "frame_start",
+    "frame_end",
+    "frame_step",
+    "name",
+    "index",
+    "use_disk_cache",
+    "use_external",
+    "use_library_path",
+    "filepath",
+}
+_ANIMATABLE_FIELDS = {
+    "CLOTH_SETTINGS": {
+        "uniform_pressure_force",
+        "target_volume",
+        "pressure_factor",
+        "fluid_density",
+        "shrink_min",
+        "shrink_max",
+        "pin_stiffness",
+        "goal_min",
+        "goal_max",
+        "goal_default",
+        "goal_spring",
+        "goal_friction",
+        "time_scale",
+        "gravity",
+    },
+    "EFFECTOR_WEIGHTS": _FIELD_WEIGHT_FIELDS - {"apply_to_hair_growing"},
+    "FIELD_SETTINGS": {"strength"},
+    "COLLIDER_SETTINGS": {"thickness_outer", "cloth_friction", "damping", "use_culling", "use_normal"},
+    "SHAPE_KEY": {"value"},
+    "HOOK_MODIFIER": {"strength", "falloff_radius"},
+    "ARMATURE_MODIFIER": {"strength"},
+    "MESH_DEFORM_MODIFIER": {"strength"},
+    "SURFACE_DEFORM_MODIFIER": {"strength"},
+    "OBJECT": {"location", "rotation_euler", "rotation_quaternion", "scale"},
+}
 _WEIGHT_ROLES = {
     "PIN_MASS": ("settings", "vertex_group_mass"),
     "STRUCTURAL_STIFFNESS": ("settings", "vertex_group_structural_stiffness"),
@@ -175,11 +255,12 @@ def _rna_property(owner, name):
 def _validate_rna_value(owner, name, value):
     prop = _rna_property(owner, name)
     _finite(value, name)
-    if prop.type in {"FLOAT", "INT"} and not prop.is_array and (value < prop.hard_min or value > prop.hard_max):
+    is_array = getattr(prop, "is_array", False)
+    if prop.type in {"FLOAT", "INT"} and not is_array and (value < prop.hard_min or value > prop.hard_max):
         raise ValueError(f"{name}={value} is outside Blender's RNA range [{prop.hard_min}, {prop.hard_max}]")
     if prop.type == "ENUM" and value not in {item.identifier for item in prop.enum_items}:
         raise ValueError(f"Invalid {name}: {value}")
-    if prop.is_array and len(value) != prop.array_length:
+    if is_array and len(value) != prop.array_length:
         raise ValueError(f"{name} must contain {prop.array_length} values")
     return value
 
@@ -714,6 +795,725 @@ def _collider_order_warnings(obj, collision_modifier):
 
 def _is_high_resolution_collider(cloth_obj, collider):
     return len(collider.data.polygons) > max(10_000, len(cloth_obj.data.polygons) * 4)
+
+
+def _surface_report(obj):
+    if not obj.data.vertices or not obj.data.polygons:
+        raise ValueError(f"Mesh '{obj.name}' must contain vertices and faces")
+    edge_uses = Counter()
+    directed = Counter()
+    signed_volume = 0.0
+    center = sum((vertex.co for vertex in obj.data.vertices), obj.data.vertices[0].co * 0.0) / max(
+        len(obj.data.vertices), 1
+    )
+    inward_faces = []
+    for polygon in obj.data.polygons:
+        vertices = list(polygon.vertices)
+        for index, first in enumerate(vertices):
+            second = vertices[(index + 1) % len(vertices)]
+            edge_uses[tuple(sorted((first, second)))] += 1
+            directed[first, second] += 1
+        if len(vertices) >= 3:
+            origin = obj.data.vertices[vertices[0]].co
+            for index in range(1, len(vertices) - 1):
+                second = obj.data.vertices[vertices[index]].co
+                third = obj.data.vertices[vertices[index + 1]].co
+                signed_volume += float(origin.dot(second.cross(third))) / 6.0
+        if polygon.area > 1e-12 and polygon.normal.dot(polygon.center - center) < 0:
+            inward_faces.append(polygon.index)
+    loose_edges = sum(edge_uses.get(tuple(sorted(edge.vertices)), 0) == 0 for edge in obj.data.edges)
+    inconsistent = sum(
+        directed[second, first] == 0 for first, second in directed if edge_uses[tuple(sorted((first, second)))] == 2
+    )
+    return {
+        "signed_volume_object_local_cubed": signed_volume,
+        "absolute_volume_object_local_cubed": abs(signed_volume),
+        "boundary_edges": sum(count == 1 for count in edge_uses.values()),
+        "non_manifold_edges": sum(count != 2 for count in edge_uses.values()) + loose_edges,
+        "loose_edges": loose_edges,
+        "inconsistent_winding_edges": inconsistent,
+        "inward_face_candidates": inward_faces[:100],
+        "inward_face_candidates_truncated": len(inward_faces) > 100,
+        "orientation_evidence": "POSITIVE_SIGNED_VOLUME" if signed_volume > 0 else "NON_POSITIVE_SIGNED_VOLUME",
+    }
+
+
+def _sewing_plan(obj, seam_pairs, max_pair_distance):
+    if not seam_pairs or len(seam_pairs) > 5_000:
+        raise ValueError("seam_pairs must contain 1-5000 explicit pairs")
+    vertex_count = len(obj.data.vertices)
+    edge_face_uses = Counter()
+    for polygon in obj.data.polygons:
+        vertices = list(polygon.vertices)
+        for index, first in enumerate(vertices):
+            second = vertices[(index + 1) % len(vertices)]
+            edge_face_uses[tuple(sorted((first, second)))] += 1
+    boundary_vertices = {vertex for edge, uses in edge_face_uses.items() if uses == 1 for vertex in edge}
+    mesh_edges = {}
+    for edge in obj.data.edges:
+        mesh_edges.setdefault(tuple(sorted(edge.vertices)), []).append(edge.index)
+    seen = set()
+    endpoint_uses = Counter()
+    records = []
+    connector_vectors = []
+    for pair_index, pair in enumerate(seam_pairs):
+        first = int(pair["source_vertex"])
+        second = int(pair["target_vertex"])
+        if first == second:
+            raise ValueError(f"Sewing pair {pair_index} repeats vertex {first}")
+        if not 0 <= first < vertex_count or not 0 <= second < vertex_count:
+            raise ValueError(f"Sewing pair {pair_index} contains an index outside [0, {vertex_count - 1}]")
+        key = tuple(sorted((first, second)))
+        if key in seen:
+            raise ValueError(f"Duplicate sewing pair for vertices {list(key)}")
+        seen.add(key)
+        endpoint_uses.update((first, second))
+        distance = float((obj.data.vertices[first].co - obj.data.vertices[second].co).length)
+        if max_pair_distance is not None and distance > max_pair_distance:
+            raise ValueError(
+                f"Sewing pair {pair_index} distance {distance:g} exceeds max_pair_distance {max_pair_distance:g}"
+            )
+        face_uses = edge_face_uses.get(key, 0)
+        if face_uses:
+            raise ValueError(f"Edge {list(key)} belongs to {face_uses} face(s) and is not a loose sewing edge")
+        connector_vectors.append(obj.data.vertices[second].co - obj.data.vertices[first].co)
+        records.append(
+            {
+                "pair_index": pair_index,
+                "vertices": [first, second],
+                "distance_object_local": distance,
+                "source_is_boundary": first in boundary_vertices,
+                "target_is_boundary": second in boundary_vertices,
+                "existing_loose_edge": key in mesh_edges,
+                "edge_indices": mesh_edges.get(key, []),
+                "duplicate_existing_edges": len(mesh_edges.get(key, [])) > 1,
+            }
+        )
+    reversals = []
+    for index, (previous, current) in enumerate(pairwise(connector_vectors), start=1):
+        if previous.length_squared and current.length_squared and previous.dot(current) < 0:
+            reversals.append(index)
+    distances = [record["distance_object_local"] for record in records]
+    unused_boundary_vertices = sorted(boundary_vertices - endpoint_uses.keys())
+    return {
+        "pairs": records,
+        "existing_loose_edges": sum(record["existing_loose_edge"] for record in records),
+        "missing_loose_edges": sum(not record["existing_loose_edge"] for record in records),
+        "duplicate_requested_mesh_edges": sum(record["duplicate_existing_edges"] for record in records),
+        "non_boundary_endpoints": sum(
+            not record["source_is_boundary"] or not record["target_is_boundary"] for record in records
+        ),
+        "boundary_vertices": len(boundary_vertices),
+        "unmatched_boundary_vertices": len(unused_boundary_vertices),
+        "unmatched_boundary_vertex_sample": unused_boundary_vertices[:100],
+        "unmatched_boundary_vertices_truncated": len(unused_boundary_vertices) > 100,
+        "multiply_mapped_boundary_vertices": sorted(vertex for vertex, uses in endpoint_uses.items() if uses > 1)[:100],
+        "pair_distance": {
+            "minimum": min(distances),
+            "maximum": max(distances),
+            "mean": statistics.fmean(distances),
+        },
+        "direction_reversal_pair_indices": reversals,
+        "likely_fold": bool(reversals),
+    }
+
+
+def _set_loose_edges(obj, vertex_pairs, *, create):
+    created_keys = []
+    with preserve_mode_and_selection():
+        set_active(obj)
+        if obj.mode != "OBJECT":
+            result = bpy.ops.object.mode_set(mode="OBJECT")
+            if "FINISHED" not in result:
+                raise RuntimeError(f"Could not enter Object Mode for sewing topology: {sorted(result)}")
+        mesh = obj.data
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(mesh)
+            bm.verts.ensure_lookup_table()
+            for first, second in vertex_pairs:
+                first_vertex = bm.verts[first]
+                second_vertex = bm.verts[second]
+                if first_vertex is None or second_vertex is None:
+                    raise RuntimeError("BMesh vertex lookup failed after validated sewing preflight")
+                vertices = (first_vertex, second_vertex)
+                if bm.edges.get(vertices) is None:
+                    if not create:
+                        continue
+                    bm.edges.new(vertices)
+                    created_keys.append(tuple(sorted((first, second))))
+            if created_keys:
+                bm.to_mesh(mesh)
+                mesh.update()
+        finally:
+            bm.free()
+    return created_keys
+
+
+def _remove_edges_by_vertices(obj, vertex_pairs):
+    if not vertex_pairs:
+        return
+    with preserve_mode_and_selection():
+        set_active(obj)
+        if obj.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(obj.data)
+            bm.verts.ensure_lookup_table()
+            edges = []
+            for first, second in vertex_pairs:
+                first_vertex = bm.verts[first]
+                second_vertex = bm.verts[second]
+                if first_vertex is not None and second_vertex is not None:
+                    edges.append(bm.edges.get((first_vertex, second_vertex)))
+            bmesh.ops.delete(bm, geom=[edge for edge in edges if edge is not None], context="EDGES")
+            bm.to_mesh(obj.data)
+            obj.data.update()
+        finally:
+            bm.free()
+
+
+def _owned_component_records(obj):
+    records = []
+    for key, value in obj.items():
+        if not key.startswith(f"{_OWNERSHIP_PREFIX}_component_"):
+            continue
+        with contextlib.suppress(TypeError, json.JSONDecodeError):
+            records.append({"object_property": key, **json.loads(value)})
+    return records
+
+
+def _remove_owned_component_record(obj, role, modifier_name):
+    for record in _owned_component_records(obj):
+        if record.get("role") == role and record.get("modifier") == modifier_name:
+            del obj[record["object_property"]]
+            return record
+    return None
+
+
+def _tag_owned_membership(obj, collection, simulation_id=None):
+    simulation_id = simulation_id or uuid.uuid4().hex
+    property_name = f"{_OWNERSHIP_PREFIX}_component_{simulation_id}"
+    record = {
+        "owned": True,
+        "simulation_id": simulation_id,
+        "role": "collision_membership",
+        "collection": collection.name,
+        "schema_version": _MCP_SCHEMA_VERSION,
+    }
+    obj[property_name] = json.dumps(record, sort_keys=True)
+    return {"object_property": property_name, **record}
+
+
+def _owned_membership_record(obj, collection_name):
+    return next(
+        (
+            record
+            for record in _owned_component_records(obj)
+            if record.get("role") == "collision_membership" and record.get("collection") == collection_name
+        ),
+        None,
+    )
+
+
+def _scene_context_for_object(obj):
+    scenes = _object_scenes(obj)
+    if not scenes:
+        raise ValueError(f"Object '{obj.name}' is not linked to a scene")
+    scene = bpy.context.scene if bpy.context.scene in scenes else scenes[0]
+    for layer in scene.view_layers:
+        layer.update()
+    view_layer = next((layer for layer in scene.view_layers if obj.name in layer.objects), None)
+    if view_layer is None:
+        raise ValueError(f"Object '{obj.name}' is excluded from every view layer in scene '{scene.name}'")
+    return scene, view_layer
+
+
+def _move_modifier_immediately_before(obj, modifier, following_modifier):
+    current = list(obj.modifiers).index(modifier)
+    following = list(obj.modifiers).index(following_modifier)
+    target = following - 1 if current < following else following
+    if current != target:
+        obj.modifiers.move(current, target)
+    if list(obj.modifiers).index(modifier) + 1 != list(obj.modifiers).index(following_modifier):
+        raise RuntimeError(f"Could not place modifier '{modifier.name}' immediately before '{following_modifier.name}'")
+
+
+def _move_modifier_immediately_after(obj, modifier, preceding_modifier):
+    current = list(obj.modifiers).index(modifier)
+    preceding = list(obj.modifiers).index(preceding_modifier)
+    target = preceding if current < preceding else preceding + 1
+    if current != target:
+        obj.modifiers.move(current, target)
+    if list(obj.modifiers).index(modifier) != list(obj.modifiers).index(preceding_modifier) + 1:
+        raise RuntimeError(f"Could not place modifier '{modifier.name}' immediately after '{preceding_modifier.name}'")
+
+
+def _attachment_target_matrix(target, bone_name=None):
+    target_matrix = target.matrix_world.copy()
+    if bone_name:
+        pose_bone = target.pose.bones.get(bone_name) if target.pose else None
+        if pose_bone is None:
+            raise ValueError(f"Pose bone not found: {bone_name}")
+        target_matrix = target_matrix @ pose_bone.matrix
+    if abs(float(target_matrix.determinant())) <= 1e-12:
+        raise ValueError(f"Attachment target '{target.name}' has a singular evaluated transform")
+    return target_matrix
+
+
+def _snapshot_attachment_modifier(modifier):
+    fields = {
+        "HOOK": ("object", "subtarget", "vertex_group", "matrix_inverse", "center"),
+        "ARMATURE": ("object", "vertex_group", "use_vertex_groups"),
+        "MESH_DEFORM": ("object", "vertex_group"),
+        "SURFACE_DEFORM": ("target", "vertex_group"),
+    }[modifier.type]
+    snapshot = {}
+    for name in fields:
+        value = getattr(modifier, name)
+        snapshot[name] = value.copy() if hasattr(value, "copy") else value
+    return snapshot
+
+
+def _restore_attachment_modifier(modifier, snapshot):
+    for name, value in snapshot.items():
+        with contextlib.suppress(Exception):
+            setattr(modifier, name, value)
+
+
+def _bind_deform_modifier(obj, modifier):
+    operator = {
+        "MESH_DEFORM": bpy.ops.object.meshdeform_bind,
+        "SURFACE_DEFORM": bpy.ops.object.surfacedeform_bind,
+    }[modifier.type]
+    scene, view_layer = _scene_context_for_object(obj)
+    with preserve_mode_and_selection():
+        set_active(obj)
+        if obj.mode != "OBJECT":
+            result = bpy.ops.object.mode_set(mode="OBJECT")
+            if "FINISHED" not in result:
+                raise RuntimeError(f"Could not enter Object Mode for binding: {sorted(result)}")
+        with bpy.context.temp_override(
+            scene=scene,
+            view_layer=view_layer,
+            object=obj,
+            active_object=obj,
+            selected_objects=[obj],
+            selected_editable_objects=[obj],
+        ):
+            result = operator(modifier=modifier.name)
+    if "FINISHED" not in result or not modifier.is_bound:
+        raise RuntimeError(f"Blender did not bind {modifier.type} modifier '{modifier.name}': {sorted(result)}")
+
+
+def _sample_indices(count, limit):
+    if count <= limit:
+        return list(range(count))
+    step = count / limit
+    return sorted({min(count - 1, int(index * step)) for index in range(limit)})
+
+
+def _evaluated_world_vertices(obj, limit, depsgraph=None):
+    depsgraph = depsgraph or bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        indices = _sample_indices(len(mesh.vertices), limit)
+        return {
+            "total": len(mesh.vertices),
+            "indices": indices,
+            "positions": [evaluated.matrix_world @ mesh.vertices[index].co for index in indices],
+        }
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _world_bounds(evaluated_obj):
+    corners = [evaluated_obj.matrix_world @ mathutils.Vector(corner) for corner in evaluated_obj.bound_box]
+    return {
+        "coordinate_space": "WORLD",
+        "minimum": [min(corner[axis] for corner in corners) for axis in range(3)],
+        "maximum": [max(corner[axis] for corner in corners) for axis in range(3)],
+    }
+
+
+def _evaluated_surface_measurements(evaluated_obj, mesh, polygon_limit):
+    matrix = evaluated_obj.matrix_world
+    scanned = min(len(mesh.polygons), polygon_limit)
+    area = 0.0
+    signed_volume = 0.0
+    degenerate = []
+    for polygon in list(mesh.polygons)[:scanned]:
+        indices = list(polygon.vertices)
+        if len(indices) < 3:
+            degenerate.append(polygon.index)
+            continue
+        origin = matrix @ mesh.vertices[indices[0]].co
+        polygon_area = 0.0
+        for index in range(1, len(indices) - 1):
+            second = matrix @ mesh.vertices[indices[index]].co
+            third = matrix @ mesh.vertices[indices[index + 1]].co
+            cross = (second - origin).cross(third - origin)
+            polygon_area += cross.length * 0.5
+            signed_volume += float(origin.dot(second.cross(third))) / 6.0
+        area += polygon_area
+        if polygon_area <= 1e-12:
+            degenerate.append(polygon.index)
+    complete = scanned == len(mesh.polygons)
+    return {
+        "surface_area_world_squared": area if complete else None,
+        "signed_volume_world_cubed": signed_volume if complete else None,
+        "polygons_scanned": scanned,
+        "total_polygons": len(mesh.polygons),
+        "complete": complete,
+        "degenerate_face_count_scanned": len(degenerate),
+        "degenerate_face_indices_sample": degenerate[:100],
+    }
+
+
+def _collider_proximity(sample_positions, colliders, face_limit, depsgraph=None):
+    from mathutils.bvhtree import BVHTree
+
+    evidence = []
+    for collider in colliders:
+        depsgraph = depsgraph or bpy.context.evaluated_depsgraph_get()
+        evaluated = collider.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            if len(mesh.polygons) > face_limit:
+                evidence.append(
+                    {
+                        "collider": collider.name,
+                        "skipped": True,
+                        "reason": "evaluated_face_limit",
+                        "evaluated_faces": len(mesh.polygons),
+                        "face_limit": face_limit,
+                    }
+                )
+                continue
+            vertices = [evaluated.matrix_world @ vertex.co for vertex in mesh.vertices]
+            polygons = [list(polygon.vertices) for polygon in mesh.polygons]
+            bvh = BVHTree.FromPolygons(vertices, polygons, all_triangles=False, epsilon=0.0)
+            distances = []
+            behind_surface = 0
+            for position in sample_positions:
+                location, normal, _face_index, distance = bvh.find_nearest(position)
+                if location is None or distance is None:
+                    continue
+                distances.append(float(distance))
+                if normal is not None and (position - location).dot(normal) < 0:
+                    behind_surface += 1
+            evidence.append(
+                {
+                    "collider": collider.name,
+                    "skipped": False,
+                    "samples_checked": len(distances),
+                    "minimum_surface_distance_world": min(distances) if distances else None,
+                    "mean_surface_distance_world": statistics.fmean(distances) if distances else None,
+                    "behind_nearest_surface_normal": behind_surface,
+                    "heuristic_only": True,
+                }
+            )
+        finally:
+            evaluated.to_mesh_clear()
+    return evidence
+
+
+def _evaluated_bvh_overlap(first, second, depsgraph, face_limit=100_000):
+    from mathutils.bvhtree import BVHTree
+
+    evaluated_first = first.evaluated_get(depsgraph)
+    evaluated_second = second.evaluated_get(depsgraph)
+    first_mesh = evaluated_first.to_mesh()
+    second_mesh = evaluated_second.to_mesh()
+    try:
+        if len(first_mesh.polygons) > face_limit or len(second_mesh.polygons) > face_limit:
+            return {
+                "checked": False,
+                "reason": "evaluated_face_limit",
+                "face_limit": face_limit,
+                "faces": [len(first_mesh.polygons), len(second_mesh.polygons)],
+            }
+        first_bvh = BVHTree.FromPolygons(
+            [evaluated_first.matrix_world @ vertex.co for vertex in first_mesh.vertices],
+            [list(polygon.vertices) for polygon in first_mesh.polygons],
+            all_triangles=False,
+            epsilon=0.0,
+        )
+        second_bvh = BVHTree.FromPolygons(
+            [evaluated_second.matrix_world @ vertex.co for vertex in second_mesh.vertices],
+            [list(polygon.vertices) for polygon in second_mesh.polygons],
+            all_triangles=False,
+            epsilon=0.0,
+        )
+        overlaps = first_bvh.overlap(second_bvh)
+        return {
+            "checked": True,
+            "coordinate_space": "WORLD",
+            "geometry": "EVALUATED_AT_REST_FRAME",
+            "overlapping_face_pairs": len(overlaps),
+            "sample": [list(pair) for pair in overlaps[:20]],
+            "sample_truncated": len(overlaps) > 20,
+        }
+    finally:
+        evaluated_first.to_mesh_clear()
+        evaluated_second.to_mesh_clear()
+
+
+def _external_directory_evidence(filepath):
+    resolved = bpy.path.abspath(filepath) if filepath else ""
+    exists = bool(resolved and os.path.isdir(resolved))
+    entries = []
+    truncated = False
+    if exists:
+        with os.scandir(resolved) as iterator:
+            for entry in iterator:
+                entries.append(entry.name)
+                if len(entries) >= 100:
+                    truncated = True
+                    break
+    return {
+        "filepath": filepath,
+        "resolved": resolved,
+        "exists": exists,
+        "writable": bool(exists and os.access(resolved, os.W_OK)),
+        "entries": entries,
+        "entries_truncated": truncated,
+    }
+
+
+def _all_cloth_caches():
+    return [
+        (obj, modifier, modifier.point_cache)
+        for obj in bpy.data.objects
+        for modifier in obj.modifiers
+        if modifier.type == "CLOTH"
+    ]
+
+
+def _cloth_cache_dependency_issues(obj, modifier):
+    issues = []
+    if not obj.data.vertices or not obj.data.edges:
+        issues.append("cloth mesh has empty vertex or edge topology")
+    settings = modifier.settings
+    collisions = modifier.collision_settings
+    for field in (
+        "vertex_group_mass",
+        "vertex_group_structural_stiffness",
+        "vertex_group_shear_stiffness",
+        "vertex_group_bending",
+        "vertex_group_shrink",
+        "vertex_group_pressure",
+        "vertex_group_intern",
+    ):
+        group_name = getattr(settings, field, "")
+        if group_name and obj.vertex_groups.get(group_name) is None:
+            issues.append(f"missing vertex group {field}='{group_name}'")
+    for field in ("vertex_group_object_collisions", "vertex_group_self_collisions"):
+        group_name = getattr(collisions, field, "")
+        if group_name and obj.vertex_groups.get(group_name) is None:
+            issues.append(f"missing collision vertex group {field}='{group_name}'")
+    scenes = _object_scenes(obj)
+    if collisions.collection and not any(_collection_in_scene(collisions.collection, scene) for scene in scenes):
+        issues.append(f"collision collection '{collisions.collection.name}' is not linked to a cloth scene")
+    effector_collection = settings.effector_weights.collection
+    if effector_collection and not any(_collection_in_scene(effector_collection, scene) for scene in scenes):
+        issues.append(f"effector collection '{effector_collection.name}' is not linked to a cloth scene")
+    return issues
+
+
+def _cloths_depending_on_object(target):
+    affected = {}
+    for candidate in bpy.data.objects:
+        attachment_indices = []
+        for index, modifier in enumerate(candidate.modifiers):
+            referenced = getattr(modifier, "object", None) == target or getattr(modifier, "target", None) == target
+            if referenced and modifier.type in {"HOOK", "ARMATURE", "MESH_DEFORM", "SURFACE_DEFORM"}:
+                attachment_indices.append(index)
+        for attachment_index in attachment_indices:
+            for cloth_modifier in list(candidate.modifiers)[attachment_index + 1 :]:
+                if cloth_modifier.type == "CLOTH":
+                    affected[candidate.name, cloth_modifier.name] = (candidate, cloth_modifier)
+    return list(affected.values())
+
+
+def _cloths_affected_by_effector(effector):
+    affected = {}
+    for scene in _object_scenes(effector):
+        for candidate in scene.objects:
+            for modifier in candidate.modifiers:
+                if modifier.type != "CLOTH":
+                    continue
+                collection = modifier.settings.effector_weights.collection
+                if collection is None or effector.name in collection.all_objects:
+                    affected[candidate.name, modifier.name] = (candidate, modifier)
+    return list(affected.values())
+
+
+def _prospective_cache_identity(cache, patch):
+    use_external = patch.get("use_external", cache.use_external)
+    filepath = patch.get("filepath", cache.filepath)
+    if not use_external or not filepath:
+        return None
+    name = patch.get("name", cache.name)
+    index = patch.get("index", cache.index)
+    return (
+        "EXTERNAL",
+        os.path.normcase(os.path.normpath(bpy.path.abspath(filepath))),
+        str(name),
+        int(index),
+    )
+
+
+def _point_cache_context(obj, cache):
+    scene, view_layer = _scene_context_for_object(obj)
+    return (
+        scene,
+        view_layer,
+        {
+            "scene": scene,
+            "view_layer": view_layer,
+            "object": obj,
+            "active_object": obj,
+            "selected_objects": [obj],
+            "selected_editable_objects": [obj],
+            "point_cache": cache,
+        },
+    )
+
+
+def _run_point_cache_operator(obj, cache, operator, **kwargs):
+    _scene, _view_layer, override = _point_cache_context(obj, cache)
+    with preserve_mode_and_selection():
+        set_active(obj)
+        if obj.mode != "OBJECT":
+            result = bpy.ops.object.mode_set(mode="OBJECT")
+            if "FINISHED" not in result:
+                raise RuntimeError(f"Could not enter Object Mode for point cache: {sorted(result)}")
+        with bpy.context.temp_override(**override):
+            result = operator(**kwargs)
+    if "FINISHED" not in result:
+        raise RuntimeError(
+            f"Point-cache operator did not finish: {sorted(result)}; current state={json.dumps(_cache_info(cache))}"
+        )
+    return result
+
+
+def _modifier_driver_paths(obj, modifier):
+    with contextlib.suppress(Exception):
+        prefix = modifier.path_from_id()
+        animation = getattr(obj, "animation_data", None)
+        return [curve.data_path for curve in getattr(animation, "drivers", ()) if curve.data_path.startswith(prefix)]
+    return []
+
+
+def _resolve_animation_owner(obj, cloth_modifier_name, record):
+    owner_kind = record["owner"]
+    target_name = record.get("target_name")
+    cloth_modifier = None
+    if owner_kind in {"CLOTH_SETTINGS", "EFFECTOR_WEIGHTS"}:
+        if not cloth_modifier_name:
+            raise ValueError(f"cloth_modifier_name is required for {owner_kind}")
+        cloth_modifier = _get_modifier(obj, cloth_modifier_name, "CLOTH")
+        owner = cloth_modifier.settings if owner_kind == "CLOTH_SETTINGS" else cloth_modifier.settings.effector_weights
+        allowlist = _ANIMATABLE_FIELDS[owner_kind]
+    elif owner_kind == "COLLIDER_SETTINGS":
+        if obj.collision is None or not any(modifier.type == "COLLISION" for modifier in obj.modifiers):
+            raise ValueError(f"Object '{obj.name}' is not a cloth collider")
+        owner = obj.collision
+        allowlist = _ANIMATABLE_FIELDS[owner_kind]
+    elif owner_kind == "FIELD_SETTINGS":
+        owner = obj.field
+        if owner is None or owner.type == "NONE":
+            raise ValueError(f"Object '{obj.name}' is not an active force field")
+        allowlist = _ANIMATABLE_FIELDS[owner_kind]
+    elif owner_kind == "SHAPE_KEY":
+        shape_keys = getattr(getattr(obj, "data", None), "shape_keys", None)
+        owner = shape_keys.key_blocks.get(target_name) if shape_keys and target_name else None
+        if owner is None:
+            raise ValueError(f"Shape key not found: {target_name}")
+        allowlist = _ANIMATABLE_FIELDS[owner_kind]
+    elif owner_kind == "MODIFIER":
+        if not target_name:
+            raise ValueError("target_name must name an attachment modifier")
+        owner = obj.modifiers.get(target_name)
+        if owner is None:
+            raise ValueError(f"Modifier not found: {target_name}")
+        key = f"{owner.type}_MODIFIER"
+        allowlist = _ANIMATABLE_FIELDS.get(key)
+        if allowlist is None:
+            raise ValueError(f"Modifier type {owner.type} is not animatable through this tool")
+    elif owner_kind == "OBJECT":
+        owner = obj
+        allowlist = _ANIMATABLE_FIELDS[owner_kind]
+    else:
+        raise ValueError(f"Unsupported animation owner: {owner_kind}")
+    property_name = record["property_name"]
+    if property_name not in allowlist:
+        raise ValueError(f"Property '{property_name}' is not allowed for {owner_kind}")
+    prop = _rna_property(owner, property_name)
+    if not prop.is_animatable:
+        raise ValueError(f"{owner_kind}.{property_name} is not animatable in Blender {bpy.app.version_string}")
+    value = record["value"]
+    array_index = record.get("array_index", -1)
+    if prop.is_array:
+        if array_index == -1:
+            _validate_rna_value(owner, property_name, value)
+        elif not isinstance(value, (int, float)):
+            raise ValueError(f"Indexed animation of {property_name} requires one numeric value")
+        elif not 0 <= array_index < prop.array_length:
+            raise ValueError(f"array_index must be in [0, {prop.array_length - 1}] for {property_name}")
+    else:
+        if array_index != -1:
+            raise ValueError(f"array_index is not valid for scalar property {property_name}")
+        _validate_rna_value(owner, property_name, value)
+    path = owner.path_from_id(property_name)
+    return owner, property_name, path, cloth_modifier
+
+
+def _keyframe_points(owner, data_path, array_index, frame):
+    owner_id = getattr(owner, "id_data", owner)
+    animation = getattr(owner_id, "animation_data", None)
+    matches = []
+    for curve in _action_fcurves(animation):
+        if curve.data_path != data_path or (array_index >= 0 and curve.array_index != array_index):
+            continue
+        for point in curve.keyframe_points:
+            if abs(float(point.co[0]) - frame) <= 1e-6:
+                matches.append((curve, point))
+    return matches
+
+
+def _set_animated_property(owner, property_name, value, array_index):
+    if array_index >= 0:
+        values = list(getattr(owner, property_name))
+        values[array_index] = value
+        setattr(owner, property_name, values)
+    else:
+        setattr(owner, property_name, value)
+
+
+def _snapshot_keyframe_point(point):
+    return {
+        "co": list(point.co),
+        "interpolation": point.interpolation,
+        "easing": point.easing,
+        "handle_left": list(point.handle_left),
+        "handle_right": list(point.handle_right),
+        "handle_left_type": point.handle_left_type,
+        "handle_right_type": point.handle_right_type,
+    }
+
+
+def _restore_keyframe_point(point, snapshot):
+    point.co = snapshot["co"]
+    point.interpolation = snapshot["interpolation"]
+    point.easing = snapshot["easing"]
+    point.handle_left = snapshot["handle_left"]
+    point.handle_right = snapshot["handle_right"]
+    point.handle_left_type = snapshot["handle_left_type"]
+    point.handle_right_type = snapshot["handle_right_type"]
 
 
 class ClothHandlersMixin:
@@ -1390,6 +2190,7 @@ class ClothHandlersMixin:
                     modifier.name = modifier_name
             created = True
         linked = []
+        membership_ownership = []
         prior_collections = {}
         changes = {}
         ownership = None
@@ -1402,11 +2203,15 @@ class ClothHandlersMixin:
                 if obj.name not in collection.objects:
                     collection.objects.link(obj)
                     linked.append(collection)
+                    membership_ownership.append(_tag_owned_membership(obj, collection))
                 cloth_mod.collision_settings.collection = collection
             if created:
                 ownership = _tag_owned_component(obj, modifier, "collider")
             _tag_update(obj)
         except Exception:
+            for record in membership_ownership:
+                with contextlib.suppress(Exception):
+                    del obj[record["object_property"]]
             for collection in linked:
                 with contextlib.suppress(Exception):
                     collection.objects.unlink(obj)
@@ -1430,6 +2235,7 @@ class ClothHandlersMixin:
             "evaluated_geometry": evaluated_geometry,
             "modifier_index": list(obj.modifiers).index(modifier),
             "ownership": ownership,
+            "membership_ownership": membership_ownership,
             "animation": _animation_info(obj),
             "settings_changes": changes,
             "registrations": [
@@ -2021,4 +2827,1518 @@ class ClothHandlersMixin:
             "truncated": truncated,
             "omitted_findings": omitted_findings,
             "claim": "Structural preflight only; representative evaluated-frame review is still required.",
+        }
+
+    def configure_cloth_sewing(
+        self,
+        object_name,
+        modifier_name,
+        seam_pairs,
+        sewing_force_max,
+        create_missing_edges=False,
+        dry_run=True,
+        max_pair_distance=None,
+    ):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        sync_from_editmode(obj)
+        if max_pair_distance is not None:
+            _finite(max_pair_distance, "max_pair_distance")
+            if max_pair_distance <= 0:
+                raise ValueError("max_pair_distance must be positive")
+        _validate_rna_value(modifier.settings, "sewing_force_max", sewing_force_max)
+        plan = _sewing_plan(obj, seam_pairs, max_pair_distance)
+        if plan["non_boundary_endpoints"]:
+            raise ValueError(
+                f"{plan['non_boundary_endpoints']} sewing pair(s) contain endpoints outside panel boundaries"
+            )
+        if dry_run:
+            return {
+                "changed_objects": [],
+                "object": obj.name,
+                "modifier": modifier.name,
+                "dry_run": True,
+                "would_create_edges": plan["missing_loose_edges"] if create_missing_edges else 0,
+                "analysis": plan,
+                "point_cache": _cache_info(modifier.point_cache),
+            }
+        _reject_baked([(obj, modifier)])
+        if plan["duplicate_requested_mesh_edges"]:
+            raise ValueError(
+                f"{plan['duplicate_requested_mesh_edges']} requested seam pair(s) already have duplicate mesh edges"
+            )
+        if plan["missing_loose_edges"] and not create_missing_edges:
+            raise ValueError(
+                f"{plan['missing_loose_edges']} requested sewing edges do not exist; "
+                "set create_missing_edges=True or provide existing loose edges"
+            )
+        old_settings = {
+            "use_sewing_springs": modifier.settings.use_sewing_springs,
+            "sewing_force_max": modifier.settings.sewing_force_max,
+        }
+        missing_pairs = [tuple(record["vertices"]) for record in plan["pairs"] if not record["existing_loose_edge"]]
+        created_edges = []
+        try:
+            created_edges = _set_loose_edges(obj, missing_pairs, create=create_missing_edges)
+            modifier.settings.use_sewing_springs = True
+            modifier.settings.sewing_force_max = sewing_force_max
+            _tag_update(obj)
+        except Exception:
+            with contextlib.suppress(Exception):
+                _remove_edges_by_vertices(obj, created_edges)
+            for name, value in old_settings.items():
+                with contextlib.suppress(Exception):
+                    setattr(modifier.settings, name, value)
+            raise
+        updated = _sewing_plan(obj, seam_pairs, max_pair_distance)
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "dry_run": False,
+            "settings": {
+                "use_sewing_springs": {"old": old_settings["use_sewing_springs"], "new": True},
+                "sewing_force_max": {
+                    "old": old_settings["sewing_force_max"],
+                    "new": modifier.settings.sewing_force_max,
+                },
+            },
+            "created_edges": [list(pair) for pair in created_edges],
+            "analysis": updated,
+            "point_cache": _cache_info(modifier.point_cache),
+            "warnings": ["Topology changed; query get_mesh_data again before reusing any mesh indices."]
+            if created_edges
+            else ["Sewing settings changed and invalidate unbaked simulation state."],
+        }
+
+    def configure_cloth_pressure(self, object_name, modifier_name, patch):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        sync_from_editmode(obj)
+        _reject_baked([(obj, modifier)])
+        if not patch:
+            raise ValueError("Pressure patch cannot be empty")
+        group_name = patch.get("vertex_group_pressure")
+        if group_name and obj.vertex_groups.get(group_name) is None:
+            raise ValueError(f"Vertex group not found: {group_name}")
+        report = _surface_report(obj)
+        enabling = patch.get("use_pressure", modifier.settings.use_pressure)
+        volume_control = patch.get("use_pressure_volume", modifier.settings.use_pressure_volume)
+        target_volume = patch.get("target_volume", modifier.settings.target_volume)
+        if enabling:
+            if report["non_manifold_edges"]:
+                raise ValueError("Pressure requires a closed manifold mesh with no boundary or loose edges")
+            if report["inconsistent_winding_edges"]:
+                raise ValueError("Pressure requires consistently oriented faces")
+            if report["signed_volume_object_local_cubed"] <= 1e-12:
+                raise ValueError("Pressure requires outward orientation and positive nonzero signed volume")
+            if volume_control and target_volume <= 0:
+                raise ValueError("Pressure volume control requires a positive target_volume")
+        changes = _patch_rna(modifier.settings, patch, _PRESSURE_FIELDS)
+        try:
+            _tag_update(obj)
+        except Exception:
+            _restore_rna(modifier.settings, changes)
+            raise
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "changes": changes,
+            "surface": report,
+            "material_relationship": {
+                "tension_stiffness": modifier.settings.tension_stiffness,
+                "compression_stiffness": modifier.settings.compression_stiffness,
+                "bending_stiffness": modifier.settings.bending_stiffness,
+                "pressure_factor": modifier.settings.pressure_factor,
+                "uniform_pressure_force": modifier.settings.uniform_pressure_force,
+            },
+            "point_cache": _cache_info(modifier.point_cache),
+            "warnings": ["Pressure settings changed and invalidate unbaked simulation state."],
+        }
+
+    def configure_cloth_internal_springs(
+        self,
+        object_name,
+        modifier_name,
+        patch,
+        max_estimated_springs=2_000_000,
+    ):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        sync_from_editmode(obj)
+        _reject_baked([(obj, modifier)])
+        if not patch:
+            raise ValueError("Internal-spring patch cannot be empty")
+        if not 1 <= max_estimated_springs <= 20_000_000:
+            raise ValueError("max_estimated_springs must be in [1, 20000000]")
+        group_name = patch.get("vertex_group_intern")
+        if group_name and obj.vertex_groups.get(group_name) is None:
+            raise ValueError(f"Vertex group not found: {group_name}")
+        report = _surface_report(obj)
+        enabling = patch.get("use_internal_springs", modifier.settings.use_internal_springs)
+        vertex_count = len(obj.data.vertices)
+        all_pairs = vertex_count * max(vertex_count - 1, 0) // 2
+        max_length = patch.get("internal_spring_max_length", modifier.settings.internal_spring_max_length)
+        _finite(max_length, "internal_spring_max_length")
+        coordinates = [vertex.co for vertex in obj.data.vertices]
+        extents = [max(axis) - min(axis) for axis in zip(*coordinates, strict=False)] if coordinates else [0.0] * 3
+        bounds_volume = math.prod(max(float(extent), 1e-12) for extent in extents)
+        if max_length > 0 and vertex_count:
+            local_density = vertex_count / bounds_volume
+            neighborhood = local_density * (4.0 / 3.0) * math.pi * max_length**3
+            estimated_pairs = min(all_pairs, math.ceil(vertex_count * neighborhood * 0.5))
+        else:
+            estimated_pairs = all_pairs
+        if enabling:
+            if report["non_manifold_edges"] or report["inconsistent_winding_edges"]:
+                raise ValueError("Internal springs require closed, consistently oriented volumetric geometry")
+            if estimated_pairs > max_estimated_springs:
+                raise ValueError(
+                    f"Estimated internal-spring candidates {estimated_pairs} exceed "
+                    f"max_estimated_springs {max_estimated_springs}; reduce density or maximum length"
+                )
+        changes = _patch_rna(modifier.settings, patch, _INTERNAL_SPRING_FIELDS)
+        try:
+            _tag_update(obj)
+        except Exception:
+            _restore_rna(modifier.settings, changes)
+            raise
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "changes": changes,
+            "surface": report,
+            "spring_estimate": {
+                "vertices": vertex_count,
+                "absolute_pair_upper_bound": all_pairs,
+                "density_length_estimate": estimated_pairs,
+                "maximum_length_object_local": max_length,
+                "accepted_limit": max_estimated_springs,
+                "estimate_only": True,
+            },
+            "point_cache": _cache_info(modifier.point_cache),
+            "warnings": ["Internal-spring settings changed and invalidate unbaked simulation state."],
+        }
+
+    def configure_cloth_rest_shape(
+        self,
+        object_name,
+        modifier_name,
+        shape_key_name,
+        use_dynamic_mesh,
+        cache_frame_start,
+        cache_frame_end,
+    ):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        sync_from_editmode(obj)
+        _reject_baked([(obj, modifier)])
+        shape_keys = getattr(obj.data, "shape_keys", None)
+        if shape_keys is None or shape_keys.reference_key is None:
+            raise ValueError(f"Mesh '{obj.name}' has no Basis shape key")
+        shape_key = shape_keys.key_blocks.get(shape_key_name)
+        if shape_key is None:
+            raise ValueError(f"Shape key not found: {shape_key_name}")
+        if shape_key == shape_keys.reference_key:
+            raise ValueError("Choose a non-Basis shape key as the cloth rest shape")
+        if len(shape_key.data) != len(obj.data.vertices):
+            raise ValueError("Rest shape key vertex count does not match the base mesh")
+        if cache_frame_start > cache_frame_end:
+            raise ValueError("cache_frame_start must be <= cache_frame_end")
+        cache = modifier.point_cache
+        _validate_rna_value(cache, "frame_start", cache_frame_start)
+        _validate_rna_value(cache, "frame_end", cache_frame_end)
+        _validate_rna_value(modifier.settings, "use_dynamic_mesh", use_dynamic_mesh)
+        old_shape = modifier.settings.rest_shape_key
+        old_dynamic = modifier.settings.use_dynamic_mesh
+        old_range = (cache.frame_start, cache.frame_end)
+        try:
+            modifier.settings.rest_shape_key = shape_key
+            modifier.settings.use_dynamic_mesh = use_dynamic_mesh
+            _set_cache_frame_range(cache, cache_frame_start, cache_frame_end)
+            _tag_update(obj)
+        except Exception:
+            modifier.settings.rest_shape_key = old_shape
+            modifier.settings.use_dynamic_mesh = old_dynamic
+            _set_cache_frame_range(cache, *old_range)
+            raise
+        cloth_index = list(obj.modifiers).index(modifier)
+        upstream = list(obj.modifiers)[:cloth_index]
+        topology_modifiers = [item.name for item in upstream if item.type in _TOPOLOGY_MODIFIERS]
+        upstream_deformers = [item.name for item in upstream if item.type in _DEFORMING_MODIFIERS]
+        animated_upstream = [item.name for item in upstream if _modifier_is_animated(obj, item)]
+        warnings = []
+        if use_dynamic_mesh and topology_modifiers:
+            warnings.append(
+                f"Dynamic mesh is enabled with upstream topology modifiers {topology_modifiers}; "
+                "topology must remain identical throughout the cache range."
+            )
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "rest_shape_key": {
+                "old": old_shape.name if old_shape else None,
+                "new": shape_key.name,
+                "vertex_count": len(shape_key.data),
+            },
+            "use_dynamic_mesh": {"old": old_dynamic, "new": modifier.settings.use_dynamic_mesh},
+            "cache_range": {"old": list(old_range), "new": [cache.frame_start, cache.frame_end]},
+            "upstream_deformers": upstream_deformers,
+            "upstream_topology_modifiers": topology_modifiers,
+            "animated_upstream_modifiers": animated_upstream,
+            "shape_key_animation": _animation_info(obj),
+            "rest_source_intent": (
+                "DYNAMIC_PRE_SIMULATION_MESH_WITH_REST_SHAPE_KEY"
+                if use_dynamic_mesh
+                else "STATIC_SHAPE_KEY_REST_SURFACE"
+            ),
+            "point_cache": _cache_info(cache),
+            "warnings": warnings,
+        }
+
+    def configure_cloth_field_weights(self, object_name, modifier_name, patch):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        _reject_baked([(obj, modifier)])
+        if not patch:
+            raise ValueError("Field-weight patch cannot be empty")
+        patch = dict(patch)
+        collection_name = patch.pop("collection_name", None)
+        clear_collection = patch.pop("clear_collection", False)
+        if collection_name and clear_collection:
+            raise ValueError("collection_name and clear_collection cannot be combined")
+        scenes = _object_scenes(obj)
+        if not scenes:
+            raise ValueError(f"Cloth object '{obj.name}' is not linked to a scene")
+        scene = scenes[0]
+        collection = None
+        if collection_name:
+            collection = bpy.data.collections.get(collection_name)
+            if collection is None:
+                raise ValueError(f"Collection not found: {collection_name}")
+            if not _collection_in_scene(collection, scene):
+                raise ValueError(f"Effector collection '{collection_name}' is not linked to scene '{scene.name}'")
+        weights = modifier.settings.effector_weights
+        old_collection = weights.collection
+        changes = _patch_rna(weights, patch, _FIELD_WEIGHT_FIELDS)
+        try:
+            if collection_name or clear_collection:
+                weights.collection = collection if collection_name else None
+                changes["collection"] = {
+                    "old": old_collection.name if old_collection else None,
+                    "new": collection.name if collection else None,
+                }
+            _tag_update(obj)
+        except Exception:
+            _restore_rna(weights, changes)
+            weights.collection = old_collection
+            raise
+        relationships = _field_relationships(modifier.settings, scene)
+        cloth_location = obj.matrix_world.translation
+        proximity = []
+        threshold = max(float(obj.dimensions.length), 1e-6)
+        for item in relationships["effectors"]:
+            field_obj = bpy.data.objects.get(item["object"])
+            if field_obj is None:
+                continue
+            distance = float((field_obj.matrix_world.translation - cloth_location).length)
+            proximity.append({**item, "origin_distance_world": distance})
+        warnings = []
+        for item in relationships["effectors"]:
+            field_obj = bpy.data.objects.get(item["object"])
+            if field_obj and not any(field_obj.name in layer.objects for layer in scene.view_layers):
+                warnings.append(f"Force field '{field_obj.name}' is excluded from every scene view layer.")
+        close = [item["object"] for item in proximity if item["origin_distance_world"] < threshold]
+        if close:
+            warnings.append(f"Force-field origins within one cloth bounding-box diagonal: {close}")
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "changes": changes,
+            "cloth_gravity_vector": list(modifier.settings.gravity),
+            "effector_gravity_multiplier": weights.gravity,
+            "combined_gravity_intent": [component * weights.gravity for component in modifier.settings.gravity],
+            "field_relationships": {**relationships, "proximity": proximity},
+            "point_cache": _cache_info(modifier.point_cache),
+            "warnings": warnings,
+        }
+
+    def animate_cloth_parameters(
+        self,
+        object_name,
+        keyframes,
+        cloth_modifier_name=None,
+        policy="INSERT_ONLY",
+    ):
+        obj = _get_object(object_name)
+        if policy not in {"INSERT_ONLY", "REPLACE_EXISTING"}:
+            raise ValueError("policy must be INSERT_ONLY or REPLACE_EXISTING")
+        if not keyframes or len(keyframes) > 500:
+            raise ValueError("keyframes must contain 1-500 records")
+        resolved = []
+        affected = []
+        seen = set()
+        for index, record in enumerate(keyframes):
+            frame = float(record["frame"])
+            if not math.isfinite(frame) or not -1_000_000 <= frame <= 1_000_000:
+                raise ValueError(f"Keyframe {index} frame must be finite and in [-1000000, 1000000]")
+            owner, property_name, data_path, cloth_modifier = _resolve_animation_owner(obj, cloth_modifier_name, record)
+            array_index = int(record.get("array_index", -1))
+            identity = (id(owner), data_path, array_index, frame)
+            if identity in seen:
+                raise ValueError(f"Duplicate keyframe target at record {index}")
+            seen.add(identity)
+            existing = _keyframe_points(owner, data_path, array_index, frame)
+            if policy == "INSERT_ONLY" and existing:
+                raise ValueError(f"Key already exists for {record['owner']}.{property_name} at frame {frame:g}")
+            if cloth_modifier is not None:
+                affected.append((obj, cloth_modifier))
+            elif record["owner"] == "COLLIDER_SETTINGS":
+                affected.extend(_affected_cloths(obj))
+            elif record["owner"] == "FIELD_SETTINGS":
+                affected.extend(_cloths_affected_by_effector(obj))
+            elif record["owner"] == "OBJECT":
+                affected.extend(_cloths_depending_on_object(obj))
+                affected.extend(_affected_cloths(obj))
+                affected.extend((obj, mod) for mod in obj.modifiers if mod.type == "CLOTH")
+            else:
+                affected.extend((obj, mod) for mod in obj.modifiers if mod.type == "CLOTH")
+            resolved.append(
+                {
+                    "record": record,
+                    "owner": owner,
+                    "property_name": property_name,
+                    "data_path": data_path,
+                    "array_index": array_index,
+                    "frame": frame,
+                    "old_value": _serialize(getattr(owner, property_name)),
+                    "existing": [(curve, point, _snapshot_keyframe_point(point)) for curve, point in existing],
+                }
+            )
+        affected = list({(cloth.name, modifier.name): (cloth, modifier) for cloth, modifier in affected}.values())
+        _reject_baked(affected)
+        applied = []
+        try:
+            for entry in resolved:
+                record = entry["record"]
+                owner = entry["owner"]
+                applied.append(entry)
+                _set_animated_property(
+                    owner,
+                    entry["property_name"],
+                    record["value"],
+                    entry["array_index"],
+                )
+                inserted = owner.keyframe_insert(
+                    data_path=entry["property_name"],
+                    index=entry["array_index"],
+                    frame=entry["frame"],
+                    group="Cloth MCP",
+                )
+                if not inserted:
+                    raise RuntimeError(
+                        f"Blender did not insert {record['owner']}.{entry['property_name']} at frame {entry['frame']:g}"
+                    )
+                points = _keyframe_points(
+                    owner,
+                    entry["data_path"],
+                    entry["array_index"],
+                    entry["frame"],
+                )
+                if not points:
+                    raise RuntimeError("Inserted keyframe could not be found in the owner action slot")
+                for curve, point in points:
+                    point.interpolation = record["interpolation"]
+                    curve.update()
+            _tag_update(obj)
+        except Exception:
+            for entry in reversed(applied):
+                owner = entry["owner"]
+                with contextlib.suppress(Exception):
+                    setattr(owner, entry["property_name"], entry["old_value"])
+                if entry["existing"]:
+                    for curve, point, snapshot in entry["existing"]:
+                        with contextlib.suppress(Exception):
+                            _restore_keyframe_point(point, snapshot)
+                            curve.update()
+                else:
+                    with contextlib.suppress(Exception):
+                        owner.keyframe_delete(
+                            data_path=entry["property_name"],
+                            index=entry["array_index"],
+                            frame=entry["frame"],
+                        )
+            raise
+        keyed = []
+        for entry in resolved:
+            record = entry["record"]
+            owner_id = getattr(entry["owner"], "id_data", entry["owner"])
+            animation = getattr(owner_id, "animation_data", None)
+            action = getattr(animation, "action", None)
+            keyed.append(
+                {
+                    "owner": record["owner"],
+                    "target_name": record.get("target_name"),
+                    "property": entry["property_name"],
+                    "data_path": entry["data_path"],
+                    "array_index": entry["array_index"],
+                    "frame": entry["frame"],
+                    "value": _serialize(getattr(entry["owner"], entry["property_name"])),
+                    "interpolation": record["interpolation"],
+                    "action": action.name if action else None,
+                    "action_slot": getattr(getattr(animation, "action_slot", None), "identifier", None),
+                }
+            )
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "policy": policy,
+            "keyframes": keyed,
+            "affected_cloth_caches": [
+                {"object": cloth.name, "modifier": mod.name, "point_cache": _cache_info(mod.point_cache)}
+                for cloth, mod in affected
+            ],
+            "warnings": ["Keyframed simulation dependencies invalidate unbaked cloth state."],
+        }
+
+    def create_cloth_attachment(
+        self,
+        cloth_object_name,
+        cloth_modifier_name,
+        pin_group_name,
+        target_object_name,
+        attachment_type="HOOK",
+        attachment_modifier_name="Cloth Attachment",
+        bone_name=None,
+        rest_frame=1,
+        existing_policy="ERROR",
+        bind=True,
+    ):
+        cloth, cloth_modifier = _get_cloth(cloth_object_name, cloth_modifier_name)
+        sync_from_editmode(cloth)
+        _reject_baked([(cloth, cloth_modifier)])
+        if existing_policy not in {"ERROR", "REUSE"}:
+            raise ValueError("existing_policy must be ERROR or REUSE")
+        if attachment_type not in {"HOOK", "ARMATURE", "MESH_DEFORM", "SURFACE_DEFORM"}:
+            raise ValueError(f"Unsupported attachment_type: {attachment_type}")
+        pin_group = cloth.vertex_groups.get(pin_group_name)
+        if pin_group is None:
+            raise ValueError(f"Pin vertex group not found: {pin_group_name}")
+        pin_stats = _vertex_group_stats(cloth, pin_group)
+        if not pin_stats["nonzero"]:
+            raise ValueError(f"Pin vertex group '{pin_group_name}' has no nonzero weights")
+        if cloth_modifier.settings.vertex_group_mass != pin_group_name:
+            raise ValueError(
+                f"Cloth pin group is '{cloth_modifier.settings.vertex_group_mass}', not '{pin_group_name}'; "
+                "configure pinning explicitly before creating the attachment"
+            )
+        target = _get_object(target_object_name)
+        if target == cloth:
+            raise ValueError("Attachment target must differ from the cloth object")
+        if abs(float(cloth.matrix_world.determinant())) <= 1e-12:
+            raise ValueError(f"Cloth object '{cloth.name}' has a singular world transform")
+        if attachment_type == "ARMATURE" and target.type != "ARMATURE":
+            raise ValueError("ARMATURE attachments require an armature target")
+        if attachment_type in {"MESH_DEFORM", "SURFACE_DEFORM"} and target.type != "MESH":
+            raise ValueError(f"{attachment_type} attachments require a mesh target")
+        if bone_name and attachment_type != "HOOK":
+            raise ValueError("bone_name is supported only by HOOK attachments")
+        if bone_name and target.type != "ARMATURE":
+            raise ValueError("A bone-targeted Hook requires an armature target")
+        if bone_name and target.data.bones.get(bone_name) is None:
+            raise ValueError(f"Bone not found: {bone_name}")
+        scene, view_layer = _scene_context_for_object(cloth)
+        if target.name not in scene.objects:
+            raise ValueError(f"Attachment target '{target.name}' is not linked to cloth scene '{scene.name}'")
+        if attachment_type in {"MESH_DEFORM", "SURFACE_DEFORM"}:
+            evaluated_target = target.evaluated_get(view_layer.depsgraph)
+            target_mesh = evaluated_target.to_mesh()
+            try:
+                if not target_mesh.vertices or not target_mesh.polygons:
+                    raise ValueError(f"Attachment target '{target.name}' must evaluate to a nonempty surface")
+            finally:
+                evaluated_target.to_mesh_clear()
+        _validate_rna_value(scene, "frame_current", rest_frame)
+
+        existing = cloth.modifiers.get(attachment_modifier_name)
+        created = False
+        if existing is not None:
+            if existing.type != attachment_type:
+                raise ValueError(f"Modifier '{attachment_modifier_name}' is {existing.type}, not {attachment_type}")
+            if existing_policy == "ERROR":
+                raise ValueError(f"Attachment modifier already exists: {attachment_modifier_name}")
+            modifier = existing
+        else:
+            modifier = cloth.modifiers.new(name=attachment_modifier_name, type=attachment_type)
+            created = True
+        original_index = list(cloth.modifiers).index(modifier)
+        snapshot = None if created else _snapshot_attachment_modifier(modifier)
+        was_bound = bool(getattr(modifier, "is_bound", False))
+        if was_bound and attachment_type == "MESH_DEFORM" and modifier.object != target:
+            raise ValueError("Cannot retarget an already-bound Mesh Deform modifier")
+        if was_bound and attachment_type == "SURFACE_DEFORM" and modifier.target != target:
+            raise ValueError("Cannot retarget an already-bound Surface Deform modifier")
+
+        original_frame = scene.frame_current
+        original_subframe = scene.frame_subframe
+        ownership = None
+        before = None
+        try:
+            scene.frame_set(rest_frame)
+            view_layer.update()
+            before = _evaluated_world_vertices(cloth, 10_000, view_layer.depsgraph)
+            if attachment_type == "HOOK":
+                modifier.object = target
+                modifier.subtarget = bone_name or ""
+                modifier.vertex_group = pin_group_name
+                target_matrix = _attachment_target_matrix(target, bone_name)
+                modifier.matrix_inverse = target_matrix.inverted() @ cloth.matrix_world
+                modifier.center = cloth.matrix_world.inverted() @ target_matrix.translation
+            elif attachment_type == "ARMATURE":
+                modifier.object = target
+                modifier.vertex_group = pin_group_name
+                modifier.use_vertex_groups = True
+            elif attachment_type == "MESH_DEFORM":
+                modifier.object = target
+                modifier.vertex_group = pin_group_name
+            else:
+                modifier.target = target
+                modifier.vertex_group = pin_group_name
+            _move_modifier_immediately_before(cloth, modifier, cloth_modifier)
+            _tag_update(cloth)
+            if attachment_type in {"MESH_DEFORM", "SURFACE_DEFORM"} and bind and not modifier.is_bound:
+                _bind_deform_modifier(cloth, modifier)
+            if created:
+                ownership = _tag_owned_component(cloth, modifier, "attachment")
+            _tag_update(cloth)
+            after = _evaluated_world_vertices(cloth, 10_000, view_layer.depsgraph)
+        except Exception:
+            if ownership is not None:
+                with contextlib.suppress(Exception):
+                    del cloth[ownership["object_property"]]
+            if not created and getattr(modifier, "is_bound", False) and not was_bound:
+                with contextlib.suppress(Exception):
+                    _bind_deform_modifier(cloth, modifier)
+            if created:
+                with contextlib.suppress(Exception):
+                    cloth.modifiers.remove(modifier)
+            else:
+                _restore_attachment_modifier(modifier, snapshot)
+                with contextlib.suppress(Exception):
+                    cloth.modifiers.move(list(cloth.modifiers).index(modifier), original_index)
+            raise
+        finally:
+            scene.frame_set(original_frame, subframe=original_subframe)
+            view_layer.update()
+
+        rest_displacements = None
+        if before["total"] == after["total"] and before["indices"] == after["indices"]:
+            displacement_records = []
+            for vertex_index, old, new in zip(before["indices"], before["positions"], after["positions"], strict=True):
+                try:
+                    weight = pin_group.weight(vertex_index)
+                except RuntimeError:
+                    weight = 0.0
+                displacement_records.append((weight, float((new - old).length)))
+            displacements = [distance for _weight, distance in displacement_records]
+            pinned = [distance for weight, distance in displacement_records if weight > 0]
+            unpinned = [distance for weight, distance in displacement_records if weight <= 0]
+            rest_displacements = {
+                "sampled_vertices": len(displacements),
+                "maximum_world": max(displacements, default=0.0),
+                "mean_world": statistics.fmean(displacements) if displacements else 0.0,
+                "pinned_maximum_world": max(pinned, default=0.0),
+                "unpinned_maximum_world": max(unpinned, default=0.0),
+                "topology_matched": True,
+            }
+        return {
+            "changed_objects": [cloth.name],
+            "cloth_object": cloth.name,
+            "cloth_modifier": cloth_modifier.name,
+            "attachment": _modifier_info(cloth, modifier),
+            "attachment_type": attachment_type,
+            "target_object": target.name,
+            "target_bone": bone_name,
+            "pin_group": pin_stats,
+            "created": created,
+            "bound": getattr(modifier, "is_bound", None),
+            "rest_frame": rest_frame,
+            "rest_frame_displacement_check": rest_displacements,
+            "ownership": ownership,
+            "point_cache": _cache_info(cloth_modifier.point_cache),
+            "warnings": [
+                "Attachment input changed and invalidates unbaked simulation state.",
+                "The rest-frame displacement check is sampled and does not prove behavior at animated frames.",
+            ],
+        }
+
+    def create_character_cloth_setup(
+        self,
+        garment_object_name,
+        armature_object_name,
+        body_collider_object_names,
+        pin_group_name,
+        collision_collection_name,
+        cloth_modifier_name="Cloth",
+        armature_modifier_name="Cloth Armature",
+        collider_modifier_name="Cloth Collision",
+        subdivision_modifier_name="Cloth Subdivision",
+        solidify_modifier_name="Cloth Solidify",
+        existing_policy="ERROR",
+        material=None,
+        solver=None,
+        collisions=None,
+        collider_settings=None,
+        add_subdivision=False,
+        subdivision_levels=1,
+        add_solidify=False,
+        solidify_thickness=0.002,
+        rest_frame=1,
+        cache_frame_start=1,
+        cache_frame_end=250,
+    ):
+        garment = _get_object(garment_object_name, {"MESH"})
+        sync_from_editmode(garment)
+        armature = _get_object(armature_object_name, {"ARMATURE"})
+        if not body_collider_object_names:
+            raise ValueError("At least one explicit body collider is required")
+        if len(body_collider_object_names) > 64 or len(set(body_collider_object_names)) != len(
+            body_collider_object_names
+        ):
+            raise ValueError("body_collider_object_names must contain 1-64 unique names")
+        colliders = [_get_object(name, {"MESH", "CURVE"}) for name in body_collider_object_names]
+        if garment in colliders or armature in colliders:
+            raise ValueError("Garment, armature, and collider objects must be distinct")
+        if existing_policy not in {"ERROR", "REUSE"}:
+            raise ValueError("existing_policy must be ERROR or REUSE")
+        if cache_frame_start > cache_frame_end:
+            raise ValueError("cache_frame_start must be <= cache_frame_end")
+        if not cache_frame_start <= rest_frame <= cache_frame_end:
+            raise ValueError("rest_frame must be inside the explicit cache frame range")
+        if not 0 <= subdivision_levels <= 6:
+            raise ValueError("subdivision_levels must be in [0, 6]")
+        _finite(solidify_thickness, "solidify_thickness")
+        if solidify_thickness <= 0:
+            raise ValueError("solidify_thickness must be positive")
+        pin_group = garment.vertex_groups.get(pin_group_name)
+        if pin_group is None:
+            raise ValueError(f"Pin vertex group not found: {pin_group_name}")
+        pin_stats = _vertex_group_stats(garment, pin_group)
+        if not pin_stats["nonzero"]:
+            raise ValueError(f"Pin vertex group '{pin_group_name}' has no nonzero weights")
+        collection = bpy.data.collections.get(collision_collection_name)
+        if collection is None:
+            raise ValueError(f"Collection not found: {collision_collection_name}")
+        scene, view_layer = _scene_context_for_object(garment)
+        if not _collection_in_scene(collection, scene):
+            raise ValueError(f"Collection '{collection.name}' is not linked to scene '{scene.name}'")
+        for dependency in [armature, *colliders]:
+            if dependency.name not in scene.objects:
+                raise ValueError(f"Dependency '{dependency.name}' is not linked to garment scene '{scene.name}'")
+        if any(not math.isfinite(value) or value == 0 for value in armature.scale):
+            raise ValueError("Armature scale must be finite and nonzero")
+        for collider in colliders:
+            if collider.type == "MESH":
+                sync_from_editmode(collider)
+            evaluated = collider.evaluated_get(view_layer.depsgraph)
+            evaluated_mesh = evaluated.to_mesh()
+            try:
+                counts = {
+                    "vertices": len(evaluated_mesh.vertices),
+                    "faces": len(evaluated_mesh.polygons),
+                }
+            finally:
+                evaluated.to_mesh_clear()
+            if not counts["vertices"] or not counts["faces"]:
+                raise ValueError(f"Collider '{collider.name}' must evaluate to a nonempty surface")
+
+        collision_patch = dict(collisions or {})
+        requested_collection = collision_patch.get("collection_name")
+        if requested_collection and requested_collection != collision_collection_name:
+            raise ValueError("Collision patch collection_name conflicts with collision_collection_name")
+        if collision_patch.get("clear_collection"):
+            raise ValueError("Character cloth setup cannot clear its explicit collision collection")
+        collision_patch["collection_name"] = collision_collection_name
+        collision_patch.setdefault("use_collision", True)
+        collider_patch = dict(collider_settings or {})
+        if collider_patch.get("use") is False:
+            raise ValueError("Character cloth colliders must remain enabled")
+        collider_patch["use"] = True
+
+        created_modifiers = []
+        ownership_records = []
+        created_links = []
+        membership_records = []
+        existing_modifier_snapshots = []
+        cloth_changes = {"material": {}, "solver": {}, "collisions": {}}
+        collider_changes = []
+        cloth_created = False
+        original_frame = scene.frame_current
+        original_subframe = scene.frame_subframe
+
+        def resolve_modifier(obj, name, modifier_type):
+            existing = obj.modifiers.get(name)
+            if existing is not None:
+                if existing.type != modifier_type:
+                    raise ValueError(f"Modifier '{name}' on '{obj.name}' is {existing.type}, not {modifier_type}")
+                if existing_policy == "ERROR":
+                    raise ValueError(f"Modifier '{name}' already exists on '{obj.name}'")
+                return existing, False
+            modifier = obj.modifiers.new(name=name, type=modifier_type)
+            created_modifiers.append((obj, modifier))
+            return modifier, True
+
+        try:
+            armature_modifier, armature_created = resolve_modifier(garment, armature_modifier_name, "ARMATURE")
+            if not armature_created:
+                existing_modifier_snapshots.append(
+                    (
+                        garment,
+                        armature_modifier,
+                        list(garment.modifiers).index(armature_modifier),
+                        _snapshot_attachment_modifier(armature_modifier),
+                    )
+                )
+            armature_modifier.object = armature
+            armature_modifier.use_vertex_groups = True
+
+            cloth_modifier, cloth_created = resolve_modifier(garment, cloth_modifier_name, "CLOTH")
+            bpy.context.view_layer.update()
+            if cloth_modifier.settings is None or cloth_modifier.collision_settings is None:
+                raise RuntimeError("Blender did not initialize Cloth settings")
+            if cloth_modifier.point_cache.is_baked:
+                raise ValueError("Cannot assemble a character setup around a baked cloth cache")
+            old_pin_group = cloth_modifier.settings.vertex_group_mass
+            old_cache_range = (cloth_modifier.point_cache.frame_start, cloth_modifier.point_cache.frame_end)
+            old_collision_collection = cloth_modifier.collision_settings.collection
+            if not cloth_created:
+                existing_modifier_snapshots.append(
+                    (garment, cloth_modifier, list(garment.modifiers).index(cloth_modifier), None)
+                )
+
+            _move_modifier_immediately_before(garment, armature_modifier, cloth_modifier)
+            cloth_modifier.settings.vertex_group_mass = pin_group_name
+            cloth_changes["material"] = self._configure_material(garment, cloth_modifier, material, None)
+            cloth_changes["solver"] = _patch_rna(cloth_modifier.settings, solver or {}, _SOLVER_FIELDS)
+            cloth_changes["collisions"] = self._configure_collisions(garment, cloth_modifier, collision_patch)
+            for field, value in (
+                ("frame_start", cache_frame_start),
+                ("frame_end", cache_frame_end),
+            ):
+                _validate_rna_value(cloth_modifier.point_cache, field, value)
+            _set_cache_frame_range(cloth_modifier.point_cache, cache_frame_start, cache_frame_end)
+
+            collider_records = []
+            for collider in colliders:
+                collision_modifier, collision_created = resolve_modifier(collider, collider_modifier_name, "COLLISION")
+                bpy.context.view_layer.update()
+                if collider.collision is None:
+                    raise RuntimeError(f"Blender did not initialize collision settings for '{collider.name}'")
+                if not collision_created:
+                    existing_modifier_snapshots.append(
+                        (collider, collision_modifier, list(collider.modifiers).index(collision_modifier), None)
+                    )
+                changes = _patch_rna(collider.collision, collider_patch, _COLLIDER_FIELDS)
+                collider_changes.append((collider, changes))
+                membership = None
+                if collider.name not in collection.objects:
+                    collection.objects.link(collider)
+                    created_links.append((collection, collider))
+                    membership = _tag_owned_membership(collider, collection)
+                    membership_records.append((collider, membership))
+                if collision_created:
+                    ownership = _tag_owned_component(collider, collision_modifier, "collider")
+                    ownership_records.append((collider, ownership))
+                collider_records.append(
+                    {
+                        "object": collider.name,
+                        "modifier": collision_modifier.name,
+                        "modifier_created": collision_created,
+                        "collection_membership_created": membership is not None,
+                        "settings_changes": changes,
+                    }
+                )
+
+            subdivision_modifier = None
+            if add_subdivision:
+                subdivision_modifier, subdivision_created = resolve_modifier(
+                    garment, subdivision_modifier_name, "SUBSURF"
+                )
+                if not subdivision_created:
+                    existing_modifier_snapshots.append(
+                        (
+                            garment,
+                            subdivision_modifier,
+                            list(garment.modifiers).index(subdivision_modifier),
+                            {
+                                "levels": subdivision_modifier.levels,
+                                "render_levels": subdivision_modifier.render_levels,
+                            },
+                        )
+                    )
+                subdivision_modifier.levels = subdivision_levels
+                subdivision_modifier.render_levels = subdivision_levels
+                _move_modifier_immediately_after(garment, subdivision_modifier, cloth_modifier)
+
+            solidify_modifier = None
+            if add_solidify:
+                solidify_modifier, solidify_created = resolve_modifier(garment, solidify_modifier_name, "SOLIDIFY")
+                if not solidify_created:
+                    existing_modifier_snapshots.append(
+                        (
+                            garment,
+                            solidify_modifier,
+                            list(garment.modifiers).index(solidify_modifier),
+                            {"thickness": solidify_modifier.thickness},
+                        )
+                    )
+                solidify_modifier.thickness = solidify_thickness
+                _move_modifier_immediately_after(garment, solidify_modifier, subdivision_modifier or cloth_modifier)
+
+            if cloth_created:
+                ownership = _tag_owned_component(garment, cloth_modifier, "cloth")
+                ownership_records.append((garment, ownership))
+            if armature_created:
+                ownership = _tag_owned_component(garment, armature_modifier, "attachment")
+                ownership_records.append((garment, ownership))
+            for obj, modifier in created_modifiers:
+                if obj == garment and modifier in {subdivision_modifier, solidify_modifier}:
+                    ownership = _tag_owned_component(obj, modifier, "render_finish")
+                    ownership_records.append((obj, ownership))
+
+            scene.frame_set(rest_frame)
+            view_layer.update()
+            intersection_evidence = [
+                {
+                    "collider": collider.name,
+                    **_evaluated_bvh_overlap(garment, collider, view_layer.depsgraph),
+                }
+                for collider in colliders
+            ]
+            _tag_update(garment)
+        except Exception:
+            for obj, record in reversed(ownership_records + membership_records):
+                with contextlib.suppress(Exception):
+                    del obj[record["object_property"]]
+            for linked_collection, linked_object in reversed(created_links):
+                with contextlib.suppress(Exception):
+                    linked_collection.objects.unlink(linked_object)
+            for collider, changes in reversed(collider_changes):
+                _restore_rna(collider.collision, changes)
+            if "cloth_modifier" in locals() and not cloth_created:
+                _restore_rna(cloth_modifier.settings, cloth_changes["material"])
+                _restore_rna(cloth_modifier.settings, cloth_changes["solver"])
+                _restore_rna(cloth_modifier.collision_settings, cloth_changes["collisions"])
+                cloth_modifier.settings.vertex_group_mass = old_pin_group
+                cloth_modifier.collision_settings.collection = old_collision_collection
+                _set_cache_frame_range(cloth_modifier.point_cache, *old_cache_range)
+            for obj, modifier, original_index, snapshot in reversed(existing_modifier_snapshots):
+                if snapshot:
+                    if modifier.type in {"HOOK", "ARMATURE", "MESH_DEFORM", "SURFACE_DEFORM"}:
+                        _restore_attachment_modifier(modifier, snapshot)
+                    else:
+                        for name, value in snapshot.items():
+                            with contextlib.suppress(Exception):
+                                setattr(modifier, name, value)
+                with contextlib.suppress(Exception):
+                    obj.modifiers.move(list(obj.modifiers).index(modifier), original_index)
+            for obj, modifier in reversed(created_modifiers):
+                with contextlib.suppress(Exception):
+                    obj.modifiers.remove(modifier)
+            raise
+        finally:
+            scene.frame_set(original_frame, subframe=original_subframe)
+            view_layer.update()
+
+        recommended_frames = sorted(
+            {
+                cache_frame_start,
+                cache_frame_start + (cache_frame_end - cache_frame_start) // 4,
+                cache_frame_start + (cache_frame_end - cache_frame_start) // 2,
+                cache_frame_start + 3 * (cache_frame_end - cache_frame_start) // 4,
+                cache_frame_end,
+            }
+        )
+        intersection_warnings = [
+            item["collider"]
+            for item in intersection_evidence
+            if item.get("checked") and item.get("overlapping_face_pairs", 0)
+        ]
+        return {
+            "changed_objects": [garment.name, *[collider.name for collider in colliders]],
+            "garment": garment.name,
+            "armature": armature.name,
+            "cloth_modifier": _modifier_info(garment, cloth_modifier),
+            "armature_modifier": _modifier_info(garment, armature_modifier),
+            "pin_group": pin_stats,
+            "collision_collection": collection.name,
+            "colliders": collider_records,
+            "render_modifiers": {
+                "subdivision": _modifier_info(garment, subdivision_modifier) if subdivision_modifier else None,
+                "solidify": _modifier_info(garment, solidify_modifier) if solidify_modifier else None,
+            },
+            "cloth_changes": cloth_changes,
+            "point_cache": _cache_info(cloth_modifier.point_cache),
+            "rest_frame": rest_frame,
+            "rest_frame_intersections": intersection_evidence,
+            "armature_scale": list(armature.scale),
+            "animation": {"garment": _animation_info(garment), "armature": _animation_info(armature)},
+            "dependency_graph": {
+                "armature_before_cloth": True,
+                "cloth_before_render_finishing": True,
+                "live_assets_preserved": True,
+            },
+            "recommended_test_frames": recommended_frames,
+            "ownership": [record for _obj, record in ownership_records + membership_records],
+            "warnings": [
+                *self._scale_warnings(garment),
+                *self._scale_warnings(armature),
+                *(
+                    [f"Rest-frame evaluated meshes overlap colliders: {intersection_warnings}"]
+                    if intersection_warnings
+                    else []
+                ),
+                "Rest-frame overlap is a bounded structural check; review representative animated "
+                "frames before production baking.",
+            ],
+        }
+
+    def sample_cloth_simulation(
+        self,
+        object_name,
+        modifier_name,
+        frames,
+        vertex_sample_limit=10_000,
+        collider_sample_limit=16,
+        timeout_seconds=30.0,
+    ):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        sync_from_editmode(obj)
+        if not frames or len(frames) > 100:
+            raise ValueError("frames must contain 1-100 explicit frame numbers")
+        if any(isinstance(frame, bool) or not isinstance(frame, int) for frame in frames):
+            raise ValueError("frames must contain integer frame numbers")
+        normalized_frames = sorted(set(frames))
+        if len(normalized_frames) != len(frames):
+            raise ValueError("frames must not contain duplicates")
+        if not 1 <= vertex_sample_limit <= 100_000:
+            raise ValueError("vertex_sample_limit must be in [1, 100000]")
+        if not 0 <= collider_sample_limit <= 64:
+            raise ValueError("collider_sample_limit must be in [0, 64]")
+        _finite(timeout_seconds, "timeout_seconds")
+        if not 0 < timeout_seconds <= 300:
+            raise ValueError("timeout_seconds must be in (0, 300]")
+        scene, view_layer = _scene_context_for_object(obj)
+        for frame in normalized_frames:
+            _validate_rna_value(scene, "frame_current", frame)
+        colliders = _eligible_active_colliders(obj, modifier.collision_settings)
+        selected_colliders = colliders[:collider_sample_limit]
+        original_frame = scene.frame_current
+        original_subframe = scene.frame_subframe
+        cache_before = _cache_info(modifier.point_cache)
+        base_count = len(obj.data.vertices)
+        base_indices = _sample_indices(base_count, vertex_sample_limit)
+        base_positions = {index: obj.matrix_world @ obj.data.vertices[index].co for index in base_indices}
+        base_topology = _topology_summary(obj)
+        polygon_limit = min(200_000, max(10_000, vertex_sample_limit * 4))
+        collider_face_limit = min(250_000, max(25_000, vertex_sample_limit * 10))
+        fps = float(scene.render.fps) / max(float(scene.render.fps_base), 1e-9)
+        deadline = time.monotonic() + timeout_seconds
+        samples = []
+        previous = None
+        timed_out = False
+        try:
+            for frame in normalized_frames:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                scene.frame_set(frame)
+                view_layer.update()
+                depsgraph = view_layer.depsgraph
+                evaluated = obj.evaluated_get(depsgraph)
+                mesh = evaluated.to_mesh()
+                try:
+                    indices = _sample_indices(len(mesh.vertices), vertex_sample_limit)
+                    positions = [evaluated.matrix_world @ mesh.vertices[index].co for index in indices]
+                    surface = _evaluated_surface_measurements(evaluated, mesh, polygon_limit)
+                    displacement = None
+                    if len(mesh.vertices) == base_count and indices == base_indices:
+                        distances = [
+                            float((position - base_positions[index]).length)
+                            for index, position in zip(indices, positions, strict=True)
+                        ]
+                        displacement = {
+                            "reference": "BASE_MESH_OBJECT_LOCAL_TRANSFORMED_TO_WORLD",
+                            "sample_count": len(distances),
+                            "minimum_world": min(distances, default=0.0),
+                            "maximum_world": max(distances, default=0.0),
+                            "mean_world": statistics.fmean(distances) if distances else 0.0,
+                        }
+                    velocity = None
+                    if previous and previous["indices"] == indices:
+                        delta_frames = frame - previous["frame"]
+                        speeds = [
+                            float((current - prior).length) * fps / delta_frames
+                            for prior, current in zip(previous["positions"], positions, strict=True)
+                        ]
+                        velocity = {
+                            "estimate_between_frames": [previous["frame"], frame],
+                            "sample_count": len(speeds),
+                            "maximum_world_units_per_second": max(speeds, default=0.0),
+                            "mean_world_units_per_second": statistics.fmean(speeds) if speeds else 0.0,
+                        }
+                    inverted = []
+                    if len(mesh.polygons) == len(obj.data.polygons):
+                        world_normal_matrix = evaluated.matrix_world.to_3x3().inverted_safe().transposed()
+                        base_normal_matrix = obj.matrix_world.to_3x3().inverted_safe().transposed()
+                        for polygon in list(mesh.polygons)[:polygon_limit]:
+                            current_normal = world_normal_matrix @ polygon.normal
+                            base_normal = base_normal_matrix @ obj.data.polygons[polygon.index].normal
+                            if (
+                                current_normal.length_squared
+                                and base_normal.length_squared
+                                and current_normal.normalized().dot(base_normal.normalized()) < 0
+                            ):
+                                inverted.append(polygon.index)
+                    proximity = _collider_proximity(
+                        positions,
+                        selected_colliders,
+                        collider_face_limit,
+                        depsgraph,
+                    )
+                    solver_result = modifier.solver_result
+                    sample = {
+                        "frame": frame,
+                        "evaluated_geometry": {
+                            "coordinate_space": "EVALUATED_OBJECT_LOCAL",
+                            "vertices": len(mesh.vertices),
+                            "edges": len(mesh.edges),
+                            "faces": len(mesh.polygons),
+                        },
+                        "world_bounds": _world_bounds(evaluated),
+                        "vertex_sampling": {
+                            "sample_count": len(indices),
+                            "total_vertices": len(mesh.vertices),
+                            "truncated": len(indices) < len(mesh.vertices),
+                        },
+                        "displacement": displacement,
+                        "velocity": velocity,
+                        "surface": {
+                            **surface,
+                            "volume_meaningful": bool(
+                                surface["complete"]
+                                and len(mesh.vertices) == base_count
+                                and base_topology["non_manifold_edges"] == 0
+                            ),
+                        },
+                        "inverted_faces_relative_to_base": {
+                            "inverted_count_scanned": len(inverted),
+                            "indices_sample": inverted[:100],
+                            "sample_truncated": len(inverted) > 100,
+                            "available": len(mesh.polygons) == len(obj.data.polygons),
+                        },
+                        "collider_proximity": proximity,
+                        "solver_status": "AVAILABLE" if solver_result is not None else "NOT_INITIALIZED",
+                        "solver_result": (
+                            _read_fields(
+                                solver_result,
+                                {
+                                    prop.identifier
+                                    for prop in solver_result.bl_rna.properties
+                                    if prop.identifier != "rna_type"
+                                },
+                            )
+                            if solver_result is not None
+                            else None
+                        ),
+                    }
+                    samples.append(sample)
+                    previous = {"frame": frame, "indices": indices, "positions": positions}
+                finally:
+                    evaluated.to_mesh_clear()
+                if time.monotonic() >= deadline and frame != normalized_frames[-1]:
+                    timed_out = True
+                    break
+        finally:
+            scene.frame_set(original_frame, subframe=original_subframe)
+            view_layer.update()
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "requested_frames": normalized_frames,
+            "evaluated_frames": [sample["frame"] for sample in samples],
+            "timed_out": timed_out,
+            "timeout_seconds": timeout_seconds,
+            "timeline_restored": {
+                "frame": scene.frame_current,
+                "subframe": scene.frame_subframe,
+            },
+            "collider_scope": {
+                "eligible": [collider.name for collider in colliders],
+                "sampled": [collider.name for collider in selected_colliders],
+                "truncated": len(selected_colliders) < len(colliders),
+            },
+            "samples": samples,
+            "point_cache_before": cache_before,
+            "point_cache_after": _cache_info(modifier.point_cache),
+            "cache_effect": "Evaluation may populate or invalidate Blender's in-memory point cache.",
+            "claim": "Bounded measurements only; these samples do not prove stable convergence or visual correctness.",
+        }
+
+    def manage_cloth_cache(
+        self,
+        object_name,
+        modifier_name,
+        action="INSPECT",
+        patch=None,
+        confirm_bake=False,
+        confirm_free_bake=False,
+        confirm_external_overwrite=False,
+        max_bake_frames=250,
+    ):
+        obj, modifier = _get_cloth(object_name, modifier_name)
+        cache = modifier.point_cache
+        if action not in {"INSPECT", "CONFIGURE", "BAKE", "BAKE_FROM_CACHE", "FREE"}:
+            raise ValueError(f"Unsupported cache action: {action}")
+        if not 1 <= max_bake_frames <= 10_000:
+            raise ValueError("max_bake_frames must be in [1, 10000]")
+        patch = dict(patch or {})
+        unknown = set(patch) - _POINT_CACHE_FIELDS
+        if unknown:
+            raise ValueError(f"Unsupported PointCache properties: {sorted(unknown)}")
+        if action == "INSPECT" and patch:
+            raise ValueError("INSPECT does not accept a configuration patch")
+        if action == "CONFIGURE" and not patch:
+            raise ValueError("CONFIGURE requires a nonempty PointCache patch")
+        if action not in {"INSPECT", "CONFIGURE"} and patch:
+            raise ValueError(f"{action} does not accept a configuration patch; configure first")
+
+        before = _cache_info(cache)
+        prospective = {
+            "frame_start": patch.get("frame_start", cache.frame_start),
+            "frame_end": patch.get("frame_end", cache.frame_end),
+            "frame_step": patch.get("frame_step", cache.frame_step),
+            "name": patch.get("name", cache.name),
+            "index": patch.get("index", cache.index),
+            "use_disk_cache": patch.get("use_disk_cache", cache.use_disk_cache),
+            "use_external": patch.get("use_external", cache.use_external),
+            "use_library_path": patch.get("use_library_path", cache.use_library_path),
+            "filepath": patch.get("filepath", cache.filepath),
+        }
+        if prospective["frame_start"] > prospective["frame_end"]:
+            raise ValueError("PointCache frame_start must be <= frame_end")
+        for name, value in patch.items():
+            _validate_rna_value(cache, name, value)
+        if prospective["use_external"] and not prospective["filepath"]:
+            raise ValueError("External point caches require an explicit filepath")
+        if prospective["use_disk_cache"] and not prospective["use_external"] and not bpy.data.filepath:
+            raise ValueError("Internal disk caching requires the .blend file to be saved first")
+        external = _external_directory_evidence(prospective["filepath"])
+        if prospective["use_external"] and (not external["exists"] or not external["writable"]):
+            raise ValueError(f"External cache directory must already exist and be writable: {external['resolved']}")
+        identity = _prospective_cache_identity(cache, prospective)
+        shared_with = []
+        dependency_issues = _cloth_cache_dependency_issues(obj, modifier)
+        if identity is not None:
+            for other_obj, other_modifier, other_cache in _all_cloth_caches():
+                if other_modifier == modifier:
+                    continue
+                if _shared_cache_identity(other_cache) == identity:
+                    shared_with.append({"object": other_obj.name, "modifier": other_modifier.name})
+        if shared_with and action != "INSPECT":
+            raise ValueError(f"External cache identity is already used by {shared_with}")
+
+        if action == "INSPECT":
+            return {
+                "changed_objects": [],
+                "object": obj.name,
+                "modifier": modifier.name,
+                "action": action,
+                "point_cache": before,
+                "external_path": external,
+                "shared_external_identity_with": shared_with,
+                "dependency_issues": dependency_issues,
+            }
+        if cache.is_baking:
+            raise ValueError("Point cache is currently baking")
+
+        changes = {}
+        if action == "CONFIGURE":
+            if cache.is_baked:
+                raise ValueError("Cannot configure a baked point cache; free the exact bake separately first")
+            old_range = (cache.frame_start, cache.frame_end)
+            scalar_patch = {name: value for name, value in patch.items() if name not in {"frame_start", "frame_end"}}
+            try:
+                changes = _patch_rna(cache, scalar_patch, _POINT_CACHE_FIELDS)
+                if "frame_start" in patch or "frame_end" in patch:
+                    _set_cache_frame_range(
+                        cache,
+                        prospective["frame_start"],
+                        prospective["frame_end"],
+                    )
+                    changes["frame_start"] = {
+                        "old": old_range[0],
+                        "new": cache.frame_start,
+                    }
+                    changes["frame_end"] = {
+                        "old": old_range[1],
+                        "new": cache.frame_end,
+                    }
+                _tag_update(obj)
+            except Exception:
+                _restore_rna(cache, changes)
+                with contextlib.suppress(Exception):
+                    _set_cache_frame_range(cache, *old_range)
+                raise
+            return {
+                "changed_objects": [obj.name],
+                "object": obj.name,
+                "modifier": modifier.name,
+                "action": action,
+                "changes": changes,
+                "point_cache_before": before,
+                "point_cache_after": _cache_info(cache),
+                "external_path": _external_directory_evidence(cache.filepath),
+                "warnings": ["Point-cache configuration changed; previously evaluated in-memory state is stale."],
+            }
+
+        frame_count = (cache.frame_end - cache.frame_start) // cache.frame_step + 1
+        if action in {"BAKE", "BAKE_FROM_CACHE"}:
+            if not confirm_bake:
+                raise ValueError(f"{action} requires confirm_bake=True")
+            if cache.is_baked:
+                raise ValueError("Point cache is already baked")
+            if dependency_issues:
+                raise ValueError(f"Cloth cache dependencies are invalid: {dependency_issues}")
+            if frame_count > max_bake_frames:
+                raise ValueError(
+                    f"Cache range contains {frame_count} steps, exceeding max_bake_frames={max_bake_frames}"
+                )
+            if action == "BAKE" and cache.use_external and external["entries"] and not confirm_external_overwrite:
+                raise ValueError("External cache directory is not empty; confirm_external_overwrite=True is required")
+            if action == "BAKE":
+                _run_point_cache_operator(obj, cache, bpy.ops.ptcache.bake, bake=True)
+            else:
+                _run_point_cache_operator(obj, cache, bpy.ops.ptcache.bake_from_cache)
+            if not cache.is_baked:
+                raise RuntimeError(
+                    f"{action} reported FINISHED but the exact point cache is not baked; "
+                    f"state={json.dumps(_cache_info(cache))}"
+                )
+        else:
+            if not confirm_free_bake:
+                raise ValueError("FREE requires confirm_free_bake=True")
+            if not cache.is_baked:
+                raise ValueError("Point cache is not baked")
+            if cache.use_external and external["entries"] and not confirm_external_overwrite:
+                raise ValueError(
+                    "Freeing an external bake may remove cache files; confirm_external_overwrite=True is also required"
+                )
+            _run_point_cache_operator(obj, cache, bpy.ops.ptcache.free_bake)
+            if cache.is_baked:
+                raise RuntimeError(
+                    "FREE reported FINISHED but the exact point cache remains baked; "
+                    f"state={json.dumps(_cache_info(cache))}"
+                )
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "action": action,
+            "frame_steps": frame_count,
+            "operator_scope": "EXACT_CLOTH_POINT_CACHE",
+            "point_cache_before": before,
+            "point_cache_after": _cache_info(cache),
+            "external_path": _external_directory_evidence(cache.filepath),
+            "warnings": [
+                "Bake operators run synchronously; this tool bounds frames but cannot interrupt Blender "
+                "inside one frame solve."
+            ],
+        }
+
+    def remove_cloth_components(
+        self,
+        object_name,
+        component_type,
+        modifier_name=None,
+        collection_name=None,
+        confirm_baked_removal=False,
+        confirm_affected_bakes=False,
+    ):
+        obj = _get_object(object_name)
+        allowed = {
+            "CLOTH_MODIFIER",
+            "COLLISION_MODIFIER",
+            "ATTACHMENT_MODIFIER",
+            "COLLISION_COLLECTION_MEMBERSHIP",
+        }
+        if component_type not in allowed:
+            raise ValueError(f"Unsupported component_type: {component_type}")
+        if component_type == "COLLISION_COLLECTION_MEMBERSHIP":
+            if modifier_name is not None:
+                raise ValueError("modifier_name is not valid for collection membership removal")
+            if not collection_name:
+                raise ValueError("collection_name is required for collection membership removal")
+            collection = bpy.data.collections.get(collection_name)
+            if collection is None:
+                raise ValueError(f"Collection not found: {collection_name}")
+            if obj.name not in collection.objects:
+                raise ValueError(f"Object '{obj.name}' is not directly linked to collection '{collection.name}'")
+            ownership = _owned_membership_record(obj, collection.name)
+            if ownership is None:
+                raise ValueError("Collection membership is not marked as MCP-owned and will not be removed")
+            affected = _affected_cloths(obj)
+            baked = [
+                {"object": cloth.name, "modifier": modifier.name}
+                for cloth, modifier in affected
+                if modifier.point_cache.is_baked
+            ]
+            if baked and not confirm_affected_bakes:
+                raise ValueError(f"Collection membership affects baked cloth caches {baked}")
+            serialized_ownership = obj[ownership["object_property"]]
+            try:
+                collection.objects.unlink(obj)
+                del obj[ownership["object_property"]]
+            except Exception:
+                with contextlib.suppress(Exception):
+                    if obj.name not in collection.objects:
+                        collection.objects.link(obj)
+                    obj[ownership["object_property"]] = serialized_ownership
+                raise
+            return {
+                "changed_objects": [obj.name],
+                "object": obj.name,
+                "component_type": component_type,
+                "removed": {"collection_membership": collection.name, "ownership": ownership},
+                "affected_cloth_caches": [
+                    {
+                        "object": cloth.name,
+                        "modifier": modifier.name,
+                        "point_cache": _cache_info(modifier.point_cache),
+                    }
+                    for cloth, modifier in affected
+                ],
+                "retained": ["object", "other collection memberships", "modifiers", "vertex groups"],
+            }
+
+        if collection_name is not None:
+            raise ValueError("collection_name is valid only for collection membership removal")
+        if not modifier_name:
+            raise ValueError("modifier_name is required for modifier removal")
+        expected_type = {
+            "CLOTH_MODIFIER": "CLOTH",
+            "COLLISION_MODIFIER": "COLLISION",
+        }.get(component_type)
+        modifier = obj.modifiers.get(modifier_name)
+        if modifier is None:
+            raise ValueError(f"Modifier not found: {modifier_name}")
+        if expected_type and modifier.type != expected_type:
+            raise ValueError(f"Modifier '{modifier.name}' is {modifier.type}, not {expected_type}")
+        ownership_role = {
+            "CLOTH_MODIFIER": "cloth",
+            "COLLISION_MODIFIER": "collider",
+            "ATTACHMENT_MODIFIER": "attachment",
+        }[component_type]
+        ownership = next(
+            (
+                record
+                for record in _owned_component_records(obj)
+                if record.get("role") == ownership_role and record.get("modifier") == modifier.name
+            ),
+            None,
+        )
+        if component_type == "ATTACHMENT_MODIFIER":
+            if modifier.type not in {"HOOK", "ARMATURE", "MESH_DEFORM", "SURFACE_DEFORM"}:
+                raise ValueError(f"Modifier '{modifier.name}' is not a supported attachment type")
+            if ownership is None:
+                raise ValueError("Attachment modifier is not marked as MCP-owned and will not be removed")
+
+        if component_type == "CLOTH_MODIFIER":
+            affected = [(obj, modifier)]
+            if modifier.point_cache.is_baked and not confirm_baked_removal:
+                raise ValueError("Removing a baked Cloth modifier requires confirm_baked_removal=True")
+        elif component_type == "COLLISION_MODIFIER":
+            affected = _affected_cloths(obj)
+        else:
+            affected = [(obj, item) for item in obj.modifiers if item.type == "CLOTH"]
+        baked_affected = [
+            {"object": cloth.name, "modifier": cloth_modifier.name}
+            for cloth, cloth_modifier in affected
+            if cloth_modifier.point_cache.is_baked
+            and not (component_type == "CLOTH_MODIFIER" and cloth_modifier == modifier)
+        ]
+        if baked_affected and not confirm_affected_bakes:
+            raise ValueError(f"Removal affects baked cloth caches {baked_affected}")
+
+        group_names = []
+        cache_evidence = None
+        if modifier.type == "CLOTH":
+            group_names = [
+                value
+                for value in [
+                    *[
+                        getattr(modifier.settings, name, "")
+                        for name in (
+                            "vertex_group_mass",
+                            "vertex_group_structural_stiffness",
+                            "vertex_group_shear_stiffness",
+                            "vertex_group_bending",
+                            "vertex_group_shrink",
+                            "vertex_group_pressure",
+                            "vertex_group_intern",
+                        )
+                    ],
+                    modifier.collision_settings.vertex_group_object_collisions,
+                    modifier.collision_settings.vertex_group_self_collisions,
+                ]
+                if value
+            ]
+            cache_evidence = _cache_info(modifier.point_cache)
+        elif hasattr(modifier, "vertex_group") and modifier.vertex_group:
+            group_names = [modifier.vertex_group]
+        drivers = _modifier_driver_paths(obj, modifier)
+        downstream = [item.name for item in list(obj.modifiers)[list(obj.modifiers).index(modifier) + 1 :]]
+        affected_cache_evidence = [
+            {
+                "object": cloth.name,
+                "modifier": cloth_modifier.name,
+                "point_cache": _cache_info(cloth_modifier.point_cache),
+            }
+            for cloth, cloth_modifier in affected
+            if not (cloth == obj and cloth_modifier == modifier)
+        ]
+        ownership_value = obj.get(ownership["object_property"]) if ownership else None
+        if ownership:
+            del obj[ownership["object_property"]]
+        try:
+            obj.modifiers.remove(modifier)
+        except Exception:
+            if ownership and ownership_value is not None:
+                obj[ownership["object_property"]] = ownership_value
+            raise
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "component_type": component_type,
+            "removed": {
+                "modifier": modifier_name,
+                "modifier_type": expected_type or "ATTACHMENT",
+                "ownership": ownership,
+            },
+            "preflight_dependencies": {
+                "referenced_vertex_groups_retained": sorted(set(group_names)),
+                "drivers_now_unresolved": drivers,
+                "downstream_modifiers_retained": downstream,
+                "point_cache_removed_with_modifier": cache_evidence,
+                "external_cache_files_deleted": False,
+            },
+            "affected_cloth_caches": affected_cache_evidence,
+            "retained": [
+                "source object and mesh",
+                "materials",
+                "vertex groups",
+                "control objects",
+                "other modifiers",
+                "external cache directories and files",
+            ],
         }

@@ -13,12 +13,15 @@ import bpy
 import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
+from .handlers.camera import CameraHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.retopology import RetopologyHandlersMixin
+from .handlers.retopology_phase1 import RetopologyPhaseOneHandlersMixin
+from .handlers.retopology_phase2 import RetopologyPhaseTwoHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
 from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blendermcp_addon_preferences
@@ -65,6 +68,9 @@ def _handler_failure_message(result):
 
 class BlenderMCPServer(
     ViewportHandlersMixin,
+    CameraHandlersMixin,
+    RetopologyPhaseTwoHandlersMixin,
+    RetopologyPhaseOneHandlersMixin,
     RetopologyHandlersMixin,
     MeshHandlersMixin,
     ModelHandlersMixin,
@@ -456,6 +462,19 @@ class BlenderMCPServer(
             "redistribute_edge_loop": self.redistribute_edge_loop,
             "configure_retopology_symmetry": self.configure_retopology_symmetry,
             "validate_retopology": self.validate_retopology,
+            "create_retopology_guides": self.create_retopology_guides,
+            "create_surface_section": self.create_surface_section,
+            "set_retopology_features": self.set_retopology_features,
+            "add_support_loops": self.add_support_loops,
+            "transfer_mesh_attributes": self.transfer_mesh_attributes,
+            "unwrap_retopology_uvs": self.unwrap_retopology_uvs,
+            "create_bake_cage": self.create_bake_cage,
+            "bake_retopology_maps": self.bake_retopology_maps,
+            "test_deformation": self.test_deformation,
+            "generate_quadriflow_draft": self.generate_quadriflow_draft,
+            "fit_surface_primitive": self.fit_surface_primitive,
+            "bind_surface_deformation": self.bind_surface_deformation,
+            "generate_retopology_lods": self.generate_retopology_lods,
             "copy_object_transform": self.copy_object_transform,
             "add_subdivision_surface_modifier": self.add_subdivision_surface_modifier,
             "add_displace_modifier": self.add_displace_modifier,
@@ -469,6 +488,18 @@ class BlenderMCPServer(
             "sync_data_name": self.sync_data_name,
             "get_cloth_simulation_info": self.get_cloth_simulation_info,
             "get_cloth_object_info": self.get_cloth_object_info,
+            "get_camera_rig_info": self.get_camera_rig_info,
+            "create_camera": self.create_camera,
+            "configure_camera": self.configure_camera,
+            "set_scene_camera": self.set_scene_camera,
+            "aim_camera": self.aim_camera,
+            "create_camera_target": self.create_camera_target,
+            "frame_camera_on_objects": self.frame_camera_on_objects,
+            "create_orbit_camera_rig": self.create_orbit_camera_rig,
+            "create_dolly_camera_rig": self.create_dolly_camera_rig,
+            "create_crane_camera_rig": self.create_crane_camera_rig,
+            "create_camera_path_rig": self.create_camera_path_rig,
+            "configure_camera_dof": self.configure_camera_dof,
             "add_cloth_simulation": self.add_cloth_simulation,
             "configure_cloth_material": self.configure_cloth_material,
             "configure_cloth_solver": self.configure_cloth_solver,
@@ -479,6 +510,17 @@ class BlenderMCPServer(
             "configure_cloth_collider": self.configure_cloth_collider,
             "estimate_cloth_resources": self.estimate_cloth_resources,
             "validate_cloth_setup": self.validate_cloth_setup,
+            "configure_cloth_sewing": self.configure_cloth_sewing,
+            "configure_cloth_pressure": self.configure_cloth_pressure,
+            "configure_cloth_internal_springs": self.configure_cloth_internal_springs,
+            "configure_cloth_rest_shape": self.configure_cloth_rest_shape,
+            "configure_cloth_field_weights": self.configure_cloth_field_weights,
+            "animate_cloth_parameters": self.animate_cloth_parameters,
+            "create_cloth_attachment": self.create_cloth_attachment,
+            "create_character_cloth_setup": self.create_character_cloth_setup,
+            "sample_cloth_simulation": self.sample_cloth_simulation,
+            "manage_cloth_cache": self.manage_cloth_cache,
+            "remove_cloth_components": self.remove_cloth_components,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -536,10 +578,12 @@ class BlenderMCPServer(
             "get_sketchfab_model_preview",
             "get_cloth_simulation_info",
             "get_cloth_object_info",
+            "get_camera_rig_info",
             "estimate_cloth_resources",
             "validate_cloth_setup",
             "inspect_retopology",
             "validate_retopology",
+            "test_deformation",
         }
     )
 
@@ -590,8 +634,18 @@ class BlenderMCPServer(
     # transaction can capture that object's state and restore it on failure.
     # "name" is excluded: in create_primitive it names a new object, not one to
     # protect.
-    _TARGET_NAME_PARAMS = ("object_name", "cutter_object_name", "reference_object_name")
-    _TARGET_NAMES_PARAMS = ("object_names",)
+    _TARGET_NAME_PARAMS = (
+        "object_name",
+        "camera_name",
+        "curve_object_name",
+        "cutter_object_name",
+        "reference_object_name",
+        "target_object_name",
+        "cloth_object_name",
+        "garment_object_name",
+        "armature_object_name",
+    )
+    _TARGET_NAMES_PARAMS = ("object_names", "camera_names", "body_collider_object_names")
 
     # Commands that edit an existing object's mesh geometry. Only these back up
     # the mesh datablock (a full copy) so a failed edit can be swapped back;
@@ -617,6 +671,11 @@ class BlenderMCPServer(
             "reroute_topology",
             "relax_topology",
             "redistribute_edge_loop",
+            "set_retopology_features",
+            "add_support_loops",
+            "transfer_mesh_attributes",
+            "unwrap_retopology_uvs",
+            "configure_cloth_sewing",
         }
     )
 
@@ -676,6 +735,10 @@ class BlenderMCPServer(
         dynamic_read_only = (
             cmd_type == "manage_retopology_checkpoint" and str(params.get("action", "")).upper() in {"LIST", "COMPARE"}
         ) or (cmd_type == "analyze_surface_conformity" and not params.get("create_heat_map", False))
+        dynamic_read_only = dynamic_read_only or (cmd_type == "configure_cloth_sewing" and params.get("dry_run", True))
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_cloth_cache" and str(params.get("action", "INSPECT")).upper() == "INSPECT"
+        )
         if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
             return handler(**params)
 
