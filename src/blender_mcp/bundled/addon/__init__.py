@@ -28,7 +28,6 @@ ADDON_PROTOCOL_VERSION = 6
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]
     BLENDERMCP_AddonPreferences,
-    BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey,
     BLENDERMCP_OT_StartServer,
     BLENDERMCP_OT_StopServer,
     BLENDERMCP_PT_Panel,
@@ -59,94 +58,6 @@ def register() -> None:
         default=False,
     )
 
-    bpy.types.Scene.blendermcp_use_hyper3d = bpy.props.BoolProperty(
-        name="Use Hyper3D Rodin",
-        description="Enable Hyper3D Rodin generatino integration",
-        default=False,
-    )
-
-    bpy.types.Scene.blendermcp_hyper3d_mode = bpy.props.EnumProperty(
-        name="Rodin Mode",
-        description="Choose the platform used to call Rodin APIs",
-        items=[
-            ("MAIN_SITE", "hyper3d.ai", "hyper3d.ai"),
-            ("FAL_AI", "fal.ai", "fal.ai"),
-        ],
-        default="MAIN_SITE",
-    )
-
-    bpy.types.Scene.blendermcp_hyper3d_api_key = bpy.props.StringProperty(
-        name="Hyper3D API Key",
-        subtype="PASSWORD",
-        description="API Key provided by Hyper3D",
-        default="",
-    )
-
-    bpy.types.Scene.blendermcp_use_hunyuan3d = bpy.props.BoolProperty(
-        name="Use Hunyuan 3D",
-        description="Enable Hunyuan asset integration",
-        default=False,
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_mode = bpy.props.EnumProperty(
-        name="Hunyuan3D Mode",
-        description="Choose a local or official APIs",
-        items=[
-            ("LOCAL_API", "local api", "local api"),
-            ("OFFICIAL_API", "official api", "official api"),
-        ],
-        default="LOCAL_API",
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_secret_id = bpy.props.StringProperty(
-        name="Hunyuan 3D SecretId",
-        description="SecretId provided by Hunyuan 3D",
-        default="",
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_secret_key = bpy.props.StringProperty(
-        name="Hunyuan 3D SecretKey",
-        subtype="PASSWORD",
-        description="SecretKey provided by Hunyuan 3D",
-        default="",
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_api_url = bpy.props.StringProperty(
-        name="API URL",
-        description="URL of the Hunyuan 3D API service",
-        default="http://localhost:8081",
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_octree_resolution = bpy.props.IntProperty(
-        name="Octree Resolution",
-        description="Octree resolution for the 3D generation",
-        default=256,
-        min=128,
-        max=512,
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_num_inference_steps = bpy.props.IntProperty(
-        name="Number of Inference Steps",
-        description="Number of inference steps for the 3D generation",
-        default=20,
-        min=20,
-        max=50,
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_guidance_scale = bpy.props.FloatProperty(
-        name="Guidance Scale",
-        description="Guidance scale for the 3D generation",
-        default=5.5,
-        min=1.0,
-        max=10.0,
-    )
-
-    bpy.types.Scene.blendermcp_hunyuan3d_texture = bpy.props.BoolProperty(
-        name="Generate Texture",
-        description="Whether to generate texture for the 3D model",
-        default=False,
-    )
-
     bpy.types.Scene.blendermcp_use_sketchfab = bpy.props.BoolProperty(
         name="Use Sketchfab",
         description="Enable Sketchfab asset integration",
@@ -170,7 +81,6 @@ def register() -> None:
     bpy.utils.register_class(BLENDERMCP_AddonPreferences)
 
     bpy.utils.register_class(BLENDERMCP_PT_Panel)
-    bpy.utils.register_class(BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey)
     bpy.utils.register_class(BLENDERMCP_OT_StartServer)
     bpy.utils.register_class(BLENDERMCP_OT_StopServer)
 
@@ -200,7 +110,6 @@ def unregister() -> None:
         del bpy.types.blendermcp_server
 
     bpy.utils.unregister_class(BLENDERMCP_PT_Panel)
-    bpy.utils.unregister_class(BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey)
     bpy.utils.unregister_class(BLENDERMCP_OT_StartServer)
     bpy.utils.unregister_class(BLENDERMCP_OT_StopServer)
     bpy.utils.unregister_class(BLENDERMCP_AddonPreferences)
@@ -209,20 +118,8 @@ def unregister() -> None:
     del bpy.types.Scene.blendermcp_server_running
     del bpy.types.Scene.blendermcp_auto_start_server
     del bpy.types.Scene.blendermcp_use_polyhaven
-    del bpy.types.Scene.blendermcp_use_hyper3d
-    del bpy.types.Scene.blendermcp_hyper3d_mode
-    del bpy.types.Scene.blendermcp_hyper3d_api_key
     del bpy.types.Scene.blendermcp_use_sketchfab
     del bpy.types.Scene.blendermcp_sketchfab_api_key
-    del bpy.types.Scene.blendermcp_use_hunyuan3d
-    del bpy.types.Scene.blendermcp_hunyuan3d_mode
-    del bpy.types.Scene.blendermcp_hunyuan3d_secret_id
-    del bpy.types.Scene.blendermcp_hunyuan3d_secret_key
-    del bpy.types.Scene.blendermcp_hunyuan3d_api_url
-    del bpy.types.Scene.blendermcp_hunyuan3d_octree_resolution
-    del bpy.types.Scene.blendermcp_hunyuan3d_num_inference_steps
-    del bpy.types.Scene.blendermcp_hunyuan3d_guidance_scale
-    del bpy.types.Scene.blendermcp_hunyuan3d_texture
     del bpy.types.Scene.blendermcp_use_nd
 
     print("BlenderMCP addon unregistered")

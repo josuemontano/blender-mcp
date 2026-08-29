@@ -14,13 +14,11 @@ from ._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
-Provider = Literal["polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd"]
+Provider = Literal["polyhaven", "sketchfab", "nd"]
 
 _STATUS_COMMANDS: dict[Provider, str] = {
     "polyhaven": "get_polyhaven_status",
-    "hyper3d": "get_hyper3d_status",
     "sketchfab": "get_sketchfab_status",
-    "hunyuan3d": "get_hunyuan3d_status",
     "nd": "get_nd_status",
 }
 
@@ -32,7 +30,7 @@ async def get_integration_status(ctx: Context, provider: Provider | None = None)
 
     Args:
         ctx: MCP request context.
-        provider: One of "polyhaven", "hyper3d", "sketchfab", "hunyuan3d", "nd". If omitted, checks all five and
+        provider: One of "polyhaven", "sketchfab", "nd". If omitted, checks all three and
             returns a dict keyed by provider name. Each provider's result is {"enabled": bool, "message": str}
             describing whether that integration's features are available and, if not, how to enable it.
 

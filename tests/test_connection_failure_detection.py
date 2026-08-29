@@ -39,10 +39,10 @@ def _connection_returning(payload: dict, monkeypatch) -> BlenderConnection:
 @pytest.mark.parametrize(
     ("result", "expected"),
     [
-        ({"error": "SecretId or SecretKey is not given"}, "SecretId or SecretKey is not given"),
+        ({"error": "API key is not given"}, "API key is not given"),
         ({"succeed": False, "error": "No mesh objects imported from GLB"}, "No mesh objects imported from GLB"),
         ({"succeed": False}, "{'succeed': False}"),
-        ("Error: Unknown Hyper3D Rodin mode!", "Error: Unknown Hyper3D Rodin mode!"),
+        ("Error: Unknown import mode!", "Error: Unknown import mode!"),
     ],
 )
 def test_ad_hoc_failure_message_detects_known_failure_shapes(result, expected) -> None:
@@ -53,7 +53,7 @@ def test_ad_hoc_failure_message_detects_known_failure_shapes(result, expected) -
     "result",
     [
         {"succeed": True, "name": "Cube", "type": "MESH"},
-        {"enabled": True, "message": "Hyper3D Rodin integration is enabled and ready to use."},
+        {"enabled": True, "message": "Sketchfab integration is enabled and ready to use."},
         {"name": "Scene", "object_count": 3, "objects": []},
         {"pong": True},
         None,
@@ -67,11 +67,11 @@ def test_ad_hoc_failure_message_leaves_real_success_alone(result) -> None:
 
 def test_send_command_raises_on_nested_error_dict(monkeypatch) -> None:
     conn = _connection_returning(
-        {"status": "success", "result": {"error": "SecretId or SecretKey is not given"}}, monkeypatch
+        {"status": "success", "result": {"error": "API key is not given"}}, monkeypatch
     )
 
-    with pytest.raises(Exception, match="SecretId or SecretKey is not given"):
-        conn.send_command_locked("generate_hunyuan3d_model")
+    with pytest.raises(Exception, match="API key is not given"):
+        conn.send_command_locked("download_sketchfab_model")
 
     # A clean operation failure is not a transport problem - the socket must survive it.
     assert conn.sock is not None
@@ -87,7 +87,7 @@ def test_send_command_raises_on_succeed_false(monkeypatch) -> None:
     )
 
     with pytest.raises(Exception, match="No mesh objects imported from GLB"):
-        conn.send_command_locked("import_generated_asset_hunyuan")
+        conn.send_command_locked("download_polyhaven_asset")
 
     assert conn.sock is not None
 
@@ -108,4 +108,4 @@ def test_send_command_passes_through_real_success(monkeypatch) -> None:
         {"status": "success", "result": {"succeed": True, "name": "Cube"}}, monkeypatch
     )
 
-    assert conn.send_command_locked("import_generated_asset_hunyuan") == {"succeed": True, "name": "Cube"}
+    assert conn.send_command_locked("download_polyhaven_asset") == {"succeed": True, "name": "Cube"}

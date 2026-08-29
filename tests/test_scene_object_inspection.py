@@ -115,8 +115,6 @@ def _load_addon(monkeypatch):
         name="Scene",
         objects=objects.values(),
         blendermcp_use_polyhaven=False,
-        blendermcp_use_hyper3d=False,
-        blendermcp_use_hunyuan3d=False,
         blendermcp_use_sketchfab=False,
     )
 

@@ -145,7 +145,7 @@ In Blender's 3D viewport, press `N` → open the **BlenderMCP** tab → click **
 | **Material control** | Apply and modify materials and colors |
 | **Scene inspection** | Get detailed information about the current Blender scene |
 | **Code execution** | Run arbitrary Python code in Blender from Claude |
-| **Asset & model generation** | Poly Haven assets, Sketchfab models, and AI-generated 3D models via Hyper3D Rodin and Hunyuan3D |
+| **Asset & model generation** | Poly Haven assets and Sketchfab models |
 
 ## Components
 
@@ -421,7 +421,6 @@ Once the config file has been set on Claude, and the addon is running on Blender
 - Execute any Python code in Blender
 - Download the right models, assets and HDRIs through [Poly Haven](https://polyhaven.com/)
 - Search and download models from [Sketchfab](https://sketchfab.com/)
-- AI generated 3D models through [Hyper3D Rodin](https://hyper3d.ai/) and [Hunyuan3D](https://3d.hunyuan.tencent.com/)
 
 ### Example Commands
 
@@ -433,7 +432,6 @@ Here are some examples of what you can ask Claude to do:
 | *"Create a beach vibe using HDRIs, textures, and models like rocks and vegetation from Poly Haven"* | [Watch](https://www.youtube.com/watch?v=I29rn92gkC4) |
 | Give a reference image, and create a Blender scene out of it | [Watch](https://www.youtube.com/watch?v=FDRb03XPiRo) |
 | *"Get information about the current scene, and make a threejs sketch from it"* | [Watch](https://www.youtube.com/watch?v=jxbNI5L7AH8) |
-| *"Generate a 3D model of a garden gnome through Hyper3D"* | |
 | *"Make this car red and metallic"* | |
 | *"Create a sphere and place it above the cube"* | |
 | *"Make the lighting like a studio"* | |
@@ -450,19 +448,12 @@ BlenderMCP supports persistent credentials via Blender Add-on Preferences:
 You can store these values there so they survive Blender restarts:
 
 - Sketchfab API Key
-- Hyper3D API Key
-- Hunyuan3D SecretId / SecretKey
-- Hunyuan3D API URL
 
 For headless setups or CI, credentials can also be injected by environment variables:
 
 | Variable |
 |---|
 | `BLENDERMCP_SKETCHFAB_API_KEY` |
-| `BLENDERMCP_HYPER3D_API_KEY` |
-| `BLENDERMCP_HUNYUAN3D_SECRET_ID` |
-| `BLENDERMCP_HUNYUAN3D_SECRET_KEY` |
-| `BLENDERMCP_HUNYUAN3D_API_URL` |
 
 ---
 

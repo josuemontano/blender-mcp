@@ -72,9 +72,7 @@ def _load_server_class():
         "ModelHandlersMixin",
         "NDHandlersMixin",
         "PolyhavenHandlersMixin",
-        "Hyper3DHandlersMixin",
         "SketchfabHandlersMixin",
-        "Hunyuan3DHandlersMixin",
     )
 
     namespace = {
@@ -88,7 +86,6 @@ def _load_server_class():
         "os": __import__("os"),
         "suppress": suppress,
         "get_blendermcp_addon_preferences": lambda context=None: None,
-        "RODIN_FREE_TRIAL_KEY": "vibecoding",
         **{name: type(name, (), {}) for name in mixin_names},
     }
     exec(compile(ast.Module(body=body, type_ignores=[]), "<addon>", "exec"), namespace)

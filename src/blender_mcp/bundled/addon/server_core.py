@@ -13,9 +13,6 @@ import bpy
 import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
-from .constants import RODIN_FREE_TRIAL_KEY
-from .handlers.hunyuan3d import Hunyuan3DHandlersMixin
-from .handlers.hyper3d import Hyper3DHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
@@ -31,9 +28,7 @@ class BlenderMCPServer(
     ModelHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
-    Hyper3DHandlersMixin,
     SketchfabHandlersMixin,
-    Hunyuan3DHandlersMixin,
 ):
     """Serve MCP commands from clients through the Blender addon."""
 
@@ -82,47 +77,11 @@ class BlenderMCPServer(
                 return env_value
         return ""
 
-    def get_hyper3d_api_key(self):
-        # Let the free-trial button temporarily override persistent keys
-        # without overwriting user-saved private keys.
-        scene_value = getattr(bpy.context.scene, "blendermcp_hyper3d_api_key", "")
-        if scene_value == RODIN_FREE_TRIAL_KEY:
-            return scene_value
-        return self._get_config_value(
-            "blendermcp_hyper3d_api_key",
-            "hyper3d_api_key",
-            "BLENDERMCP_HYPER3D_API_KEY",
-        )
-
     def get_sketchfab_api_key(self):
         return self._get_config_value(
             "blendermcp_sketchfab_api_key",
             "sketchfab_api_key",
             "BLENDERMCP_SKETCHFAB_API_KEY",
-        )
-
-    def get_hunyuan3d_secret_id(self):
-        return self._get_config_value(
-            "blendermcp_hunyuan3d_secret_id",
-            "hunyuan3d_secret_id",
-            "BLENDERMCP_HUNYUAN3D_SECRET_ID",
-        )
-
-    def get_hunyuan3d_secret_key(self):
-        return self._get_config_value(
-            "blendermcp_hunyuan3d_secret_key",
-            "hunyuan3d_secret_key",
-            "BLENDERMCP_HUNYUAN3D_SECRET_KEY",
-        )
-
-    def get_hunyuan3d_api_url(self):
-        return (
-            self._get_config_value(
-                "blendermcp_hunyuan3d_api_url",
-                "hunyuan3d_api_url",
-                "BLENDERMCP_HUNYUAN3D_API_URL",
-            )
-            or "http://localhost:8081"
         )
 
     def start(self) -> None:
@@ -370,9 +329,7 @@ class BlenderMCPServer(
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
-            "get_hyper3d_status": self.get_hyper3d_status,
             "get_sketchfab_status": self.get_sketchfab_status,
-            "get_hunyuan3d_status": self.get_hunyuan3d_status,
             "create_primitive": self.create_primitive,
             "mesh_extrude": self.mesh_extrude,
             "mesh_inset": self.mesh_inset,
@@ -401,15 +358,6 @@ class BlenderMCPServer(
             }
             handlers.update(polyhaven_handlers)
 
-        # Add Hyper3d handlers only if enabled
-        if bpy.context.scene.blendermcp_use_hyper3d:
-            polyhaven_handlers = {
-                "create_rodin_job": self.create_rodin_job,
-                "poll_rodin_job_status": self.poll_rodin_job_status,
-                "import_generated_asset": self.import_generated_asset,
-            }
-            handlers.update(polyhaven_handlers)
-
         # Add Sketchfab handlers only if enabled
         if bpy.context.scene.blendermcp_use_sketchfab:
             sketchfab_handlers = {
@@ -418,15 +366,6 @@ class BlenderMCPServer(
                 "download_sketchfab_model": self.download_sketchfab_model,
             }
             handlers.update(sketchfab_handlers)
-
-        # Add Hunyuan3d handlers only if enabled
-        if bpy.context.scene.blendermcp_use_hunyuan3d:
-            hunyuan_handlers = {
-                "create_hunyuan_job": self.create_hunyuan_job,
-                "poll_hunyuan_job_status": self.poll_hunyuan_job_status,
-                "import_generated_asset_hunyuan": self.import_generated_asset_hunyuan,
-            }
-            handlers.update(hunyuan_handlers)
 
         # Add ND (HugeMenace) handlers only if enabled
         if bpy.context.scene.blendermcp_use_nd:
