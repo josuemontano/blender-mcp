@@ -4,7 +4,9 @@ import asyncio
 
 import pytest
 
-from blender_mcp.server.tools import mesh, retopology, retopology_phase1
+from test_mutation_transaction import _load_addon
+
+from blender_mcp.server.tools import mesh, retopology, retopology_phase1, retopology_phase2
 from blender_mcp.server.tools._envelope import STALE_INDEX_WARNING
 
 RETOPOLOGY_TOOL_NAMES = {
@@ -32,6 +34,10 @@ RETOPOLOGY_TOOL_NAMES = {
     "create_bake_cage",
     "bake_retopology_maps",
     "test_deformation",
+    "generate_quadriflow_draft",
+    "fit_surface_primitive",
+    "bind_surface_deformation",
+    "generate_retopology_lods",
 }
 
 
@@ -257,3 +263,79 @@ def test_bake_reports_image_as_changed_resource(monkeypatch) -> None:
     )
 
     assert result["changed_resources"] == ["Low_NORMAL"]
+
+
+@pytest.mark.parametrize(
+    "tool,command,kwargs,result",
+    [
+        (
+            retopology_phase2.generate_quadriflow_draft,
+            "generate_quadriflow_draft",
+            {"source_object_name": "High", "target_faces": 1200, "seed": 7},
+            {"name": "High_QuadriFlowDraft"},
+        ),
+        (
+            retopology_phase2.fit_surface_primitive,
+            "fit_surface_primitive",
+            {
+                "source_object_name": "High",
+                "primitive": "CYLINDER",
+                "source_vertex_indices": [0, 1, 2, 3, 4, 5],
+                "expected_source_revision": "before",
+                "axis_hint_world": (0.0, 0.0, 1.0),
+            },
+            {"name": "High_CylinderFit"},
+        ),
+        (
+            retopology_phase2.generate_retopology_lods,
+            "generate_retopology_lods",
+            {"object_name": "Low", "levels": [{"ratio": 0.5}], "confirm": True},
+            {"created_objects": ["Low_LOD1"]},
+        ),
+    ],
+)
+def test_phase_two_creation_tools_forward_and_report_created_objects(
+    monkeypatch, tool, command, kwargs, result
+) -> None:
+    connection = StubConnection(result)
+    monkeypatch.setattr(retopology_phase2, "get_blender_connection", lambda: connection)
+
+    response = asyncio.run(tool(ctx=None, **kwargs))
+
+    assert connection.calls[0][0] == command
+    assert "ctx" not in connection.calls[0][1]
+    assert all(connection.calls[0][1][key] == value for key, value in kwargs.items())
+    assert response["changed_objects"]
+
+
+def test_surface_deform_idempotent_unbind_reports_no_change(monkeypatch) -> None:
+    connection = StubConnection({"name": "Render", "bound": False, "changed": False})
+    monkeypatch.setattr(retopology_phase2, "get_blender_connection", lambda: connection)
+
+    result = asyncio.run(retopology_phase2.bind_surface_deformation(ctx=None, object_name="Render", action="UNBIND"))
+
+    assert connection.calls[0][0] == "bind_surface_deformation"
+    assert result["changed_objects"] == []
+
+
+def test_addon_dispatch_advertises_all_phase_two_commands(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+
+    commands = server._build_command_handlers()
+
+    assert {
+        "generate_quadriflow_draft",
+        "fit_surface_primitive",
+        "bind_surface_deformation",
+        "generate_retopology_lods",
+    } <= set(commands)
+    assert (
+        not {
+            "generate_quadriflow_draft",
+            "fit_surface_primitive",
+            "bind_surface_deformation",
+            "generate_retopology_lods",
+        }
+        & server._READ_ONLY_COMMANDS
+    )

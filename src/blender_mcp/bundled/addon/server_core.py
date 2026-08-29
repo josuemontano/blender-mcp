@@ -521,6 +521,11 @@ class BlenderMCPServer(
             "sample_cloth_simulation": self.sample_cloth_simulation,
             "manage_cloth_cache": self.manage_cloth_cache,
             "remove_cloth_components": self.remove_cloth_components,
+            "create_cloth_proxy_rig": self.create_cloth_proxy_rig,
+            "duplicate_cloth_setup_variant": self.duplicate_cloth_setup_variant,
+            "prepare_cloth_render_surface": self.prepare_cloth_render_surface,
+            "export_cloth_simulation": self.export_cloth_simulation,
+            "analyze_cloth_performance": self.analyze_cloth_performance,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -644,6 +649,9 @@ class BlenderMCPServer(
         "cloth_object_name",
         "garment_object_name",
         "armature_object_name",
+        "render_object_name",
+        "proxy_object_name",
+        "source_object_name",
     )
     _TARGET_NAMES_PARAMS = ("object_names", "camera_names", "body_collider_object_names")
 
