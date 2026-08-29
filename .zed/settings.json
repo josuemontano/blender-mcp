@@ -1,0 +1,15 @@
+{
+  "lsp": {
+    "basedpyright": {
+      "binary": {
+        "path": ".venv/bin/basedpyright-langserver",
+        "arguments": ["--stdio"]
+      }
+    },
+    "ruff": {
+      "binary": {
+        "path": ".venv/bin/ruff"
+      }
+    }
+  }
+}
