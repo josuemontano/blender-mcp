@@ -23,6 +23,15 @@ blender-mcp = "blender_mcp.server:main"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
 
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = false
+reportMissingTypeStubs = false
+reportAttributeAccessIssue = false
+reportOptionalMemberAccess = false
+
 [tool.ruff]
 target-version = "py313"
 line-length = 120
