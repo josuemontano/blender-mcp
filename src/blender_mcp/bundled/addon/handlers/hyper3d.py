@@ -10,6 +10,8 @@ from ..constants import RODIN_FREE_TRIAL_KEY
 
 
 class Hyper3DHandlersMixin:
+    """Provide handlers for Hyper3D Rodin model generation."""
+
     # region Hyper3D
     def get_hyper3d_status(self):
         """

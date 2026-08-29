@@ -26,6 +26,8 @@ _addon_handshake_lock = threading.Lock()
 
 @dataclass
 class BlenderConnection:
+    """Manage a serialized socket connection to a Blender addon."""
+
     host: str
     port: int
     sock: socket.socket = None  # Changed from 'socket' to 'sock' to avoid naming conflict
@@ -78,6 +80,9 @@ class BlenderConnection:
 
         Raises:
             Exception: If the operation cannot be completed.
+            BrokenPipeError: If the peer closes its write end during a receive.
+            ConnectionError: If the socket connection fails while receiving.
+            ConnectionResetError: If the peer resets the connection while receiving.
 
         """
         chunks = []

@@ -18,6 +18,8 @@ import requests
 
 
 class Hunyuan3DHandlersMixin:
+    """Provide handlers for Tencent Hunyuan3D model generation."""
+
     # region Hunyuan3D
     def get_hunyuan3d_status(self):
         """

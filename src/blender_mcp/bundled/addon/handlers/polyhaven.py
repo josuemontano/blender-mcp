@@ -12,6 +12,8 @@ from ..constants import REQ_HEADERS
 
 
 class PolyhavenHandlersMixin:
+    """Provide handlers for browsing and importing Poly Haven assets."""
+
     def get_polyhaven_categories(self, asset_type):
         """
         Get categories for a specific asset type from Polyhaven.

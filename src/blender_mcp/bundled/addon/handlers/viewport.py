@@ -6,6 +6,8 @@ import bpy
 
 
 class ViewportHandlersMixin:
+    """Provide handlers for inspecting and capturing the 3D viewport."""
+
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
         """
         Capture a screenshot of the current 3D viewport and save it to the specified path.

@@ -12,6 +12,8 @@ from ..helpers import (
 
 
 class NDHandlersMixin:
+    """Provide HugeMenace non-destructive workflow handlers."""
+
     # region ND (HugeMenace) non-destructive workflow tools
     def nd_boolean(self, object_name, cutter_object_name, mode="DIFFERENCE"):
         """

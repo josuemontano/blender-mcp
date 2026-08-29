@@ -20,6 +20,8 @@ _SYMMETRIZE_DIRECTIONS = {
 
 
 class MeshHandlersMixin:
+    """Provide handlers for creating and editing mesh objects."""
+
     # region Mesh editing handlers
     _PRIMITIVE_OPS = {
         "CUBE": lambda size, location, rotation: bpy.ops.mesh.primitive_cube_add(

@@ -7,6 +7,8 @@ from .server_core import BlenderMCPServer
 
 
 class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
+    """Expose BlenderMCP configuration in Blender's addon preferences."""
+
     bl_idname = ADDON_ID
 
     hyper3d_api_key: bpy.props.StringProperty(
@@ -50,6 +52,8 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
 
 # Blender UI Panel
 class BLENDERMCP_PT_Panel(bpy.types.Panel):
+    """Render BlenderMCP controls in the 3D View sidebar."""
+
     bl_label = "Blender MCP"
     bl_idname = "BLENDERMCP_PT_Panel"
     bl_space_type = "VIEW_3D"
@@ -146,6 +150,8 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
 
 # Operator to set Hyper3D API Key
 class BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey(bpy.types.Operator):
+    """Save the bundled Hyper3D trial API key to addon preferences."""
+
     bl_idname = "blendermcp.set_hyper3d_free_trial_api_key"
     bl_label = "Set Free Trial API Key"
 
@@ -167,6 +173,8 @@ class BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey(bpy.types.Operator):
 
 # Operator to start the server
 class BLENDERMCP_OT_StartServer(bpy.types.Operator):
+    """Start the BlenderMCP server from the Blender interface."""
+
     bl_idname = "blendermcp.start_server"
     bl_label = "Connect to Claude"
     bl_description = "Start the BlenderMCP server to connect with Claude"
@@ -187,6 +195,8 @@ class BLENDERMCP_OT_StartServer(bpy.types.Operator):
 
 # Operator to stop the server
 class BLENDERMCP_OT_StopServer(bpy.types.Operator):
+    """Stop the BlenderMCP server from the Blender interface."""
+
     bl_idname = "blendermcp.stop_server"
     bl_label = "Stop the connection to Claude"
     bl_description = "Stop the connection to Claude"

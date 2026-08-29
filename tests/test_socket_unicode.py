@@ -61,6 +61,12 @@ def _split_after_lead_byte(payload: bytes) -> int:
 
     Splitting there guarantees the first chunk ends mid-character, so
     decoding it alone as UTF-8 raises UnicodeDecodeError.
+
+    Returns:
+        The index immediately after the lead byte.
+
+    Raises:
+        AssertionError: If the payload contains no multi-byte UTF-8 character.
     """
     for i, b in enumerate(payload):
         if b >= 0xC0:  # lead byte of a 2/3/4-byte sequence

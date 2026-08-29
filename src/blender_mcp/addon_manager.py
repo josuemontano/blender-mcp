@@ -192,6 +192,8 @@ def check_addon_status_on_startup() -> AddonStatusReport:
 
 @dataclass
 class AddonInstallResult:
+    """Describe the outcome and destination of an addon installation."""
+
     success: bool
     message: str
     target_path: str | None = None
@@ -200,6 +202,8 @@ class AddonInstallResult:
 
 @dataclass
 class AddonHandshake:
+    """Store addon compatibility information reported during a handshake."""
+
     up_to_date: bool
     protocol_version: int | None
     addon_version: list[int] | None

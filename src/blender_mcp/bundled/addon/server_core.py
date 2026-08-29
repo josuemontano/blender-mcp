@@ -35,6 +35,8 @@ class BlenderMCPServer(
     SketchfabHandlersMixin,
     Hunyuan3DHandlersMixin,
 ):
+    """Serve MCP commands from clients through the Blender addon."""
+
     def __init__(self, host="localhost", port=9876) -> None:
         self.host = host
         self.port = port

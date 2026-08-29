@@ -12,6 +12,8 @@ import requests
 
 
 class SketchfabHandlersMixin:
+    """Provide handlers for browsing and importing Sketchfab assets."""
+
     # region Sketchfab API
     def get_sketchfab_status(self):
         """

@@ -14,6 +14,8 @@ _SPACES = {"LOCAL", "WORLD"}
 
 
 class ModelHandlersMixin:
+    """Provide handlers for modifying existing scene models."""
+
     # region Model editing handlers
     def model_match_reference(
         self,
