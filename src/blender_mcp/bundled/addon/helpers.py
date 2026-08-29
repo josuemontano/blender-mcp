@@ -47,9 +47,43 @@ def _get_mesh_object(name):
     return obj
 
 
+@contextlib.contextmanager
+def _preserve_mode_and_selection():
+    """
+    Snapshot the current mode, active object, and selection; force Object
+    Mode for the wrapped block; restore the snapshot on exit - success or
+    failure.
+
+    Blender's mesh/object operators require Object Mode and a specific
+    active/selected object to pass poll() (Blender API docs, "Using
+    Operators": poll typically checks "the active area type, a selection or
+    active object"). Code inside the `with` block is responsible for
+    returning to Object Mode before the block ends (e.g. _edit_mesh already
+    does this in its own finally) - this only guarantees a clean Object Mode
+    starting point and restores the caller's prior state afterward.
+    """
+    prev_active = bpy.context.view_layer.objects.active
+    prev_selected = list(bpy.context.selected_objects)
+    prev_mode = prev_active.mode if prev_active else "OBJECT"
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    try:
+        yield
+    finally:
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in prev_selected:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = prev_active
+        if prev_active is not None and prev_mode != "OBJECT":
+            bpy.ops.object.mode_set(mode=prev_mode)
+
+
 def _set_active(obj) -> None:
     """
     Make obj the sole selected + active object.
+
+    Must be called from inside a `with _preserve_mode_and_selection():`
+    block - select_all/select_set require Object Mode to pass poll().
 
     Args:
         obj: Value for obj.
@@ -149,6 +183,10 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     IndexError - and the mode restoration in the finally block happens even if
     the caller's operator inside the `with` block raises.
 
+    Wrapped in _preserve_mode_and_selection() so entering/leaving Edit Mode
+    on obj is guaranteed to start from - and return to - the caller's real
+    prior mode, active object, and selection.
+
     Args:
         obj: Value for obj.
         vert_indices: Value for vert indices.
@@ -159,16 +197,17 @@ def _edit_mesh(obj, vert_indices=None, edge_indices=None, face_indices=None):
     _validate_indices(obj, "vertices", vert_indices)
     _validate_indices(obj, "edges", edge_indices)
     _validate_indices(obj, "polygons", face_indices)
-    _select_geometry(
-        obj,
-        vert_indices=vert_indices,
-        edge_indices=edge_indices,
-        face_indices=face_indices,
-    )
-    try:
-        yield
-    finally:
-        _exit_edit_mode()
+    with _preserve_mode_and_selection():
+        _select_geometry(
+            obj,
+            vert_indices=vert_indices,
+            edge_indices=edge_indices,
+            face_indices=face_indices,
+        )
+        try:
+            yield
+        finally:
+            _exit_edit_mode()
 
 
 def _paginate(total, offset, limit, max_limit):
@@ -202,8 +241,9 @@ def _mesh_counts(obj):
 
 
 def _apply_modifier(obj, modifier) -> None:
-    _set_active(obj)
-    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    with _preserve_mode_and_selection():
+        _set_active(obj)
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
 
 
 def _world_bounds(matrix_world, vertices):

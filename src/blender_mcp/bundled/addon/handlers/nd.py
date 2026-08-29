@@ -7,6 +7,7 @@ from ..helpers import (
     _mesh_counts,
     _nd_call,
     _nd_configure_object_as_util,
+    _preserve_mode_and_selection,
     _select_objects,
 )
 
@@ -37,10 +38,11 @@ class NDHandlersMixin:
             raise ValueError(f"Invalid mode: {mode}. Must be one of UNION, DIFFERENCE, INTERSECT")
         target = _get_mesh_object(object_name)
         cutter = _get_mesh_object(cutter_object_name)
-        _select_objects([cutter.name, target.name], active_name=target.name)
-        # execute() reads attributes bool_vanilla only sets inside invoke(); INVOKE_DEFAULT's
-        # synthetic event always has shift/alt False, so this always converts+cleans the cutter.
-        _nd_call("bool_vanilla", bpy.ops.nd.bool_vanilla, "INVOKE_DEFAULT", mode=mode)
+        with _preserve_mode_and_selection():
+            _select_objects([cutter.name, target.name], active_name=target.name)
+            # execute() reads attributes bool_vanilla only sets inside invoke(); INVOKE_DEFAULT's
+            # synthetic event always has shift/alt False, so this always converts+cleans the cutter.
+            _nd_call("bool_vanilla", bpy.ops.nd.bool_vanilla, "INVOKE_DEFAULT", mode=mode)
         return {"name": target.name, "cutter_name": cutter.name, **_mesh_counts(target)}
 
     def nd_mark_as_util(self, object_names, unmark=False):
@@ -83,7 +85,8 @@ class NDHandlersMixin:
         """
         before_objects = {obj.name for obj in bpy.data.objects}
         before_modifiers = {obj.name: [(mod.name, mod.type) for mod in obj.modifiers] for obj in bpy.data.objects}
-        _nd_call("clean_utils", bpy.ops.nd.clean_utils, "INVOKE_DEFAULT")
+        with _preserve_mode_and_selection():
+            _nd_call("clean_utils", bpy.ops.nd.clean_utils, "INVOKE_DEFAULT")
         after_objects = {obj.name for obj in bpy.data.objects}
         removed_objects = sorted(before_objects - after_objects)
         removed_modifiers = []
@@ -113,12 +116,13 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        objs = _select_objects(object_names)
-        _nd_call(
-            "create_id_material",
-            bpy.ops.nd.create_id_material,
-            material_name=material_name,
-        )
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call(
+                "create_id_material",
+                bpy.ops.nd.create_id_material,
+                material_name=material_name,
+            )
         return {"names": [obj.name for obj in objs], "material_name": material_name}
 
     def nd_bulk_create_id_materials(self, object_names):
@@ -132,8 +136,9 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        objs = _select_objects(object_names)
-        _nd_call("bulk_create_id_materials", bpy.ops.nd.bulk_create_id_materials)
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call("bulk_create_id_materials", bpy.ops.nd.bulk_create_id_materials)
         return {"names": [obj.name for obj in objs]}
 
     def nd_clear_materials(self, object_names):
@@ -147,8 +152,9 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        objs = _select_objects(object_names)
-        _nd_call("clear_materials", bpy.ops.nd.clear_materials)
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call("clear_materials", bpy.ops.nd.clear_materials)
         return {"names": [obj.name for obj in objs]}
 
     def nd_set_lod_suffix(self, object_names, mode="HIGH"):
@@ -169,8 +175,9 @@ class NDHandlersMixin:
         mode = str(mode).upper()
         if mode not in {"HIGH", "LOW"}:
             raise ValueError(f"Invalid mode: {mode}. Must be one of HIGH, LOW")
-        objs = _select_objects(object_names)
-        _nd_call("set_lod_suffix", bpy.ops.nd.set_lod_suffix, mode=mode)
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call("set_lod_suffix", bpy.ops.nd.set_lod_suffix, mode=mode)
         return {"names": [obj.name for obj in objs]}
 
     def nd_name_sync(self, object_names):
@@ -184,8 +191,9 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        objs = _select_objects(object_names)
-        _nd_call("name_sync", bpy.ops.nd.name_sync)
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call("name_sync", bpy.ops.nd.name_sync)
         return {"names": [obj.name for obj in objs]}
 
     def nd_single_vertex(self, location=(0, 0, 0)):
@@ -202,11 +210,15 @@ class NDHandlersMixin:
         prev_cursor = tuple(bpy.context.scene.cursor.location)
         bpy.context.scene.cursor.location = tuple(location)
         try:
-            _nd_call("single_vertex", bpy.ops.nd.single_vertex)
+            with _preserve_mode_and_selection():
+                try:
+                    _nd_call("single_vertex", bpy.ops.nd.single_vertex)
+                finally:
+                    if bpy.context.mode != "OBJECT":
+                        _exit_edit_mode()
+                obj = bpy.context.view_layer.objects.active
         finally:
             bpy.context.scene.cursor.location = prev_cursor
-        obj = bpy.context.view_layer.objects.active
-        _exit_edit_mode()
         return {
             "name": obj.name,
             "location": [obj.location.x, obj.location.y, obj.location.z],
@@ -224,8 +236,9 @@ class NDHandlersMixin:
 
         """
         obj = _get_mesh_object(object_name)
-        _select_objects([obj.name])
-        _nd_call("clear_edge_marks", bpy.ops.nd.clear_edge_marks)
+        with _preserve_mode_and_selection():
+            _select_objects([obj.name])
+            _nd_call("clear_edge_marks", bpy.ops.nd.clear_edge_marks)
         return {"name": obj.name}
 
     def nd_clear_vertex_groups(self, object_name):
@@ -240,8 +253,9 @@ class NDHandlersMixin:
 
         """
         obj = _get_mesh_object(object_name)
-        _select_objects([obj.name])
-        _nd_call("clear_vertex_groups", bpy.ops.nd.clear_vertex_groups)
+        with _preserve_mode_and_selection():
+            _select_objects([obj.name])
+            _nd_call("clear_vertex_groups", bpy.ops.nd.clear_vertex_groups)
         return {"name": obj.name}
 
     def nd_apply_modifiers(self, object_names):
@@ -256,8 +270,9 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
-        objs = _select_objects(object_names)
-        _nd_call("apply_modifiers", bpy.ops.nd.apply_modifiers, "INVOKE_DEFAULT")
+        with _preserve_mode_and_selection():
+            objs = _select_objects(object_names)
+            _nd_call("apply_modifiers", bpy.ops.nd.apply_modifiers, "INVOKE_DEFAULT")
         return {"names": [obj.name for obj in objs]}
 
     _NATIVE_OVERLAY_TOGGLES = {
@@ -332,6 +347,8 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
+        if bpy.context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
         _nd_call("capture_utils", bpy.ops.nd.capture_utils, "INVOKE_DEFAULT")
         return {"status": "captured"}
 

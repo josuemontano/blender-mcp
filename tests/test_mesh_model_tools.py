@@ -185,7 +185,7 @@ class _FakeModifiers(list):
 
 
 class _FakeObject:
-    def __init__(self, name, obj_type) -> None:
+    def __init__(self, name, obj_type, selected_objects=None) -> None:
         self._name = name
         self._collection = None
         self.type = obj_type
@@ -202,6 +202,8 @@ class _FakeObject:
         self.material_slots = []
         self._custom = {}
         self.selected = False
+        self.mode = "OBJECT"
+        self._selected_objects = selected_objects
 
     def _local_matrix(self):
         if self.rotation_mode == "QUATERNION":
@@ -266,6 +268,13 @@ class _FakeObject:
 
     def select_set(self, value) -> None:
         self.selected = value
+        if self._selected_objects is None:
+            return
+        if value:
+            if self not in self._selected_objects:
+                self._selected_objects.append(self)
+        elif self in self._selected_objects:
+            self._selected_objects.remove(self)
 
     def visible_get(self) -> bool:
         return True
@@ -278,17 +287,23 @@ class _FakeObject:
 
 
 class _FakeObjectsCollection(dict):
+    def __init__(self, selected_objects) -> None:
+        super().__init__()
+        self._selected_objects = selected_objects
+
     def get(self, name, default=None):
         return dict.get(self, name, default)
 
     def new(self, name, data):
-        obj = _FakeObject(name, "MESH" if data is not None else "EMPTY")
+        obj = _FakeObject(name, "MESH" if data is not None else "EMPTY", selected_objects=self._selected_objects)
         obj._collection = self
         self[obj.name] = obj
         return obj
 
     def remove(self, obj, do_unlink=True) -> None:
         self.pop(obj.name, None)
+        if obj in self._selected_objects:
+            self._selected_objects.remove(obj)
 
 
 class _FakeTexturesCollection(dict):
@@ -335,7 +350,8 @@ def _load_addon(monkeypatch):
         blendermcp_use_sketchfab=False,
     )
 
-    objects = _FakeObjectsCollection()
+    selected_objects = []
+    objects = _FakeObjectsCollection(selected_objects)
     textures = _FakeTexturesCollection()
     primitive_counter = {"n": 0}
 
@@ -343,7 +359,7 @@ def _load_addon(monkeypatch):
         def op(**kwargs):
             primitive_counter["n"] += 1
             name = f"{prefix}.{primitive_counter['n']:03d}"
-            obj = _FakeObject(name, obj_type)
+            obj = _FakeObject(name, obj_type, selected_objects=selected_objects)
             obj._collection = objects
             location = kwargs.get("location", (0, 0, 0))
             rotation = kwargs.get("rotation", (0, 0, 0))
@@ -360,7 +376,10 @@ def _load_addon(monkeypatch):
         return {"FINISHED"}
 
     def _mode_set(mode) -> None:
-        pass
+        bpy.context.mode = mode
+        active = bpy.context.view_layer.objects.active
+        if active is not None:
+            active.mode = mode
 
     def _modifier_apply(modifier) -> None:
         obj = bpy.context.view_layer.objects.active
@@ -369,7 +388,12 @@ def _load_addon(monkeypatch):
             obj.modifiers.remove(mod)
 
     def _select_all(action="SELECT") -> None:
-        pass
+        if action == "DESELECT":
+            for obj in list(selected_objects):
+                obj.select_set(False)
+        elif action == "SELECT":
+            for obj in objects.values():
+                obj.select_set(True)
 
     bpy = types.ModuleType("bpy")
     bpy.data = types.SimpleNamespace(
@@ -378,6 +402,8 @@ def _load_addon(monkeypatch):
     )
     bpy.context = types.SimpleNamespace(
         scene=scene,
+        mode="OBJECT",
+        selected_objects=selected_objects,
         view_layer=types.SimpleNamespace(objects=types.SimpleNamespace(active=None)),
         active_object=None,
         collection=types.SimpleNamespace(objects=types.SimpleNamespace(link=lambda _obj: None)),
@@ -571,7 +597,7 @@ def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch) -> N
     _new_mesh_object(bpy, "F2")
 
     mode_calls = []
-    monkeypatch.setattr(bpy.ops.object, "mode_set", mode_calls.append)
+    monkeypatch.setattr(bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode))
     monkeypatch.setattr(bpy.ops.mesh, "extrude_region_move", lambda **kwargs: {"CANCELLED"})
 
     with pytest.raises(RuntimeError, match="did not finish"):
@@ -579,6 +605,42 @@ def test_mesh_extrude_restores_object_mode_when_operator_fails(monkeypatch) -> N
 
     # Edit mode is entered, the operator fails, but exit still happens via finally.
     assert mode_calls == ["EDIT", "OBJECT"]
+
+
+def test_mesh_extrude_restores_prior_active_selection_and_mode(monkeypatch) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    other = _new_mesh_object(bpy, "Other")
+    _new_mesh_object(bpy, "F3")
+
+    other.select_set(True)
+    bpy.context.view_layer.objects.active = other
+    other.mode = "EDIT"
+    bpy.context.mode = "EDIT"
+
+    server.mesh_extrude(object_name="F3")
+
+    assert bpy.context.view_layer.objects.active is other
+    assert other.selected is True
+    assert other.mode == "EDIT"
+    assert bpy.context.mode == "EDIT"
+
+
+def test_create_primitive_normalizes_to_object_mode_first(monkeypatch) -> None:
+    addon, bpy = _load_addon(monkeypatch)
+    server = addon.BlenderMCPServer()
+    other = _new_mesh_object(bpy, "Other")
+    bpy.context.view_layer.objects.active = other
+    other.mode = "EDIT"
+    bpy.context.mode = "EDIT"
+
+    mode_calls = []
+    monkeypatch.setattr(bpy.ops.object, "mode_set", lambda mode: mode_calls.append(mode))
+
+    server.create_primitive(primitive_type="CUBE", name="new_cube")
+
+    # The wrapped block normalizes to Object Mode before the primitive-add op runs.
+    assert mode_calls[0] == "OBJECT"
 
 
 def test_mesh_boolean_rejects_invalid_operation(monkeypatch) -> None:

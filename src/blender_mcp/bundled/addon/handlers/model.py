@@ -6,6 +6,7 @@ from ..helpers import (
     _get_mesh_object,
     _get_rotation_quaternion,
     _modifier_result,
+    _preserve_mode_and_selection,
     _set_active,
     _set_rotation_quaternion,
 )
@@ -100,8 +101,9 @@ class ModelHandlersMixin:
         mod = obj.modifiers.new(name="Subdivision", type="SUBSURF")
         mod.levels = levels
         mod.render_levels = levels
-        _set_active(obj)
-        bpy.ops.object.shade_smooth()
+        with _preserve_mode_and_selection():
+            _set_active(obj)
+            bpy.ops.object.shade_smooth()
         if apply:
             _apply_modifier(obj, mod)
         return {"name": obj.name, **_modifier_result(obj, mod, apply)}

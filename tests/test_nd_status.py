@@ -55,6 +55,9 @@ def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
         scene=scene,
         screen=types.SimpleNamespace(areas=[area]),
         temp_override=_temp_override,
+        mode="OBJECT",
+        selected_objects=[],
+        view_layer=types.SimpleNamespace(objects=types.SimpleNamespace(active=None)),
     )
     bpy.types = types.SimpleNamespace(
         AddonPreferences=object,
@@ -64,7 +67,12 @@ def _load_addon(monkeypatch, scene, nd_installed=False, objects=None):
     )
     bpy.data = types.SimpleNamespace(objects=objects if objects is not None else _FakeObjectsCollection())
 
-    ops = types.SimpleNamespace()
+    ops = types.SimpleNamespace(
+        object=types.SimpleNamespace(
+            select_all=lambda **_kw: None,
+            mode_set=lambda **_kw: None,
+        ),
+    )
     if nd_installed:
         ops.nd = types.SimpleNamespace(
             bool_vanilla=lambda *_a, **_k: {"FINISHED"},

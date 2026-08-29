@@ -6,6 +6,7 @@ from ..helpers import (
     _get_mesh_object,
     _mesh_counts,
     _modifier_result,
+    _preserve_mode_and_selection,
     _set_active,
 )
 
@@ -90,8 +91,9 @@ class MeshHandlersMixin:
             raise ValueError(f"Unknown primitive_type: {primitive_type}. Must be one of {sorted(self._PRIMITIVE_OPS)}")
         if purpose is not None and purpose != "blockout":
             raise ValueError(f"Invalid purpose: {purpose}. Must be 'blockout' or omitted")
-        op(size, tuple(location), tuple(rotation))
-        obj = bpy.context.active_object
+        with _preserve_mode_and_selection():
+            op(size, tuple(location), tuple(rotation))
+            obj = bpy.context.active_object
         if name:
             obj.name = name
         if dimensions is not None:
@@ -314,8 +316,9 @@ class MeshHandlersMixin:
         """
         obj = _get_mesh_object(object_name)
         obj.data.remesh_voxel_size = voxel_size
-        _set_active(obj)
-        result = bpy.ops.object.voxel_remesh()
+        with _preserve_mode_and_selection():
+            _set_active(obj)
+            result = bpy.ops.object.voxel_remesh()
         if "FINISHED" not in result:
             raise RuntimeError(f"object.voxel_remesh did not finish (status: {result})")
         return {"name": obj.name, **_mesh_counts(obj)}
