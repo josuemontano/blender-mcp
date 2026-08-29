@@ -17,7 +17,7 @@ AssetType = Literal["hdris", "textures", "models", "all"]
 
 @mcp.tool()
 async def get_polyhaven_categories(ctx: Context, asset_type: AssetType = "hdris") -> dict:
-    """Get a list of categories for a specific asset type on Polyhaven.
+    """List Polyhaven categories and asset counts for a selected asset type.
 
     Args:
         ctx: MCP request context.
@@ -52,15 +52,18 @@ async def search_polyhaven_assets(
     asset_type: AssetType = "all",
     categories: str | None = None,
 ) -> dict:
-    """Search for assets on Polyhaven with optional filtering.
+    """List Polyhaven assets, optionally filtered by one or more categories.
+
+    This catalog query has no free-text parameter; use `categories` to narrow the
+    result set and `get_polyhaven_categories` to discover valid categories.
 
     Args:
         ctx: MCP request context.
         asset_type: One of hdris, textures, models, all.
-        categories: Optional comma-separated list of categories to filter by.
+        categories: Optional comma-separated category names to filter by.
 
     Returns:
-        matching assets with basic information.
+        matching assets with basic metadata and total/returned counts.
     Raises:
         ToolError: If the operation cannot be completed.
     """
@@ -94,14 +97,17 @@ async def download_polyhaven_asset(
     resolution: str = "1k",
     file_format: str | None = None,
 ) -> dict:
-    """Download and import a Polyhaven asset into Blender.
+    """Download a Polyhaven HDRI, texture, or model and make it available in Blender.
+
+    The exact result depends on `asset_type`; use `apply_polyhaven_texture` after
+    downloading a texture to assign it to a specific object.
 
     Args:
         ctx: MCP request context.
-        asset_id: The ID of the asset to download
-        asset_type: The type of asset (hdris, textures, models)
-        resolution: The resolution to download (e.g., 1k, 2k, 4k)
-        file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
+        asset_id: Polyhaven asset ID from `search_polyhaven_assets`.
+        asset_type: Asset type: `hdris`, `textures`, or `models`.
+        resolution: Requested resolution, such as `1k`, `2k`, or `4k`.
+        file_format: Optional provider-supported format, such as HDR/EXR for HDRIs, JPG/PNG for textures, or GLTF/FBX for models.
 
     Returns:
         dict: Result produced by the operation.
@@ -135,12 +141,12 @@ async def download_polyhaven_asset(
 
 @mcp.tool()
 async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: str) -> dict:
-    """Apply a previously downloaded Polyhaven texture to an object.
+    """Assign a previously downloaded Polyhaven texture to an object.
 
     Args:
         ctx: MCP request context.
         object_name: Name of the object to apply the texture to
-        texture_id: ID of the Polyhaven texture to apply (must be downloaded first)
+        texture_id: Polyhaven texture ID; it must have been downloaded first.
 
     Returns:
         dict: Result produced by the operation.

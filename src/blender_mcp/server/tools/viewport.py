@@ -17,7 +17,7 @@ logger = logging.getLogger("BlenderMCPServer")
 
 @mcp.tool()
 async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
-    """Get detailed information about the current Blender scene, paginated over its objects.
+    """Inspect the current Blender scene and page through its objects.
 
     Args:
         ctx: MCP request context.
@@ -41,11 +41,11 @@ async def get_scene_info(ctx: Context, limit: int = 25, offset: int = 0) -> dict
 
 @mcp.tool()
 async def get_object_info(ctx: Context, object_name: str) -> dict:
-    """Get detailed information about a specific object in the Blender scene.
+    """Inspect an object's transform, type, materials, modifiers, and summary geometry data.
 
     Args:
         ctx: MCP request context.
-        object_name: The name of the object to get information about For mesh objects, "mesh" only reports vertex/edge/polygon counts. To discover actual per-element coordinates, normals, indices, or selection state (needed before calling index-based tools like mesh_extrude/mesh_bevel/mesh_bridge), use get_mesh_data instead.
+        object_name: Object name to inspect. For meshes, this returns only vertex/edge/polygon counts; use `get_mesh_data` for element coordinates, normals, indices, or selection state before calling index-based editing tools.
 
     Returns:
         dict: Result produced by the operation.
@@ -111,11 +111,11 @@ async def get_mesh_data(
 
 @mcp.tool()
 def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> Image:
-    """Capture a screenshot of the current Blender 3D viewport.
+    """Capture the current Blender 3D viewport as an image for visual inspection.
 
     Args:
         ctx: MCP request context.
-        max_size: Maximum size in pixels for the largest dimension (default: 800)
+        max_size: Maximum pixel length of the image's largest dimension; defaults to 1000.
 
     Returns:
         the screenshot as an Image.

@@ -24,9 +24,10 @@ async def nd_boolean(
     cutter_object_name: str,
     mode: BooleanMode = "DIFFERENCE",
 ) -> dict:
-    """ND non-destructive boolean: live Boolean modifier on object_name, with cutter_object_name
+    """Create a live ND Boolean modifier and retain the cutter as an ND utility object.
 
-    converted into a wireframe ND utility object parented to it (not deleted, unlike mesh_boolean).
+    The cutter becomes a wireframe utility object parented to the target instead of
+    being deleted, unlike `mesh_boolean`.
 
     Args:
         ctx: MCP request context.
@@ -61,9 +62,10 @@ async def nd_mark_as_util(
     object_names: list[str],
     unmark: bool = False,
 ) -> dict:
-    """Mark/unmark objects as ND utility objects (wireframe display, hidden from render and most
+    """Mark objects as ND utilities, or restore previously marked objects.
 
-    viewport visibility categories).
+    Marked objects display as wireframes and are hidden from renders and most viewport
+    visibility categories.
 
     Args:
         ctx: MCP request context.
@@ -316,9 +318,10 @@ async def nd_clear_vertex_groups(ctx: Context, object_name: str) -> dict:
 
 @mcp.tool()
 async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
-    """Apply modifiers on the given objects via ND. Always runs ND's default REGULAR apply mode
+    """Apply eligible modifiers on objects using ND's default REGULAR apply mode.
 
-    (selective, with ND's built-in exclusions for bevel/weighted-normals/etc.) - the
+    This mode is selective and preserves ND's built-in exclusions for bevel,
+    weighted normals, and related modifiers. The
     SOFT/HARD/duplicate variants are driven by modifier keys in ND's UI and are not reachable
     from a script.
 

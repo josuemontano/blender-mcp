@@ -21,17 +21,17 @@ async def search_sketchfab_models(
     count: int = 20,
     downloadable: bool = True,
 ) -> dict:
-    """Search for models on Sketchfab with optional filtering.
+    """Search the Sketchfab catalog for models, optionally filtering by category and downloadability.
 
     Args:
         ctx: MCP request context.
-        query: Text to search for
-        categories: Optional comma-separated list of categories
-        count: Maximum number of results to return (default 20)
-        downloadable: Whether to include only downloadable models (default True)
+        query: Search terms describing the desired model.
+        categories: Optional comma-separated Sketchfab categories.
+        count: Maximum number of results to return; defaults to 20.
+        downloadable: When true (default), return only models that can be downloaded.
 
     Returns:
-        the matching models.
+        matching model metadata, including UIDs for previewing or importing.
     Raises:
         ToolError: If the operation cannot be completed.
     """
@@ -64,13 +64,13 @@ async def search_sketchfab_models(
 
 @mcp.tool()
 async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
-    """Get a preview thumbnail of a Sketchfab model by its UID.
+    """Return a Sketchfab model's thumbnail for visual review before import.
 
     Use this to visually confirm a model before downloading.
 
     Args:
         ctx: MCP request context.
-        uid: The unique identifier of the Sketchfab model (obtained from search_sketchfab_models)
+        uid: Model UID returned by `search_sketchfab_models`.
 
     Returns:
         the model's thumbnail as an Image for visual confirmation.
@@ -107,14 +107,14 @@ async def get_sketchfab_model_preview(ctx: Context, uid: str) -> Image:
 
 @mcp.tool()
 async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -> dict:
-    """Download and import a Sketchfab model by its UID.
+    """Download and import a Sketchfab model, scaling its largest dimension to a chosen size.
 
     The model will be scaled so its largest dimension equals target_size.
 
     Args:
         ctx: MCP request context.
-        uid: The unique identifier of the Sketchfab model
-        target_size: REQUIRED. The target size in Blender units/meters for the largest dimension. You must specify the desired size for the model. Examples: - Chair: target_size=1.0 (1 meter tall) - Table: target_size=0.75 (75cm tall) - Car: target_size=4.5 (4.5 meters long) - Person: target_size=1.7 (1.7 meters tall) - Small object (cup, phone): target_size=0.1 to 0.3
+        uid: Downloadable model UID returned by `search_sketchfab_models`.
+        target_size: Required target size in Blender units for the imported model's largest dimension; for example, 1.0 for a chair or 4.5 for a car.
 
     Returns:
         import details including object names, dimensions, and bounding box. The model must be downloadable and you must have proper access rights.
