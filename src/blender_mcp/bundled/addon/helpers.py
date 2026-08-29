@@ -1,5 +1,6 @@
 import bmesh
 import bpy
+import mathutils
 
 from . import ADDON_ID
 
@@ -93,6 +94,74 @@ def _mesh_counts(obj):
 def _apply_modifier(obj, modifier):
     _set_active(obj)
     bpy.ops.object.modifier_apply(modifier=modifier.name)
+
+
+def _world_bounds(matrix_world, vertices):
+    """Compute the world-space axis-aligned bounding box of vertices."""
+    if not vertices:
+        return {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]}
+    coords = [matrix_world @ v.co for v in vertices]
+    xs = [c.x for c in coords]
+    ys = [c.y for c in coords]
+    zs = [c.z for c in coords]
+    return {
+        "min": [min(xs), min(ys), min(zs)],
+        "max": [max(xs), max(ys), max(zs)],
+    }
+
+
+def _modifier_result(obj, modifier, applied):
+    """Report base-mesh counts plus modifier-evaluated counts/name/bounds.
+
+    When apply=False, _mesh_counts(obj) only reflects the base mesh - the
+    live modifier's effect is invisible unless it's read from the
+    depsgraph-evaluated object instead.
+    """
+    base = _mesh_counts(obj)
+    if applied or modifier is None:
+        return {
+            **base,
+            "applied": bool(applied),
+            "modifier": None,
+            "evaluated": dict(base),
+            "bounds": _world_bounds(obj.matrix_world, obj.data.vertices),
+        }
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = obj.evaluated_get(depsgraph)
+    eval_mesh = eval_obj.data
+    evaluated = {
+        "vertices": len(eval_mesh.vertices),
+        "edges": len(eval_mesh.edges),
+        "polygons": len(eval_mesh.polygons),
+    }
+    return {
+        **base,
+        "applied": False,
+        "modifier": modifier.name,
+        "evaluated": evaluated,
+        "bounds": _world_bounds(eval_obj.matrix_world, eval_mesh.vertices),
+    }
+
+
+def _get_rotation_quaternion(obj):
+    """Read obj's rotation as a quaternion, regardless of its rotation_mode."""
+    if obj.rotation_mode == "QUATERNION":
+        return obj.rotation_quaternion.copy()
+    if obj.rotation_mode == "AXIS_ANGLE":
+        angle, x, y, z = obj.rotation_axis_angle
+        return mathutils.Quaternion((x, y, z), angle)
+    return obj.rotation_euler.to_quaternion()
+
+
+def _set_rotation_quaternion(obj, quat):
+    """Write a quaternion to obj, converting to whatever rotation_mode it uses."""
+    if obj.rotation_mode == "QUATERNION":
+        obj.rotation_quaternion = quat
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        axis, angle = quat.to_axis_angle()
+        obj.rotation_axis_angle = (angle, axis.x, axis.y, axis.z)
+    else:
+        obj.rotation_euler = quat.to_euler(obj.rotation_mode)
 
 
 def _select_objects(names, active_name=None):
