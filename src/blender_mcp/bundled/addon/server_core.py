@@ -15,6 +15,7 @@ import mathutils
 from . import ADDON_PROTOCOL_VERSION, bl_info
 from .handlers.camera import CameraHandlersMixin
 from .handlers.camera_phase1 import CameraPhaseOneHandlersMixin
+from .handlers.character_rigging import CharacterRiggingHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
 from .handlers.liquid import LiquidHandlersMixin
 from .handlers.liquid_phase1 import LiquidPhaseOneHandlersMixin
@@ -24,8 +25,7 @@ from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.retopology import RetopologyHandlersMixin
-from .handlers.retopology_phase1 import RetopologyPhaseOneHandlersMixin
-from .handlers.retopology_phase2 import RetopologyPhaseTwoHandlersMixin
+from .handlers.rigid_body import RigidBodyHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
 from .helpers import get_blendermcp_addon_preferences, get_mesh_object, paginate, sync_from_editmode
@@ -74,12 +74,13 @@ class BlenderMCPServer(
     ViewportHandlersMixin,
     CameraPhaseOneHandlersMixin,
     CameraHandlersMixin,
-    RetopologyPhaseTwoHandlersMixin,
-    RetopologyPhaseOneHandlersMixin,
+    CharacterRiggingHandlersMixin,
+    RigidBodyHandlersMixin,
     RetopologyHandlersMixin,
     MeshHandlersMixin,
     ModelHandlersMixin,
     ClothHandlersMixin,
+    LiquidPhaseTwoHandlersMixin,
     LiquidPhaseOneHandlersMixin,
     LiquidHandlersMixin,
     NDHandlersMixin,
@@ -493,6 +494,30 @@ class BlenderMCPServer(
             "clear_vertex_groups": self.clear_vertex_groups,
             "clear_edge_marks": self.clear_edge_marks,
             "sync_data_name": self.sync_data_name,
+            "get_character_rig_info": self.get_character_rig_info,
+            "get_skinning_info": self.get_skinning_info,
+            "create_armature": self.create_armature,
+            "patch_armature_bones": self.patch_armature_bones,
+            "mirror_armature_bones": self.mirror_armature_bones,
+            "manage_bone_collections": self.manage_bone_collections,
+            "configure_armature_bones": self.configure_armature_bones,
+            "bind_mesh_to_armature": self.bind_mesh_to_armature,
+            "set_skin_weights": self.set_skin_weights,
+            "clean_skin_weights": self.clean_skin_weights,
+            "add_pose_bone_constraint": self.add_pose_bone_constraint,
+            "validate_character_rig": self.validate_character_rig,
+            "get_rigid_body_scene_info": self.get_rigid_body_scene_info,
+            "get_rigid_body_object_info": self.get_rigid_body_object_info,
+            "get_rigid_body_constraint_info": self.get_rigid_body_constraint_info,
+            "configure_rigid_body_world": self.configure_rigid_body_world,
+            "add_rigid_bodies": self.add_rigid_bodies,
+            "configure_rigid_bodies": self.configure_rigid_bodies,
+            "set_rigid_body_mass": self.set_rigid_body_mass,
+            "set_rigid_body_collision_layers": self.set_rigid_body_collision_layers,
+            "create_rigid_body_collision_proxy": self.create_rigid_body_collision_proxy,
+            "create_rigid_body_constraint": self.create_rigid_body_constraint,
+            "configure_rigid_body_constraint": self.configure_rigid_body_constraint,
+            "validate_rigid_body_setup": self.validate_rigid_body_setup,
             "get_cloth_simulation_info": self.get_cloth_simulation_info,
             "get_cloth_object_info": self.get_cloth_object_info,
             "get_liquid_simulation_info": self.get_liquid_simulation_info,
@@ -567,6 +592,11 @@ class BlenderMCPServer(
             "sample_liquid_simulation": self.sample_liquid_simulation,
             "manage_liquid_cache": self.manage_liquid_cache,
             "remove_fluid_components": self.remove_fluid_components,
+            "create_liquid_proxy_rig": self.create_liquid_proxy_rig,
+            "duplicate_liquid_setup_variant": self.duplicate_liquid_setup_variant,
+            "prepare_liquid_render_mesh": self.prepare_liquid_render_mesh,
+            "export_liquid_simulation": self.export_liquid_simulation,
+            "analyze_liquid_performance": self.analyze_liquid_performance,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -625,6 +655,13 @@ class BlenderMCPServer(
             "get_cloth_simulation_info",
             "get_cloth_object_info",
             "get_camera_rig_info",
+            "get_character_rig_info",
+            "get_skinning_info",
+            "validate_character_rig",
+            "get_rigid_body_scene_info",
+            "get_rigid_body_object_info",
+            "get_rigid_body_constraint_info",
+            "validate_rigid_body_setup",
             "validate_camera_rig",
             "estimate_cloth_resources",
             "validate_cloth_setup",
@@ -695,6 +732,10 @@ class BlenderMCPServer(
         "cloth_object_name",
         "garment_object_name",
         "armature_object_name",
+        "constraint_object_name",
+        "object1_name",
+        "object2_name",
+        "low_resolution_source_name",
         "render_object_name",
         "proxy_object_name",
         "source_object_name",
@@ -713,6 +754,8 @@ class BlenderMCPServer(
         "body_collider_object_names",
         "source_object_names",
         "collider_object_names",
+        "mesh_object_names",
+        "armature_object_names",
     )
 
     # Commands that edit an existing object's mesh geometry. Only these back up
@@ -816,6 +859,9 @@ class BlenderMCPServer(
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "manage_liquid_cache" and str(params.get("action", "STATUS")).upper() == "STATUS"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "analyze_liquid_performance" and not params.get("measure_replay_evaluation", False)
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "create_camera_markers" and str(params.get("action", "")).upper() == "LIST"

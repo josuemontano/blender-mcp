@@ -89,7 +89,8 @@ Every tool below returns one of two shapes:
 
 Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data,
 get_cloth_simulation_info, get_cloth_object_info, estimate_cloth_resources, get_liquid_simulation_info,
-inspect_retopology,
+get_character_rig_info, get_skinning_info, validate_character_rig, get_rigid_body_scene_info,
+get_rigid_body_constraint_info, inspect_retopology,
 search_polyhaven_assets) paginate through their "data" dict, not through this envelope. Look for
 "truncated" and "next_offset" in each page record, and re-call with the corresponding offset while
 truncated is true to see the rest. A truncated validate_cloth_setup result should be rerun with a

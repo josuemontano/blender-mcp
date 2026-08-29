@@ -1,0 +1,236 @@
+"""Regression coverage for the Phase 0 character-rigging surface."""
+
+import asyncio
+import sys
+
+import pytest
+
+from pydantic import ValidationError
+from test_mutation_transaction import _load_addon
+
+from blender_mcp.server.tools import character_rigging
+
+
+def _run(function, **kwargs):
+    return asyncio.run(function(ctx=None, **kwargs))
+
+
+def test_all_twelve_phase_zero_character_commands_are_registered() -> None:
+    names = {
+        "get_character_rig_info",
+        "get_skinning_info",
+        "create_armature",
+        "patch_armature_bones",
+        "mirror_armature_bones",
+        "manage_bone_collections",
+        "configure_armature_bones",
+        "bind_mesh_to_armature",
+        "set_skin_weights",
+        "clean_skin_weights",
+        "add_pose_bone_constraint",
+        "validate_character_rig",
+    }
+
+    assert all(callable(getattr(character_rigging, name)) for name in names)
+    assert set(character_rigging.mcp._tool_manager._tools) >= names
+
+
+def test_character_models_reject_unknown_and_nonfinite_values() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        character_rigging.BoneBehaviorPatch(bone_name="DEF-spine", arbitrary_rna=True)  # pyright: ignore[reportCallIssue]
+    with pytest.raises(ValidationError):
+        character_rigging.InitialBone(name="Bone", head=(0, 0, 0), tail=(0, 1, float("inf")))
+    with pytest.raises(ValidationError, match="sum to 1"):
+        character_rigging.NormalizedVertexWeights(
+            mesh_object_name="Body",
+            vertex_index=3,
+            weights={"DEF-spine": 0.8},
+        )
+
+
+def test_create_armature_serializes_typed_hierarchy(monkeypatch) -> None:
+    calls = []
+
+    def fake_call(command, params, changed_objects=None):
+        calls.append((command, params, changed_objects))
+        return {"ok": True}
+
+    monkeypatch.setattr(character_rigging, "_call", fake_call)
+    result = _run(
+        character_rigging.create_armature,
+        name="HeroRig",
+        collection_name="Characters",
+        bones=[
+            character_rigging.InitialBone(name="root", head=(0, 0, 0), tail=(0, 0, 1)),
+            character_rigging.InitialBone(
+                name="spine",
+                head=(0, 0, 1),
+                tail=(0, 0, 2),
+                parent="root",
+                use_connect=True,
+                collections=["DEF"],
+            ),
+        ],
+    )
+
+    assert result == {"ok": True}
+    assert calls[0][0] == "create_armature"
+    assert calls[0][1]["bones"][1]["parent"] == "root"
+    assert calls[0][1]["world_transform"]["rotation_quaternion"] == (1.0, 0.0, 0.0, 0.0)
+    assert calls[0][2] == ["HeroRig"]
+
+
+def test_pose_constraint_is_discriminated_and_serialized(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        character_rigging,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
+
+    _run(
+        character_rigging.add_pose_bone_constraint,
+        armature_object_name="HeroRig",
+        bone_name="shin.L",
+        constraint=character_rigging.IKConstraintSpec(
+            name="Leg IK",
+            target_object_name="HeroRig",
+            subtarget="foot_ik.L",
+            chain_count=2,
+        ),
+    )
+
+    assert calls[0][1]["constraint"]["name"] == "Leg IK"
+    assert calls[0][1]["constraint"]["type"] == "IK"
+    assert calls[0][1]["constraint"]["subtarget"] == "foot_ik.L"
+    assert calls[0][1]["constraint"]["chain_count"] == 2
+
+
+def test_destructive_weight_policies_require_confirmation() -> None:
+    with pytest.raises(Exception, match="confirm_replace_weights"):
+        _run(
+            character_rigging.bind_mesh_to_armature,
+            armature_object_name="Rig",
+            mesh_object_names=["Body"],
+            replacement_policy="REPLACE",
+        )
+
+
+def test_destructive_collection_membership_changes_require_confirmation() -> None:
+    with pytest.raises(ValidationError, match="confirm_destructive"):
+        character_rigging.CollectionAssign(
+            name="CTRL",
+            bone_names=["hand.L"],
+            replace_memberships=True,
+        )
+    with pytest.raises(ValidationError, match="confirm_destructive"):
+        character_rigging.CollectionUnassign(name="CTRL", bone_names=["hand.L"])
+    with pytest.raises(ValidationError, match="confirm_destructive"):
+        character_rigging.CollectionRemove(name="CTRL")
+    with pytest.raises(Exception, match="confirm_remove_orphan_groups"):
+        _run(
+            character_rigging.clean_skin_weights,
+            mesh_object_name="Body",
+            remove_orphan_groups=True,
+        )
+
+
+def test_character_dispatch_and_read_only_contract(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+    handlers = server._build_command_handlers()
+    names = {
+        "get_character_rig_info",
+        "get_skinning_info",
+        "create_armature",
+        "patch_armature_bones",
+        "mirror_armature_bones",
+        "manage_bone_collections",
+        "configure_armature_bones",
+        "bind_mesh_to_armature",
+        "set_skin_weights",
+        "clean_skin_weights",
+        "add_pose_bone_constraint",
+        "validate_character_rig",
+    }
+
+    assert set(handlers) >= names
+    assert {
+        "get_character_rig_info",
+        "get_skinning_info",
+        "validate_character_rig",
+    } <= server._READ_ONLY_COMMANDS
+    assert not (names - server._READ_ONLY_COMMANDS) & server._READ_ONLY_COMMANDS
+
+
+def test_hierarchy_preflight_detects_cycles_and_connected_gaps(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    handler = sys.modules[f"{addon.__name__}.handlers.character_rigging"]
+
+    assert handler._hierarchy_cycles({"a": "b", "b": "a"}) == [["a", "b", "a"]]
+    with pytest.raises(ValueError, match="head must equal"):
+        handler._validate_bone_specs(
+            [
+                {"name": "root", "head": (0, 0, 0), "tail": (0, 0, 1)},
+                {
+                    "name": "child",
+                    "head": (0, 0, 2),
+                    "tail": (0, 0, 3),
+                    "parent": "root",
+                    "use_connect": True,
+                },
+            ],
+            set(),
+        )
+
+
+def test_patch_preflight_renames_child_parent_and_rejects_orphans(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    handler = sys.modules[f"{addon.__name__}.handlers.character_rigging"]
+    specs = [
+        {"name": "root", "head": (0, 0, 0), "tail": (0, 0, 1), "parent": None},
+        {"name": "child", "head": (0, 0, 1), "tail": (0, 0, 2), "parent": "root"},
+    ]
+
+    final, renamed, deleted = handler._apply_patch_to_specs(
+        specs,
+        [{"operation": "RENAME", "bone_name": "root", "new_name": "pelvis", "reference_policy": "UPDATE"}],
+    )
+
+    assert renamed == {"root": "pelvis"}
+    assert deleted == []
+    assert next(item for item in final if item["name"] == "child")["parent"] == "pelvis"
+    with pytest.raises(ValueError, match="reparenting or deleting"):
+        handler._apply_patch_to_specs(
+            specs,
+            [{"operation": "DELETE", "bone_name": "root", "reference_policy": "ERROR"}],
+        )
+
+
+def test_patch_preflight_accepts_child_before_parent_creation(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    handler = sys.modules[f"{addon.__name__}.handlers.character_rigging"]
+
+    final, renamed, deleted = handler._apply_patch_to_specs(
+        [],
+        [
+            {
+                "operation": "CREATE",
+                "name": "child",
+                "head": (0, 0, 1),
+                "tail": (0, 0, 2),
+                "parent": "root",
+                "use_connect": True,
+            },
+            {
+                "operation": "CREATE",
+                "name": "root",
+                "head": (0, 0, 0),
+                "tail": (0, 0, 1),
+            },
+        ],
+    )
+
+    handler._validate_bone_specs(final, set())
+    assert renamed == {}
+    assert deleted == []
