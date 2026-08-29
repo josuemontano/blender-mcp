@@ -66,6 +66,24 @@ def test_oversized_response_without_terminator_raises_instead_of_growing_forever
         conn.receive_full_response(sock)
 
 
+def test_oversized_terminated_response_raises() -> None:
+    r"""
+    A single complete (`\n`-terminated) response must be size-checked too.
+
+    The unterminated-buffer check above only bounds "how long can we wait
+    without ever seeing a terminator" - it does not stop a response that
+    *does* get a `\n` (e.g. because the terminating chunk lands in the same
+    recv() call that pushes the buffer past the limit) from being returned
+    at any size.
+    """
+    conn = BlenderConnection(host="localhost", port=0)
+    conn._MAX_MESSAGE_BYTES = 100  # keep the test fast
+    sock = ScriptedSocket([b"x" * 200 + b"\n"])
+
+    with pytest.raises(Exception, match="exceeded max size"):
+        conn.receive_full_response(sock)
+
+
 def test_response_id_mismatch_raises_and_drops_the_socket(monkeypatch) -> None:
     """
     send_command_locked must not hand back a response meant for another

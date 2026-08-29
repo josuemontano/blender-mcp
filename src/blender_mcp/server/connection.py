@@ -162,6 +162,8 @@ class BlenderConnection:
             self._recv_buffer += chunk
 
         line, self._recv_buffer = self._recv_buffer.split(b"\n", 1)
+        if len(line) > self._MAX_MESSAGE_BYTES:
+            raise Exception(f"Response exceeded max size ({len(line)} bytes)")
         logger.info(f"Received complete response ({len(line)} bytes)")
         return line
 

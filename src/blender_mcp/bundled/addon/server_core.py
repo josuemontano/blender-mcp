@@ -249,6 +249,39 @@ class BlenderMCPServer(
     # disk and never cross the socket. 64 MiB is generous headroom above that.
     _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
+    def _decode_and_queue_frame(self, line: bytes, client) -> bool:
+        r"""
+        Decode one framed line, parse it as JSON, and queue it as a command.
+
+        Args:
+            line: The bytes of one `\n`-delimited frame (never containing
+                the terminator itself).
+            client: The socket the frame arrived on, passed through to the
+                queued command so its response goes back to the right peer.
+
+        Returns:
+            False if `line` exceeds `_MAX_MESSAGE_BYTES` - the caller must
+            treat this as a protocol violation and drop the connection.
+            True otherwise, including when the line is malformed (discarded,
+            not fatal).
+
+        """
+        if len(line) > self._MAX_MESSAGE_BYTES:
+            print(f"Client sent an oversized frame ({len(line)} bytes) - disconnecting")
+            return False
+        try:
+            command = json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            print(f"Discarding malformed message: {e!s}")
+            return True
+
+        # Hand off to the main thread. Never call
+        # bpy.app.timers.register() from here - it is not thread-safe and
+        # the callback can be silently lost.
+        print(f"Queued command: {command.get('type')}")
+        self.command_queue.put((command, client))
+        return True
+
     def handle_client(self, client) -> None:
         """
         Handle connected client.
@@ -285,22 +318,17 @@ class BlenderMCPServer(
                     # their own). Splitting on the newline terminator each
                     # side appends after every message removes that
                     # ambiguity: each complete line is exactly one message.
+                    oversized_frame = False
                     while b"\n" in buffer:
                         line, buffer = buffer.split(b"\n", 1)
                         if not line:
                             continue
-                        try:
-                            command = line.decode("utf-8")
-                            command = json.loads(command)
-                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                            print(f"Discarding malformed message: {e!s}")
-                            continue
+                        if not self._decode_and_queue_frame(line, client):
+                            oversized_frame = True
+                            break
 
-                        # Hand off to the main thread. Never call
-                        # bpy.app.timers.register() from here - it is not
-                        # thread-safe and the callback can be silently lost.
-                        print(f"Queued command: {command.get('type')}")
-                        self.command_queue.put((command, client))
+                    if oversized_frame:
+                        break
 
                     if len(buffer) > self._MAX_MESSAGE_BYTES:
                         print(

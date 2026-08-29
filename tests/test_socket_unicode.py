@@ -175,3 +175,24 @@ def test_oversized_message_without_terminator_disconnects_instead_of_growing_for
     server.handle_client(ScriptedSocket([garbage_chunk]))
 
     assert server.command_queue.empty(), "garbage input must never be queued as a command"
+
+
+def test_oversized_terminated_frame_is_rejected() -> None:
+    r"""
+    A single complete (`\n`-terminated) frame must be size-checked too.
+
+    The unterminated-buffer check above only bounds "how long can we wait
+    without ever seeing a terminator" - it does not stop a frame that
+    *does* get a `\n` (e.g. because the terminating chunk lands in the same
+    recv() call that pushes the buffer past the limit) from being decoded
+    and queued at any size. Each line must be checked as soon as it is
+    split off, before it is ever handed to json.loads().
+    """
+    server = _make_server()
+    server.running = True
+    server._MAX_MESSAGE_BYTES = 100  # keep the test fast
+    oversized_frame = b"x" * 200 + b"\n"
+
+    server.handle_client(ScriptedSocket([oversized_frame]))
+
+    assert server.command_queue.empty(), "oversized terminated frame must never be queued as a command"
