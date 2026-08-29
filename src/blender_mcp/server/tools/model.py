@@ -22,6 +22,7 @@ SymmetrizeDirection = Literal[
     "POSITIVE_Z",
 ]
 Axis = Literal["X", "Y", "Z"]
+Space = Literal["LOCAL", "WORLD"]
 
 
 @mcp.tool()
@@ -32,6 +33,7 @@ async def model_match_reference(
     match_location: bool = True,
     match_rotation: bool = True,
     match_scale: bool = True,
+    space: Space = "WORLD",
     user_prompt: str = "",
 ) -> dict:
     """
@@ -43,6 +45,10 @@ async def model_match_reference(
     - match_location: Copy the reference object's location.
     - match_rotation: Copy the reference object's rotation.
     - match_scale: Copy the reference object's scale.
+    - space: "WORLD" (default) matches visually even across differently-parented
+      objects, and correctly handles quaternion/axis-angle rotation modes, by
+      decomposing/recomposing world matrices. "LOCAL" copies the raw local
+      location/rotation/scale properties instead.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
     Returns the object's name and resulting location/rotation/scale.
@@ -57,6 +63,7 @@ async def model_match_reference(
                 "match_location": match_location,
                 "match_rotation": match_rotation,
                 "match_scale": match_scale,
+                "space": space,
             },
         )
         return ok(result, changed_objects=[object_name])
@@ -75,16 +82,17 @@ async def model_blockout(
     user_prompt: str = "",
 ) -> dict:
     """
-    Create a simple placeholder primitive scaled to size, tagged as a blockout proxy for later refinement.
+    Create a simple placeholder primitive, tagged as a blockout proxy for later refinement.
 
     Parameters:
     - name: Name for the created blockout object.
     - primitive_type: One of CUBE, SPHERE, CYLINDER, CONE, TORUS, PLANE, CURVE.
-    - size: [x, y, z] scale applied to the primitive.
+    - size: [x, y, z] target world-space bounding box dimensions, consistent across
+      primitive types (e.g. size=(1,1,1) gives a sphere and a cube the same footprint).
     - location: [x, y, z] location for the new object.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the created object's name, type, location, and scale.
+    Returns the created object's name, type, location, scale, and dimensions.
     """
     try:
         blender = get_blender_connection()
@@ -120,7 +128,9 @@ async def model_refine(
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
@@ -146,20 +156,30 @@ async def model_detail(
     scale: float = 5.0,
     texture_type: str = "NOISE",
     apply: bool = False,
+    subdivide: bool = False,
     user_prompt: str = "",
 ) -> dict:
     """
     Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
+
+    Displace only offsets existing vertices - it cannot produce fine detail on a mesh
+    that doesn't already have enough topology. Set subdivide=True to add a Subdivision
+    Surface pass first, or ensure the mesh is already dense enough.
 
     Parameters:
     - object_name: Name of the mesh object to detail.
     - strength: Displacement strength.
     - scale: Noise scale of the driving texture.
     - texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
-    - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
+    - apply: If True, bake the modifier into the mesh and remove the generated texture
+      datablock. If False (default), leave both as live modifier/texture.
+    - subdivide: If True, apply a Subdivision Surface modifier before adding the Displace
+      modifier, to ensure enough topology exists for visible detail.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
@@ -171,6 +191,7 @@ async def model_detail(
                 "scale": scale,
                 "texture_type": texture_type,
                 "apply": apply,
+                "subdivide": subdivide,
             },
         )
         return ok(result, changed_objects=[object_name])
@@ -232,7 +253,9 @@ async def model_mirror(
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
@@ -271,7 +294,9 @@ async def model_array(
     - apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
@@ -297,19 +322,33 @@ async def model_radial_array(
     count: int = 6,
     axis: Axis = "Z",
     apply: bool = False,
+    pivot_object_name: str | None = None,
+    pivot_location: tuple[float, float, float] | None = None,
+    radius: float | None = None,
     user_prompt: str = "",
 ) -> dict:
     """
-    Duplicate an object radially around its origin, evenly spaced about an axis.
+    Duplicate an object radially around a pivot, evenly spaced about an axis.
+
+    The array's visible spread is the distance between the object and the pivot - if
+    the mesh is centered on its own origin, every rotated copy lands on top of the
+    original. Provide exactly one of pivot_object_name, pivot_location, or radius to
+    set that distance; omitting all three raises an error instead of silently
+    producing overlapping copies.
 
     Parameters:
     - object_name: Name of the mesh object to array.
     - count: Number of copies around the circle (including the original). Must be at least 2.
     - axis: One of X, Y, Z — the axis to rotate around.
     - apply: If True, bake the modifier into the mesh and remove the helper empty. If False (default), leave both live.
+    - pivot_object_name: Name of an existing object whose world location is used as the pivot.
+    - pivot_location: [x, y, z] world location to use as the pivot.
+    - radius: Distance to auto-place the pivot from the object, perpendicular to axis.
     - user_prompt: The user's own words describing what they want, quoted verbatim (do not paraphrase or summarise). Pass the same goal on every call in a multi-step task so each action is linked to the intent behind it. Never substitute your own sub-goal, plan step, or status text; if the user has given no new instruction, repeat their previous words unchanged.
 
-    Returns the object's name, whether the modifier was applied, and updated vertex/edge/polygon counts.
+    Returns the object's name, whether the modifier was applied, base vertex/edge/polygon
+    counts, and (when apply=False) an "evaluated" count, "modifier" name, and world-space
+    "bounds" reflecting the live modifier's effect.
     """
     try:
         blender = get_blender_connection()
@@ -320,6 +359,9 @@ async def model_radial_array(
                 "count": count,
                 "axis": axis,
                 "apply": apply,
+                "pivot_object_name": pivot_object_name,
+                "pivot_location": list(pivot_location) if pivot_location else None,
+                "radius": radius,
             },
         )
         return ok(result, changed_objects=[object_name])
