@@ -23,6 +23,44 @@ from .helpers import get_mesh_object, paginate, sync_from_editmode, get_blenderm
 from .transaction import mutation_transaction
 
 
+class HandlerReportedError(Exception):
+    """
+    A handler reported failure by *returning* a failure shape instead of
+    raising (e.g. {"error": ...} from a provider import).
+
+    Raised inside the mutation transaction so a partially-applied request rolls
+    back like any other failure, instead of committing the partial state and
+    pushing an undo checkpoint. Its message is what the client receives.
+    """
+
+
+def _handler_failure_message(result):
+    """
+    Detect a handler that returned a failure shape rather than raising.
+
+    Deliberately mirrors connection.ad_hoc_failure_message on the server side;
+    the two live in separate runtimes (the addon must not import server code,
+    and vice versa), so the shared shape contract is duplicated on purpose -
+    keep the two in sync. A {"cancelled": True} outcome (ND operators the user
+    cancelled) is NOT a failure and must fall through.
+
+    Args:
+        result: The value a handler returned.
+
+    Returns:
+        str | None: The failure message if `result` is a known failure shape,
+        else None.
+
+    """
+    if isinstance(result, dict):
+        if result.get("succeed") is False:
+            return str(result.get("error") or result)
+        error = result.get("error")
+        if error:
+            return str(error)
+    return None
+
+
 class BlenderMCPServer(
     ViewportHandlersMixin,
     MeshHandlersMixin,
@@ -512,9 +550,73 @@ class BlenderMCPServer(
         else:
             return {"status": "error", "message": f"Unknown command type: {cmd_type}"}
 
+    # Params that name an *existing* object a mutating command touches, so the
+    # transaction can capture that object's state and restore it on failure.
+    # "name" is excluded: in create_primitive it names a new object, not one to
+    # protect.
+    _TARGET_NAME_PARAMS = ("object_name", "cutter_object_name", "reference_object_name")
+    _TARGET_NAMES_PARAMS = ("object_names",)
+
+    # Commands that edit an existing object's mesh geometry. Only these back up
+    # the mesh datablock (a full copy) so a failed edit can be swapped back;
+    # transform-only commands (e.g. copy_object_transform) skip that cost.
+    _GEOMETRY_MUTATING_COMMANDS = frozenset(
+        {
+            "mesh_extrude",
+            "mesh_inset",
+            "mesh_bevel",
+            "mesh_bridge",
+            "mesh_boolean",
+            "mesh_subdivide",
+            "mesh_remesh",
+            "mesh_solidify",
+            "mesh_symmetrize",
+        }
+    )
+
+    def _resolve_targets(self, params):
+        """
+        Resolve the existing objects a mutating request will touch, from its params.
+
+        Missing objects are skipped (the handler will raise its own clear error);
+        duplicates are collapsed while preserving order.
+
+        Args:
+            params: The command's params dict.
+
+        Returns:
+            list: Existing bpy objects named by the target params.
+
+        """
+        names = []
+        for key in self._TARGET_NAME_PARAMS:
+            value = params.get(key)
+            if isinstance(value, str):
+                names.append(value)
+        for key in self._TARGET_NAMES_PARAMS:
+            value = params.get(key)
+            if isinstance(value, (list, tuple)):
+                names.extend(name for name in value if isinstance(name, str))
+
+        objects = []
+        seen = set()
+        for name in names:
+            if name in seen:
+                continue
+            seen.add(name)
+            obj = bpy.data.objects.get(name)
+            if obj is not None:
+                objects.append(obj)
+        return objects
+
     def _run_handler(self, cmd_type, handler, params):
         """
         Call a resolved handler, wrapping mutating commands in mutation_transaction.
+
+        A handler that reports failure by returning a failure shape (rather than
+        raising) is converted to a HandlerReportedError inside the transaction,
+        so its partial mutation rolls back instead of being committed. On
+        success, any undo-unavailability warning is merged into the result.
 
         Args:
             cmd_type: The MCP command type, used to pick read-only vs. mutating dispatch.
@@ -527,8 +629,18 @@ class BlenderMCPServer(
         """
         if cmd_type in self._READ_ONLY_COMMANDS:
             return handler(**params)
-        with mutation_transaction(cmd_type):
-            return handler(**params)
+
+        targets = self._resolve_targets(params)
+        capture_geometry = cmd_type in self._GEOMETRY_MUTATING_COMMANDS
+        with mutation_transaction(cmd_type, targets, capture_geometry) as txn:
+            result = handler(**params)
+            failure = _handler_failure_message(result)
+            if failure is not None:
+                raise HandlerReportedError(failure)
+            warning = txn.commit()
+            if warning and isinstance(result, dict):
+                result = {**result, "warnings": [*result.get("warnings", []), warning]}
+            return result
 
     def get_addon_info(self):
         """

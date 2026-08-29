@@ -46,11 +46,21 @@ def ok(
     changed_objects: list[str] | None = None,
     changed_resources: list[str] | None = None,
 ) -> dict:
+    merged_warnings = list(warnings or [])
+    # The Blender addon surfaces non-fatal notices (e.g. that an undo checkpoint
+    # could not be recorded) as a `warnings` list on its result. Lift them into
+    # the envelope's own warnings so the client sees them, and drop the key from
+    # `data` to avoid reporting the same notice twice. Every mutating tool passes
+    # the addon result straight through as `data`, so this single point covers
+    # them all.
+    if isinstance(data, dict) and isinstance(data.get("warnings"), list):
+        merged_warnings.extend(str(warning) for warning in data["warnings"])
+        data = {key: value for key, value in data.items() if key != "warnings"}
     return {
         "ok": success,
         "data": data,
         "error": None,
-        "warnings": warnings or [],
+        "warnings": merged_warnings,
         "changed_objects": changed_objects or [],
         "changed_resources": changed_resources or [],
     }

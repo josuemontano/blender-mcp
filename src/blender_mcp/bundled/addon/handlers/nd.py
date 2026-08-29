@@ -164,6 +164,9 @@ class NDHandlersMixin:
         """
         Assign a random distinct ND ID material to each given mesh/curve object.
 
+        Reports exactly which materials were created by diffing bpy.data.materials
+        before and after the call.
+
         Args:
             object_names: Names of Blender objects to operate on.
 
@@ -171,10 +174,12 @@ class NDHandlersMixin:
             Result produced by the operation.
 
         """
+        before_materials = {mat.name for mat in bpy.data.materials}
         with preserve_mode_and_selection():
             objs = select_objects(object_names)
             _result, cancelled = nd_call("bulk_create_id_materials")
-        return {"names": [obj.name for obj in objs], "cancelled": cancelled}
+        material_names = sorted({mat.name for mat in bpy.data.materials} - before_materials)
+        return {"names": [obj.name for obj in objs], "material_names": material_names, "cancelled": cancelled}
 
     def nd_set_lod_suffix(self, object_names, mode="HIGH"):
         """
