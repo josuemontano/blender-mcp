@@ -15,7 +15,7 @@ ADDON_ID = __name__
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (1, 5),
+    "version": (1, 6),
     "blender": (5, 1, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -23,10 +23,9 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-# Bumped to 7: the socket protocol is now newline-delimited JSON with a
-# request/response "id" (see server_core.py's handle_client) - a breaking
-# wire change, not just a new capability.
-ADDON_PROTOCOL_VERSION = 7
+# Bumped to 9 so installations without the cloth and retopology command
+# surfaces are detected and refreshed before the MCP server dispatches them.
+ADDON_PROTOCOL_VERSION = 9
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]

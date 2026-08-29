@@ -13,6 +13,7 @@ import bpy
 import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
+from .handlers.cloth import ClothHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
@@ -65,6 +66,7 @@ class BlenderMCPServer(
     ViewportHandlersMixin,
     MeshHandlersMixin,
     ModelHandlersMixin,
+    ClothHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
     SketchfabHandlersMixin,
@@ -449,6 +451,18 @@ class BlenderMCPServer(
             "clear_vertex_groups": self.clear_vertex_groups,
             "clear_edge_marks": self.clear_edge_marks,
             "sync_data_name": self.sync_data_name,
+            "get_cloth_simulation_info": self.get_cloth_simulation_info,
+            "get_cloth_object_info": self.get_cloth_object_info,
+            "add_cloth_simulation": self.add_cloth_simulation,
+            "configure_cloth_material": self.configure_cloth_material,
+            "configure_cloth_solver": self.configure_cloth_solver,
+            "set_cloth_vertex_weights": self.set_cloth_vertex_weights,
+            "configure_cloth_pinning": self.configure_cloth_pinning,
+            "configure_cloth_collisions": self.configure_cloth_collisions,
+            "add_cloth_collider": self.add_cloth_collider,
+            "configure_cloth_collider": self.configure_cloth_collider,
+            "estimate_cloth_resources": self.estimate_cloth_resources,
+            "validate_cloth_setup": self.validate_cloth_setup,
         }
 
         # Add Polyhaven handlers only if enabled

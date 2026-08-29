@@ -1,6 +1,7 @@
 """Import every tool submodule for its @mcp.tool() registration side effect."""
 
 from . import core as core
+from . import cloth as cloth
 from . import execute as execute
 from . import mesh as mesh
 from . import model as model
