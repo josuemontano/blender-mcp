@@ -50,16 +50,20 @@ class FakeObjectsCollection(dict):
 
 class FakeOverlay:
     def __init__(self) -> None:
-        self.show_cavity = False
         self.show_wireframes = False
         self.show_face_orientation = False
+
+
+class FakeShading:
+    def __init__(self) -> None:
+        self.show_cavity = False
 
 
 class FakeArea:
     def __init__(self) -> None:
         self.type = "VIEW_3D"
         self.regions = [types.SimpleNamespace(type="WINDOW")]
-        self.spaces = types.SimpleNamespace(active=types.SimpleNamespace(overlay=FakeOverlay()))
+        self.spaces = types.SimpleNamespace(active=types.SimpleNamespace(overlay=FakeOverlay(), shading=FakeShading()))
 
 
 @contextlib.contextmanager
@@ -196,17 +200,17 @@ def test_enabled_nd_with_addon_installed_is_ready(monkeypatch) -> None:
 def test_viewport_overlay_toggle_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
-    overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
+    shading = sys.modules["bpy"].context.screen.areas[0].spaces.active.shading
 
     result = server.viewport_overlay_toggle(toggle="cavity", enabled=True)
 
     assert result == {"toggle": "CAVITY", "enabled": True}
-    assert overlay.show_cavity is True
+    assert shading.show_cavity is True
 
     result_again = server.viewport_overlay_toggle(toggle="CAVITY", enabled=True)
 
     assert result_again == {"toggle": "CAVITY", "enabled": True}
-    assert overlay.show_cavity is True
+    assert shading.show_cavity is True
 
 
 def test_viewport_overlay_toggle_face_orientation_can_be_turned_off(monkeypatch) -> None:

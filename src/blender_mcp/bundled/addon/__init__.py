@@ -23,9 +23,9 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-# Bumped to 20 so installations without the Phase 0 rigid-body command
-# surface are refreshed before dispatch.
-ADDON_PROTOCOL_VERSION = 20
+# Bumped so installations without rigid-body proxy, character, interchange,
+# debris, and scale-analysis capabilities are refreshed before dispatch.
+ADDON_PROTOCOL_VERSION = 22
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]

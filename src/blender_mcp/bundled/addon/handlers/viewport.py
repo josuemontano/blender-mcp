@@ -11,9 +11,9 @@ class ViewportHandlersMixin:
     """Provide handlers for inspecting and capturing the 3D viewport."""
 
     _OVERLAY_TOGGLES = {
-        "CAVITY": "show_cavity",
-        "WIREFRAMES": "show_wireframes",
-        "FACE_ORIENTATION": "show_face_orientation",
+        "CAVITY": ("shading", "show_cavity"),
+        "WIREFRAMES": ("overlay", "show_wireframes"),
+        "FACE_ORIENTATION": ("overlay", "show_face_orientation"),
     }
 
     def viewport_overlay_toggle(self, toggle, enabled):
@@ -36,14 +36,16 @@ class ViewportHandlersMixin:
 
         """
         toggle = str(toggle).upper()
-        overlay_prop = self._OVERLAY_TOGGLES.get(toggle)
-        if overlay_prop is None:
+        mapping = self._OVERLAY_TOGGLES.get(toggle)
+        if mapping is None:
             raise ValueError(f"Invalid toggle: {toggle}. Must be one of {sorted(self._OVERLAY_TOGGLES)}")
+        holder_attr, overlay_prop = mapping
         area, _region = find_view3d()
         if area is None:
             raise RuntimeError("No 3D viewport found to toggle")
         space = area.spaces.active
-        setattr(space.overlay, overlay_prop, bool(enabled))
+        holder = getattr(space, holder_attr)
+        setattr(holder, overlay_prop, bool(enabled))
         return {"toggle": toggle, "enabled": bool(enabled)}
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
