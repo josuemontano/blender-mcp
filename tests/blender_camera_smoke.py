@@ -1,8 +1,8 @@
-"""Blender 5.1+ background smoke coverage for Phase 1 camera handlers.
+"""Blender 5.1+ background smoke coverage for camera handlers.
 
 Run with::
 
-    blender --background --factory-startup --python tests/blender_camera_phase1_smoke.py
+    blender --background --factory-startup --python tests/blender_camera_smoke.py
 """
 
 import importlib.util
@@ -13,7 +13,7 @@ from pathlib import Path
 import bpy
 
 addon_path = Path(__file__).resolve().parents[1] / "src" / "blender_mcp" / "bundled" / "addon" / "__init__.py"
-package_name = "blender_mcp_camera_phase1_smoke"
+package_name = "blender_mcp_camera_smoke"
 spec = importlib.util.spec_from_file_location(
     package_name, addon_path, submodule_search_locations=[str(addon_path.parent)]
 )
@@ -22,8 +22,8 @@ addon = importlib.util.module_from_spec(spec)
 sys.modules[package_name] = addon
 spec.loader.exec_module(addon)
 
-from blender_mcp_camera_phase1_smoke.handlers.camera import _tag  # ruff: ignore[E402]
-from blender_mcp_camera_phase1_smoke.handlers.camera_phase1 import CameraPhaseOneHandlersMixin  # ruff: ignore[E402]
+from blender_mcp_camera_smoke.handlers.camera import CameraHandlersMixin  # ruff: ignore[E402]
+from blender_mcp_camera_smoke.handlers.camera._shared import _tag  # ruff: ignore[E402]
 
 
 def _new_object(name, data=None):
@@ -33,7 +33,7 @@ def _new_object(name, data=None):
 
 
 scene = bpy.context.scene
-handler = CameraPhaseOneHandlersMixin()
+handler = CameraHandlersMixin()
 root = _new_object("Smoke Rig Root")
 camera = _new_object("Smoke Camera", bpy.data.cameras.new("Smoke Camera Data"))
 target = _new_object("Smoke Target")
@@ -152,4 +152,4 @@ assert "visual correctness was not inferred" in validation["verification"]
 handler.create_camera_markers(scene.name, "REMOVE", [{"name": "Smoke Shot"}])
 assert scene.timeline_markers.get("Smoke Shot") is None
 
-print("CAMERA_PHASE1_SMOKE_OK")
+print("CAMERA_SMOKE_OK")

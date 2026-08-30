@@ -16,7 +16,7 @@ import bpy
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ADDON_ROOT = REPO_ROOT / "src" / "blender_mcp" / "bundled" / "addon"
-PACKAGE_NAME = "blender_mcp_liquid_phase1_smoke"
+PACKAGE_NAME = "blender_mcp_liquid_workflows_smoke"
 spec = importlib.util.spec_from_file_location(
     PACKAGE_NAME,
     ADDON_ROOT / "__init__.py",
@@ -27,11 +27,10 @@ addon = importlib.util.module_from_spec(spec)
 sys.modules[PACKAGE_NAME] = addon
 spec.loader.exec_module(addon)
 LiquidHandlersMixin = sys.modules[f"{PACKAGE_NAME}.handlers.liquid"].LiquidHandlersMixin
-LiquidPhaseOneHandlersMixin = sys.modules[f"{PACKAGE_NAME}.handlers.liquid_phase1"].LiquidPhaseOneHandlersMixin
 
 
-class Harness(LiquidPhaseOneHandlersMixin, LiquidHandlersMixin):
-    """Expose both liquid phases without starting a socket server."""
+class Harness(LiquidHandlersMixin):
+    """Expose every liquid workflow handler without starting a socket server."""
 
 
 def cube(name: str, size: float, location: tuple[float, float, float]):
@@ -56,15 +55,18 @@ def cube(name: str, size: float, location: tuple[float, float, float]):
 
 
 handler = Harness()
-cache_path = tempfile.mkdtemp(prefix="blendermcp-liquid-phase1-")
+
+# --- mesh/animation/guides/force-fields/materials/simulation/lifecycle workflow ---
+
+cache_path = tempfile.mkdtemp(prefix="blendermcp-liquid-workflows-")
 domain = handler.create_liquid_domain(
     scene_name="Scene",
     cache_directory=cache_path,
-    new_object_name="Phase 1 Domain",
+    new_object_name="Workflow Domain",
     dimensions=(3.0, 3.0, 3.0),
     resolution_max=24,
 )
-source = cube("Phase 1 Flow", 0.5, (0.0, 0.0, 0.5))
+source = cube("Workflow Flow", 0.5, (0.0, 0.0, 0.5))
 flow = handler.add_liquid_flow(
     object_name=source.name,
     domain_object_name=domain["object"],
@@ -92,7 +94,7 @@ animation = handler.animate_liquid_flow(
     ],
     subframes=2,
 )
-guide_object = cube("Phase 1 Guide", 0.75, (0.0, 0.0, 0.0))
+guide_object = cube("Workflow Guide", 0.75, (0.0, 0.0, 0.0))
 guide = handler.create_liquid_guide(
     domain["object"],
     domain["modifier"],
@@ -105,7 +107,7 @@ forces = handler.configure_liquid_force_fields(
     domain["modifier"],
     [
         {
-            "object_name": "Phase 1 Wind",
+            "object_name": "Workflow Wind",
             "field_type": "WIND",
             "create_if_missing": True,
             "location": (0.0, 0.0, 1.0),
@@ -121,19 +123,19 @@ forces = handler.configure_liquid_force_fields(
             "distance_max": 0.0,
         }
     ],
-    "Phase 1 Forces",
+    "Workflow Forces",
     create_collection=True,
     weights={"wind": 1.0},
 )
 material = handler.create_liquid_material(
     domain["object"],
     domain["modifier"],
-    "Phase 1 Water",
+    "Workflow Water",
     {"preset": "WATER"},
 )
 cache = handler.manage_liquid_cache(domain["object"], domain["modifier"], action="STATUS")
 sample = handler.sample_liquid_simulation(domain["object"], domain["modifier"], [1], timeout_seconds=15.0)
-throwaway = cube("Phase 1 Throwaway", 0.25, (0.0, 0.0, 0.0))
+throwaway = cube("Workflow Throwaway", 0.25, (0.0, 0.0, 0.0))
 throwaway_effector = handler.add_liquid_effector(
     throwaway.name,
     domain["object"],
@@ -153,4 +155,86 @@ assert material["created"] is True
 assert cache["cache"]["configuration"]["cache_type"] == "REPLAY"
 assert sample["timeline_restored"]["frame"] == 1
 assert removed["removed"][0]["fluid_type"] == "EFFECTOR"
-print("BLENDER_LIQUID_PHASE1_SMOKE_OK")
+
+# --- proxy/variant/delivery workflow ---
+
+delivery_domain_cache = tempfile.mkdtemp(prefix="blendermcp-liquid-workflows-delivery-source-")
+variant_cache = tempfile.mkdtemp(prefix="blendermcp-liquid-workflows-delivery-variant-")
+delivery_domain = handler.create_liquid_domain(
+    scene_name="Scene",
+    cache_directory=delivery_domain_cache,
+    new_object_name="Delivery Domain",
+    dimensions=(4.0, 4.0, 4.0),
+    resolution_max=24,
+)
+delivery_source = cube("Delivery Source", 1.0, (0.5, -0.5, 0.25))
+proxy = handler.create_liquid_proxy_rig(
+    "Scene",
+    delivery_source.name,
+    "Delivery Proxy",
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "EFFECTOR",
+    geometry="BOX",
+    validation_frames=[1, 2],
+)
+capsule = handler.create_liquid_proxy_rig(
+    "Scene",
+    delivery_source.name,
+    "Delivery Capsule Proxy",
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "EFFECTOR",
+    geometry="CAPSULE",
+    driver="PARENT",
+)
+convex = handler.create_liquid_proxy_rig(
+    "Scene",
+    delivery_source.name,
+    "Delivery Hull Proxy",
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "EFFECTOR",
+    geometry="CONVEX_HULL",
+)
+decimated = handler.create_liquid_proxy_rig(
+    "Scene",
+    delivery_source.name,
+    "Delivery Decimated Proxy",
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "FLOW",
+    geometry="DECIMATED",
+)
+supplied_object = cube("Delivery Supplied Proxy", 0.75, (0.0, 0.0, 0.0))
+supplied = handler.create_liquid_proxy_rig(
+    "Scene",
+    delivery_source.name,
+    supplied_object.name,
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "EFFECTOR",
+    geometry="SUPPLIED",
+)
+variant = handler.duplicate_liquid_setup_variant(
+    delivery_domain["object"],
+    delivery_domain["modifier"],
+    "Delivery Domain Preview",
+    "Delivery Variant",
+    "Preview",
+    variant_cache,
+)
+performance = handler.analyze_liquid_performance(delivery_domain["object"], delivery_domain["modifier"])
+
+assert proxy["proxy"] == "Delivery Proxy"
+assert max(record["maximum_matrix_error"] for record in proxy["transform_validation"]) < 1e-5
+assert capsule["driver"] == "PARENT"
+assert convex["geometry"] == "CONVEX_HULL"
+assert decimated["role"] == "FLOW"
+assert supplied["created_proxy"] is False
+assert variant["cache_directory_resolved"] != delivery_domain["cache_directory_resolved"]
+assert variant["disabled_domain"] == "Delivery Domain Preview"
+assert performance["claims"]["exact_peak_memory"] is None
+assert performance["measured_evaluation"]["performed"] is False
+
+print("BLENDER_LIQUID_WORKFLOWS_SMOKE_OK")

@@ -54,6 +54,19 @@ def _insert_transform_keys(obj, frame):
             raise RuntimeError(f"Failed to key {obj.name}.{path} at frame {frame}")
 
 
+def _ragdoll_pose_drivers(obj):
+    driver_name = obj.get("blendermcp_rigid_body_pose_driver")
+    driver = obj.constraints.get(driver_name) if driver_name else None
+    return [driver] if driver is not None else []
+
+
+def _key_driver_influence(drivers, frame, influence):
+    for driver in drivers:
+        driver.influence = influence
+        if not driver.keyframe_insert(data_path="influence", frame=frame, group="Rigid Body Handoff"):
+            raise RuntimeError(f"Failed to key ragdoll pose driver '{driver.name}' at frame {frame}")
+
+
 class RigidBodyAnimationHandlers:
     """Create explicit, reversible animation-to-simulation transitions."""
 
@@ -91,6 +104,8 @@ class RigidBodyAnimationHandlers:
         original_matrix = obj.matrix_world.copy()
         original_mode = obj.rotation_mode
         original_kinematic = obj.rigid_body.kinematic
+        pose_drivers = _ragdoll_pose_drivers(obj)
+        original_driver_influences = {driver.name: driver.influence for driver in pose_drivers}
         original_action = obj.animation_data.action if obj.animation_data else None
         action = None
         preserved_track = None
@@ -114,11 +129,14 @@ class RigidBodyAnimationHandlers:
                 prior_matrix = mathutils.Matrix.LocRotScale(location, rotation, scale)
                 obj.matrix_world = prior_matrix
                 obj.rigid_body.kinematic = True
+                _key_driver_influence(pose_drivers, prior_frame, 1.0)
                 _insert_transform_keys(obj, prior_frame)
                 if not obj.keyframe_insert(
                     data_path="rigid_body.kinematic", frame=prior_frame, group="Rigid Body Handoff"
                 ):
                     raise RuntimeError("Failed to key rigid_body.kinematic before release")
+                _key_driver_influence(pose_drivers, frame, 0.0)
+                bpy.context.view_layer.update()
                 obj.matrix_world = transition_matrix
                 _insert_transform_keys(obj, frame)
                 obj.rigid_body.kinematic = False
@@ -128,11 +146,13 @@ class RigidBodyAnimationHandlers:
             else:
                 before = frame - 1
                 obj.rigid_body.kinematic = False
+                _key_driver_influence(pose_drivers, before, 0.0)
                 if not obj.keyframe_insert(data_path="rigid_body.kinematic", frame=before, group="Rigid Body Handoff"):
                     raise RuntimeError("Failed to key rigid_body.kinematic before capture")
                 obj.matrix_world = transition_matrix
                 _insert_transform_keys(obj, frame)
                 obj.rigid_body.kinematic = True
+                _key_driver_influence(pose_drivers, frame, 1.0)
                 if not obj.keyframe_insert(data_path="rigid_body.kinematic", frame=frame, group="Rigid Body Handoff"):
                     raise RuntimeError("Failed to key rigid_body.kinematic at capture")
                 keyed_frames = [before, frame]
@@ -149,6 +169,8 @@ class RigidBodyAnimationHandlers:
             obj.matrix_world = original_matrix
             obj.rotation_mode = original_mode
             obj.rigid_body.kinematic = original_kinematic
+            for driver in pose_drivers:
+                driver.influence = original_driver_influences[driver.name]
             scene.frame_set(original_frame, subframe=original_subframe)
             bpy.context.view_layer.update()
         return {

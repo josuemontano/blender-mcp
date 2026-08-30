@@ -1,4 +1,4 @@
-"""Server-boundary and dispatch coverage for phase-zero camera tools."""
+"""Server-boundary and dispatch coverage for camera tools."""
 
 import asyncio
 import math
@@ -10,7 +10,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from test_mutation_transaction import _load_addon
 
-from blender_mcp.server.tools import camera, camera_phase1
+from blender_mcp.server.tools import camera
+from blender_mcp.server.tools.camera import _shared
 
 CAMERA_COMMANDS = {
     "get_camera_rig_info",
@@ -27,7 +28,7 @@ CAMERA_COMMANDS = {
     "configure_camera_dof",
 }
 
-CAMERA_PHASE_ONE_COMMANDS = {
+CAMERA_EXTENDED_COMMANDS = {
     "keyframe_camera_rig",
     "set_camera_interpolation",
     "create_focus_pull",
@@ -56,12 +57,12 @@ def _run(function, **kwargs):
     return asyncio.run(function(ctx=None, **kwargs))
 
 
-def test_all_phase_zero_camera_tools_are_public() -> None:
+def test_all_camera_commands_are_public() -> None:
     assert all(callable(getattr(camera, name)) for name in CAMERA_COMMANDS)
 
 
-def test_all_phase_one_camera_tools_are_public() -> None:
-    assert all(callable(getattr(camera_phase1, name)) for name in CAMERA_PHASE_ONE_COMMANDS)
+def test_all_extended_camera_commands_are_public() -> None:
+    assert all(callable(getattr(camera, name)) for name in CAMERA_EXTENDED_COMMANDS)
 
 
 def test_camera_patch_forbids_unknown_rna_and_invalid_optics() -> None:
@@ -75,7 +76,7 @@ def test_camera_patch_forbids_unknown_rna_and_invalid_optics() -> None:
 
 def test_create_camera_rejects_ambiguous_orientation_before_dispatch(monkeypatch) -> None:
     connection = _StubConnection()
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     with pytest.raises(ToolError, match="only one orientation source"):
         _run(
@@ -92,7 +93,7 @@ def test_create_camera_rejects_ambiguous_orientation_before_dispatch(monkeypatch
 
 def test_configure_camera_serializes_only_explicit_patch_fields(monkeypatch) -> None:
     connection = _StubConnection({"camera": "Hero", "changed_resources": ["Hero Data"]})
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     result = _run(
         camera.configure_camera,
@@ -117,7 +118,7 @@ def test_configure_camera_serializes_only_explicit_patch_fields(monkeypatch) -> 
 
 def test_rig_builder_defaults_are_plain_values_and_context_is_not_forwarded(monkeypatch) -> None:
     connection = _StubConnection({"changed_objects": ["Orbit Root", "Orbit Camera"]})
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     _run(
         camera.create_orbit_camera_rig,
@@ -137,7 +138,7 @@ def test_rig_builder_defaults_are_plain_values_and_context_is_not_forwarded(monk
 
 def test_path_tool_preflights_path_and_frame_intent(monkeypatch) -> None:
     connection = _StubConnection()
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     with pytest.raises(ToolError, match="exactly one"):
         _run(
@@ -172,26 +173,26 @@ def test_dispatch_advertises_all_camera_commands_and_only_inspection_is_read_onl
     assert not (CAMERA_COMMANDS - {"get_camera_rig_info"}) & server._READ_ONLY_COMMANDS
 
 
-def test_dispatch_advertises_phase_one_and_validation_is_read_only(monkeypatch) -> None:
+def test_dispatch_advertises_extended_commands_and_validation_is_read_only(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch, data={})
     server = addon.BlenderMCPServer()
 
     commands = server._build_command_handlers()
 
-    assert CAMERA_PHASE_ONE_COMMANDS.issubset(commands)
+    assert CAMERA_EXTENDED_COMMANDS.issubset(commands)
     assert "validate_camera_rig" in server._READ_ONLY_COMMANDS
-    assert not (CAMERA_PHASE_ONE_COMMANDS - {"validate_camera_rig"}) & server._READ_ONLY_COMMANDS
+    assert not (CAMERA_EXTENDED_COMMANDS - {"validate_camera_rig"}) & server._READ_ONLY_COMMANDS
 
 
-def test_phase_one_keyframes_serialize_strict_records(monkeypatch) -> None:
+def test_extended_keyframes_serialize_strict_records(monkeypatch) -> None:
     connection = _StubConnection({"changed_objects": ["Hero"]})
-    # _call closes over camera.get_blender_connection because it is shared with the Phase 0 module.
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    # _call closes over _shared.get_blender_connection because every camera submodule shares it.
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     result = _run(
-        camera_phase1.keyframe_camera_rig,
+        camera.keyframe_camera_rig,
         keyframes=[
-            camera_phase1.CameraKeyframe(
+            camera.CameraKeyframe(
                 object_name="Hero",
                 owner="CAMERA_DATA",
                 data_path="lens",
@@ -225,13 +226,13 @@ def test_phase_one_keyframes_serialize_strict_records(monkeypatch) -> None:
     assert result["changed_objects"] == ["Hero"]
 
 
-def test_phase_one_preflights_ambiguous_subjects_and_marker_actions(monkeypatch) -> None:
+def test_extended_preflights_ambiguous_subjects_and_marker_actions(monkeypatch) -> None:
     connection = _StubConnection()
-    monkeypatch.setattr(camera, "get_blender_connection", lambda: connection)
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
 
     with pytest.raises(ToolError, match="exactly one subject"):
         _run(
-            camera_phase1.create_dolly_zoom,
+            camera.create_dolly_zoom,
             scene_name="Scene",
             camera_name="Hero",
             movement_object_name="Dolly",
@@ -241,25 +242,25 @@ def test_phase_one_preflights_ambiguous_subjects_and_marker_actions(monkeypatch)
             end_distance=10,
         )
     with pytest.raises(ToolError, match="markers must not be empty"):
-        _run(camera_phase1.create_camera_markers, scene_name="Scene", action="CREATE")
+        _run(camera.create_camera_markers, scene_name="Scene", action="CREATE")
     with pytest.raises(ToolError, match="LIST does not accept"):
         _run(
-            camera_phase1.create_camera_markers,
+            camera.create_camera_markers,
             scene_name="Scene",
             action="LIST",
-            markers=[camera_phase1.MarkerEdit(name="Shot", frame=1, camera_name="Hero")],
+            markers=[camera.MarkerEdit(name="Shot", frame=1, camera_name="Hero")],
         )
 
     assert connection.calls == []
 
 
-def test_phase_one_strict_models_validate_ranges_and_constraint_intent() -> None:
+def test_extended_strict_models_validate_ranges_and_constraint_intent() -> None:
     with pytest.raises(ValidationError):
-        camera_phase1.RenderBorderPatch(min_x=0.8, max_x=0.2)
+        camera.RenderBorderPatch(min_x=0.8, max_x=0.2)
     with pytest.raises(ValidationError):
-        camera_phase1.SafeAreasPatch(title=(0.9, 1.1))
+        camera.SafeAreasPatch(title=(0.9, 1.1))
     with pytest.raises(ValidationError, match="constraint_name"):
-        camera_phase1.CameraKeyframe(
+        camera.CameraKeyframe(
             object_name="Hero",
             owner="CONSTRAINT",
             data_path="influence",
@@ -286,7 +287,7 @@ def test_marker_list_dispatch_is_read_only(monkeypatch) -> None:
 
 def test_handler_camera_patch_rolls_back_assignments(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch, data={})
-    handler = sys.modules[f"{addon.__name__}.handlers.camera"]
+    handler = sys.modules[f"{addon.__name__}.handlers.camera._shared"]
 
     class Owner:
         lens = 50.0
@@ -307,7 +308,7 @@ def test_handler_camera_patch_rolls_back_assignments(monkeypatch) -> None:
 
 def test_handler_binary_solver_finds_smallest_fitting_value(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch, data={})
-    handler = sys.modules[f"{addon.__name__}.handlers.camera"]
+    handler = sys.modules[f"{addon.__name__}.handlers.camera.targeting"]
 
     solved = handler._binary_smallest_fit(lambda value: value >= 7.5, 0.0, 1.0)
 
