@@ -14,12 +14,9 @@ import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
 from .handlers.camera import CameraHandlersMixin
-from .handlers.camera_phase1 import CameraPhaseOneHandlersMixin
 from .handlers.character_rigging import CharacterRiggingHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
 from .handlers.liquid import LiquidHandlersMixin
-from .handlers.liquid_phase1 import LiquidPhaseOneHandlersMixin
-from .handlers.liquid_phase2 import LiquidPhaseTwoHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
@@ -72,7 +69,6 @@ def _handler_failure_message(result):
 
 class BlenderMCPServer(
     ViewportHandlersMixin,
-    CameraPhaseOneHandlersMixin,
     CameraHandlersMixin,
     CharacterRiggingHandlersMixin,
     RigidBodyHandlersMixin,
@@ -80,8 +76,6 @@ class BlenderMCPServer(
     MeshHandlersMixin,
     ModelHandlersMixin,
     ClothHandlersMixin,
-    LiquidPhaseTwoHandlersMixin,
-    LiquidPhaseOneHandlersMixin,
     LiquidHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
@@ -506,6 +500,16 @@ class BlenderMCPServer(
             "clean_skin_weights": self.clean_skin_weights,
             "add_pose_bone_constraint": self.add_pose_bone_constraint,
             "validate_character_rig": self.validate_character_rig,
+            "transfer_skin_weights": self.transfer_skin_weights,
+            "create_ik_chain": self.create_ik_chain,
+            "create_ik_fk_limb": self.create_ik_fk_limb,
+            "create_spline_ik_rig": self.create_spline_ik_rig,
+            "configure_bendy_bones": self.configure_bendy_bones,
+            "create_rig_property_driver": self.create_rig_property_driver,
+            "assign_bone_custom_shapes": self.assign_bone_custom_shapes,
+            "set_character_pose": self.set_character_pose,
+            "keyframe_character_pose": self.keyframe_character_pose,
+            "create_shape_key_controls": self.create_shape_key_controls,
             "get_rigid_body_scene_info": self.get_rigid_body_scene_info,
             "get_rigid_body_object_info": self.get_rigid_body_object_info,
             "get_rigid_body_constraint_info": self.get_rigid_body_constraint_info,
@@ -518,6 +522,23 @@ class BlenderMCPServer(
             "create_rigid_body_constraint": self.create_rigid_body_constraint,
             "configure_rigid_body_constraint": self.configure_rigid_body_constraint,
             "validate_rigid_body_setup": self.validate_rigid_body_setup,
+            "remove_rigid_body_components": self.remove_rigid_body_components,
+            "animate_rigid_body_release": self.animate_rigid_body_release,
+            "create_compound_rigid_body": self.create_compound_rigid_body,
+            "create_rigid_body_constraint_network": self.create_rigid_body_constraint_network,
+            "prepare_fracture_rigid_bodies": self.prepare_fracture_rigid_bodies,
+            "create_rigid_body_chain": self.create_rigid_body_chain,
+            "setup_animated_passive_collider": self.setup_animated_passive_collider,
+            "configure_rigid_body_force_fields": self.configure_rigid_body_force_fields,
+            "sample_rigid_body_simulation": self.sample_rigid_body_simulation,
+            "manage_rigid_body_cache": self.manage_rigid_body_cache,
+            "bake_rigid_bodies_to_keyframes": self.bake_rigid_bodies_to_keyframes,
+            "create_rigid_body_debris_field": self.create_rigid_body_debris_field,
+            "create_rigid_body_proxy_rig": self.create_rigid_body_proxy_rig,
+            "create_ragdoll_rig": self.create_ragdoll_rig,
+            "bake_ragdoll_to_armature": self.bake_ragdoll_to_armature,
+            "export_rigid_body_animation": self.export_rigid_body_animation,
+            "analyze_rigid_body_performance": self.analyze_rigid_body_performance,
             "get_cloth_simulation_info": self.get_cloth_simulation_info,
             "get_cloth_object_info": self.get_cloth_object_info,
             "get_liquid_simulation_info": self.get_liquid_simulation_info,
@@ -732,6 +753,9 @@ class BlenderMCPServer(
         "cloth_object_name",
         "garment_object_name",
         "armature_object_name",
+        "mesh_object_name",
+        "source_mesh_name",
+        "target_mesh_name",
         "constraint_object_name",
         "object1_name",
         "object2_name",
@@ -743,6 +767,7 @@ class BlenderMCPServer(
         "movement_object_name",
         "owner_name",
         "source_root_name",
+        "root_object_name",
         "domain_object_name",
         "guide_object_name",
         "guide_parent_domain_object_name",
@@ -756,6 +781,9 @@ class BlenderMCPServer(
         "collider_object_names",
         "mesh_object_names",
         "armature_object_names",
+        "body_names",
+        "child_object_names",
+        "piece_object_names",
     )
 
     # Commands that edit an existing object's mesh geometry. Only these back up
@@ -820,6 +848,19 @@ class BlenderMCPServer(
         for record in params.get("fields", ()):
             if isinstance(record, dict) and isinstance(record.get("object_name"), str):
                 names.append(record["object_name"])
+        for record_key in ("sources", "mappings", "bodies"):
+            for record in params.get(record_key, ()):
+                if not isinstance(record, dict):
+                    continue
+                for name_key in (
+                    "object_name",
+                    "render_object_name",
+                    "proxy_object_name",
+                    "low_resolution_source_name",
+                    "convex_source_object_name",
+                ):
+                    if isinstance(record.get(name_key), str):
+                        names.append(record[name_key])
 
         objects = []
         seen = set()
@@ -865,6 +906,12 @@ class BlenderMCPServer(
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "create_camera_markers" and str(params.get("action", "")).upper() == "LIST"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_rigid_body_cache" and str(params.get("action", "INSPECT")).upper() == "INSPECT"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "analyze_rigid_body_performance" and not params.get("sample_frames")
         )
         if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
             return handler(**params)

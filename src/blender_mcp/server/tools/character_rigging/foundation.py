@@ -1,7 +1,8 @@
-"""Typed Phase 0 tools for armatures, skinning, constraints, and rig validation."""
+"""Typed tools for armature foundations, skinning, constraints, and rig validation."""
 
 import asyncio
 import logging
+import sys
 
 from collections.abc import Sequence
 from typing import Annotated, Literal
@@ -10,9 +11,9 @@ from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..app import mcp
-from ..connection import get_blender_connection
-from ._envelope import ok
+from ...app import mcp
+from ...connection import get_blender_connection
+from .._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -500,6 +501,10 @@ def _models(items: Sequence[BaseModel]) -> list[dict]:
 
 
 def _call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
+    package = sys.modules.get(__package__) if __package__ is not None else None
+    package_call = getattr(package, "_call", None) if package is not None else None
+    if package_call is not None and package_call is not _call:
+        return package_call(command, params, changed_objects)
     try:
         result = get_blender_connection().send_command(command, params)
         changed = result.get("changed_objects", changed_objects or []) if isinstance(result, dict) else changed_objects

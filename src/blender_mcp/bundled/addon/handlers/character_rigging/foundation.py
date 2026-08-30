@@ -1,4 +1,4 @@
-"""Blender-main-thread handlers for the Phase 0 character-rigging surface."""
+"""Blender-main-thread handlers for armature foundations and skinning."""
 
 # Blender's generated Python stubs widen many bpy collections to bpy_struct.
 # pyright: reportArgumentType=false, reportGeneralTypeIssues=false
@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 import bpy
 import mathutils
 
-from ..helpers import paginate, preserve_mode_and_selection, set_active, sync_from_editmode
+from ...helpers import paginate, preserve_mode_and_selection, set_active, sync_from_editmode
 
 _MAX_BONES = 100_000
 _MAX_MEMBERSHIPS = 10_000_000
@@ -1399,8 +1399,8 @@ def _constraint_payload_fields(spec, target, pole_target, action, action_slot=No
     return fields
 
 
-class CharacterRiggingHandlersMixin:
-    """Handlers for inspectable, rollback-aware character-rigging operations."""
+class FoundationHandlersMixin:
+    """Inspect and edit armature foundations, bindings, weights, and constraints."""
 
     def get_character_rig_info(
         self,
