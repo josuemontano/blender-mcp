@@ -1,6 +1,7 @@
-"""Typed Phase 0 tools for production rigid-body simulation workflows."""
+"""Typed tools for rigid-body inspection, setup, constraints, and validation."""
 
 import asyncio
+import sys
 
 from collections.abc import Sequence
 from typing import Annotated, Literal
@@ -9,8 +10,8 @@ from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..app import mcp
-from .camera import _call
+from ...app import mcp
+from ..camera import _call as _connection_call
 
 Vector3 = tuple[float, float, float]
 Quaternion = tuple[float, float, float, float]
@@ -18,6 +19,15 @@ BodyType = Literal["ACTIVE", "PASSIVE"]
 CollisionShape = Literal["BOX", "SPHERE", "CAPSULE", "CYLINDER", "CONE", "CONVEX_HULL", "MESH", "COMPOUND"]
 MeshSource = Literal["BASE", "DEFORM", "FINAL"]
 ConstraintType = Literal["FIXED", "POINT", "HINGE", "SLIDER", "PISTON", "GENERIC", "GENERIC_SPRING", "MOTOR"]
+
+
+def _call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
+    """Dispatch through the package hook so tests and embedders can replace the transport."""
+    package = sys.modules.get(__package__) if __package__ is not None else None
+    override = getattr(package, "_call", None) if package is not None else None
+    if override is not None and override is not _call:
+        return override(command, params, changed_objects)
+    return _connection_call(command, params, changed_objects)
 
 
 class _StrictModel(BaseModel):

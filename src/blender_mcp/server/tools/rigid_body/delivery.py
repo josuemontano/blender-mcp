@@ -1,0 +1,46 @@
+"""Non-destructive rigid-body transform animation delivery tools."""
+
+import asyncio
+
+from typing import Annotated, Literal
+
+from mcp.server.fastmcp import Context
+from pydantic import Field
+
+from .inspection_and_setup import _call, mcp
+
+
+@mcp.tool()
+async def bake_rigid_bodies_to_keyframes(
+    ctx: Context,
+    scene_name: str,
+    object_names: Annotated[list[str], Field(min_length=1, max_length=100)],
+    frame_start: Annotated[int, Field(ge=0, le=300_000)],
+    frame_end: Annotated[int, Field(ge=1, le=300_000)],
+    frame_step: Annotated[int, Field(ge=1, le=120)] = 1,
+    output_mode: Literal["DUPLICATES", "SOURCE"] = "DUPLICATES",
+    output_collection_name: str = "Rigid Body Bakes",
+    action_name_prefix: str = "Rigid Body Bake",
+    key_scale: bool = False,
+    confirm_overwrite_animation: bool = False,
+) -> dict:
+    """Record evaluated rigid-body world transforms into new actions, preserving simulation sources by default."""
+    if frame_start > frame_end:
+        raise ValueError("frame_start must not exceed frame_end")
+    return await asyncio.to_thread(
+        _call,
+        "bake_rigid_bodies_to_keyframes",
+        {
+            "scene_name": scene_name,
+            "object_names": object_names,
+            "frame_start": frame_start,
+            "frame_end": frame_end,
+            "frame_step": frame_step,
+            "output_mode": output_mode,
+            "output_collection_name": output_collection_name,
+            "action_name_prefix": action_name_prefix,
+            "key_scale": key_scale,
+            "confirm_overwrite_animation": confirm_overwrite_animation,
+        },
+        object_names,
+    )
