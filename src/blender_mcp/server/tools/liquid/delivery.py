@@ -1,6 +1,6 @@
 # MCP tool signatures intentionally expose explicit delivery and proxy policies.
 # ruff: file-ignore[docstring-missing-exception, docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, unused-function-argument]
-"""Typed phase-two tools for production Mantaflow liquid delivery workflows."""
+"""Typed tools for production Mantaflow liquid delivery workflows."""
 
 import asyncio
 
@@ -9,8 +9,8 @@ from typing import Annotated, Literal
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..app import mcp
-from .liquid import ExistingPolicy, FlowBehavior, _call, _dump
+from ...app import mcp
+from .inspection_and_setup import ExistingPolicy, FlowBehavior, _call, _dump
 
 ProxyGeometry = Literal["BOX", "CAPSULE", "CONVEX_HULL", "DECIMATED", "SUPPLIED"]
 ProxyRole = Literal["FLOW", "EFFECTOR"]
@@ -19,7 +19,7 @@ VariantDataPolicy = Literal["COPY", "LINK"]
 VariantAnimationPolicy = Literal["COPY", "LINK", "NONE"]
 VariantActivationPolicy = Literal["DISABLE_SOURCE", "DISABLE_VARIANT"]
 RenderOutputPolicy = Literal["REQUIRE_BAKED", "ALLOW_REPLAY"]
-MaterialAssignment = Literal["KEEP", "APPEND", "REPLACE_SLOT"]
+RenderMaterialAssignment = Literal["KEEP", "APPEND", "REPLACE_SLOT"]
 ExportFormat = Literal["ALEMBIC", "USD"]
 ExportSpace = Literal["WORLD", "LOCAL"]
 ExportUnits = Literal["SCENE", "METERS", "CENTIMETERS", "MILLIMETERS"]
@@ -165,7 +165,7 @@ async def prepare_liquid_render_mesh(
     finish: LiquidRenderFinish | None = None,
     output_policy: RenderOutputPolicy = "REQUIRE_BAKED",
     material_name: str | None = None,
-    material_assignment: MaterialAssignment = "KEEP",
+    material_assignment: RenderMaterialAssignment = "KEEP",
     material_slot_index: Annotated[int, Field(ge=0)] | None = None,
     subdivision_modifier_name: str = "Liquid Render Subdivision",
     smooth_modifier_name: str = "Liquid Render Smooth",

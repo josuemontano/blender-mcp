@@ -1,9 +1,5 @@
 """Regression coverage for the typed phase-zero liquid MCP surface."""
 
-# Test doubles deliberately use structural/untyped APIs matching the existing
-# Blender-free test harness.
-# ruff: file-ignore[float-equality-comparison, import-private-name, magic-value-comparison, missing-return-type-private-function, missing-return-type-special-method, missing-type-function-argument, missing-type-kwargs, unnecessary-dict-kwargs, undocumented-public-function]
-
 import asyncio
 import sys
 import types
@@ -14,16 +10,6 @@ from pydantic import ValidationError
 from test_mutation_transaction import _load_addon
 
 from blender_mcp.server.tools import liquid
-
-
-class _StubConnection:
-    def __init__(self, result=None) -> None:
-        self.result = result or {"status": "ok"}
-        self.calls = []
-
-    def send_command(self, command, params):
-        self.calls.append((command, params))
-        return self.result
 
 
 def _run(function, **kwargs):
@@ -43,8 +29,12 @@ def test_solver_patch_rejects_inverted_ranges() -> None:
 
 
 def test_solver_tool_serializes_only_explicit_patch_fields(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(liquid, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        liquid,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     result = _run(
         liquid.configure_liquid_solver,
@@ -54,7 +44,7 @@ def test_solver_tool_serializes_only_explicit_patch_fields(monkeypatch) -> None:
     )
 
     assert result["ok"] is True
-    assert connection.calls == [
+    assert calls == [
         (
             "configure_liquid_solver",
             {
@@ -62,13 +52,20 @@ def test_solver_tool_serializes_only_explicit_patch_fields(monkeypatch) -> None:
                 "modifier_name": "Liquid Domain",
                 "patch": {"resolution_max": 96, "flip_ratio": 0.9},
             },
+            ["Domain"],
         )
     ]
 
 
 def test_flow_tool_forwards_typed_liquid_only_settings(monkeypatch) -> None:
-    connection = _StubConnection({"changed_objects": ["Pour", "Domain"]})
-    monkeypatch.setattr(liquid, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        liquid,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects)) or {"changed_objects": ["Pour", "Domain"]}
+        ),
+    )
 
     result = _run(
         liquid.add_liquid_flow,
@@ -79,7 +76,7 @@ def test_flow_tool_forwards_typed_liquid_only_settings(monkeypatch) -> None:
     )
 
     assert result["changed_objects"] == ["Pour", "Domain"]
-    assert connection.calls[0][1]["settings"] == {
+    assert calls[0][1]["settings"] == {
         "use_inflow": True,
         "subframes": 2,
         "velocity_coord": (0.0, 0.0, -1.0),
@@ -87,13 +84,20 @@ def test_flow_tool_forwards_typed_liquid_only_settings(monkeypatch) -> None:
 
 
 def test_read_only_liquid_tool_reports_no_changes(monkeypatch) -> None:
-    connection = _StubConnection({"domains": [], "dependencies": []})
-    monkeypatch.setattr(liquid, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        liquid,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects))
+            or {"domains": [], "dependencies": [], "changed_objects": []}
+        ),
+    )
 
     result = _run(liquid.get_liquid_simulation_info, scene_name="Scene")
 
     assert result["changed_objects"] == []
-    assert connection.calls[0][0] == "get_liquid_simulation_info"
+    assert calls[0][0] == "get_liquid_simulation_info"
 
 
 def test_all_twelve_phase_zero_commands_are_registered() -> None:
@@ -190,9 +194,9 @@ def test_resource_estimate_formula_is_explicit_and_conservative(monkeypatch) -> 
     )
     obj = types.SimpleNamespace(name="Domain")
     modifier = types.SimpleNamespace(name="Liquid Domain")
-    monkeypatch.setattr(handler, "_get_domain", lambda *_args: (obj, modifier, settings))
+    monkeypatch.setattr(handler.inspection_and_setup, "_get_domain", lambda *_args: (obj, modifier, settings))
     monkeypatch.setattr(
-        handler,
+        handler.inspection_and_setup,
         "_world_bounds",
         lambda *_args: {"dimensions": [4.0, 2.0, 1.0]},
     )

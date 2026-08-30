@@ -3,10 +3,11 @@
 # Ruff's argument-count and unused-context rules conflict with FastMCP's typed
 # public signatures; return sections are carried by the generated tool schema.
 # ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, too-many-statements-in-try-clause, undocumented-public-method, unused-function-argument]
-"""Typed phase-zero tools for Blender Mantaflow liquid setup."""
+"""Typed tools for liquid domain inspection, setup, flows, effectors, and validation."""
 
 import asyncio
 import logging
+import sys
 
 from typing import Literal
 
@@ -14,9 +15,9 @@ from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..app import mcp
-from ..connection import get_blender_connection
-from ._envelope import ok
+from ...app import mcp
+from ...connection import get_blender_connection
+from .._envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -112,7 +113,7 @@ def _dump(model: BaseModel | None) -> dict | None:
     return model.model_dump(exclude_none=True, exclude_unset=True) if model is not None else None
 
 
-def _call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
+def _connection_call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
     try:
         result = get_blender_connection().send_command(command, params)
         changed = result.get("changed_objects", changed_objects or []) if isinstance(result, dict) else changed_objects
@@ -130,6 +131,15 @@ def _call(command: str, params: dict, changed_objects: list[str] | None = None) 
     except Exception as exc:
         logger.error("Error running %s: %s", command, exc)
         raise ToolError(f"Error running {command}: {exc}") from exc
+
+
+def _call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
+    """Dispatch through the package hook so tests and embedders can replace the transport."""
+    package = sys.modules.get(__package__) if __package__ is not None else None
+    override = getattr(package, "_call", None) if package is not None else None
+    if override is not None and override is not _call:
+        return override(command, params, changed_objects)
+    return _connection_call(command, params, changed_objects)
 
 
 @mcp.tool()
