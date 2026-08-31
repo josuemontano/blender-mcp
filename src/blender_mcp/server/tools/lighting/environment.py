@@ -19,12 +19,12 @@ class ProceduralSkySettings(StrictLightingInput):
     sky_type: Literal["MULTIPLE_SCATTERING", "SINGLE_SCATTERING", "PREETHAM", "HOSEK_WILKIE"] = "MULTIPLE_SCATTERING"
     sun_elevation: float = Field(default=0.7853981633974483, ge=-1.5707963267948966, le=1.5707963267948966)
     sun_rotation: float = Field(default=0.0, ge=-6.283185307179586, le=6.283185307179586)
-    altitude: float = Field(default=0.0, ge=0)
+    altitude: float = Field(default=0.0, ge=0, le=100000)
     air_density: float = Field(default=1.0, ge=0, le=10)
     dust_density: float = Field(default=1.0, ge=0, le=10)
     ozone_density: float = Field(default=1.0, ge=0, le=10)
-    sun_size: float = Field(default=0.00918043, gt=0, le=3.141592653589793)
-    sun_intensity: float = Field(default=1.0, ge=0)
+    sun_size: float = Field(default=0.00918043, gt=0, le=1.5707963267948966)
+    sun_intensity: float = Field(default=1.0, ge=0, le=1000)
     sun_disc: bool = True
     background_strength: float = Field(default=1.0, ge=0)
 

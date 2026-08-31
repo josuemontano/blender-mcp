@@ -371,6 +371,19 @@ def validate_light_patch(light_type, patch):
     unknown = set(patch) - allowed
     if unknown:
         raise ValueError(f"Fields do not apply to {light_type}: {sorted(unknown)}")
+    boolean_fields = {
+        "normalize",
+        "use_temperature",
+        "use_shadow",
+        "use_custom_distance",
+        "use_soft_falloff",
+        "show_cone",
+    }
+    invalid_booleans = [field for field in patch.keys() & boolean_fields if not isinstance(patch[field], bool)]
+    if invalid_booleans:
+        raise ValueError(f"Boolean light fields require true or false: {sorted(invalid_booleans)}")
+    if "shape" in patch and patch["shape"] not in {"SQUARE", "RECTANGLE", "DISK", "ELLIPSE"}:
+        raise ValueError("shape must be SQUARE, RECTANGLE, DISK, or ELLIPSE")
     if "energy" in patch and finite_number(patch["energy"], "energy") <= 0:
         raise ValueError("energy must be positive")
     for field in ("diffuse_factor", "specular_factor", "transmission_factor", "volume_factor"):

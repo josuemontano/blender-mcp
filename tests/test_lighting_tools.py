@@ -1,6 +1,7 @@
 """Server-boundary, packaging, and dispatch coverage for production lighting tools."""
 
 import asyncio
+import inspect
 
 from pathlib import Path
 
@@ -92,6 +93,26 @@ def test_light_models_reject_unknown_fields_and_invalid_ranges() -> None:
         lighting.LightSettings(color=(1.2, 0.5, 0.5))
     with pytest.raises(ValidationError):
         lighting.ProceduralSkySettings(sun_size=0)
+    with pytest.raises(ValidationError):
+        lighting.ProceduralSkySettings(sun_size=2)
+    with pytest.raises(ValidationError):
+        lighting.ProceduralSkySettings(sun_intensity=1001)
+    with pytest.raises(ValidationError):
+        lighting.ProceduralSkySettings(altitude=100001)
+
+
+def test_preview_dispatch_is_async_and_paths_are_distinct() -> None:
+    assert inspect.iscoroutinefunction(lighting.render_lighting_preview)
+    with pytest.raises(ToolError, match="distinct output path"):
+        run_tool(
+            lighting.render_lighting_preview,
+            scene_name="Scene",
+            camera_name="Camera",
+            frame=1,
+            target_engine="BOTH",
+            cycles_output_path="/tmp/shared.png",
+            eevee_output_path="/tmp/shared.png",
+        )
 
 
 def test_configure_light_sends_only_explicit_patch_fields(monkeypatch) -> None:

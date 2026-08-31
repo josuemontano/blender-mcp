@@ -7,6 +7,7 @@ import mathutils
 from ._shared import (
     LIGHT_TYPES,
     collection_in_scene,
+    collection_is_in_tree,
     ensure_collection,
     evaluated_bounds_point,
     finite_vector,
@@ -102,14 +103,32 @@ class LightConstructionHandlers:
             **(settings or {}),
         }
         allowed = validate_light_patch(light_type, requested)
-        collection = ensure_collection(scene, collection_name)
-        data = bpy.data.lights.new(data_name, light_type)
-        obj = bpy.data.objects.new(name, data)
-        collection.objects.link(obj)
-        patch_properties(data, requested, allowed)
-        obj.rotation_mode = "XYZ"
-        obj.location = world_location
-        obj.rotation_euler = world_rotation
+        collection = bpy.data.collections.get(collection_name)
+        collection_existed = collection is not None
+        collection_was_in_scene = collection_existed and collection_is_in_tree(scene.collection, collection)
+        data = None
+        obj = None
+        try:
+            collection = ensure_collection(scene, collection_name)
+            data = bpy.data.lights.new(data_name, light_type)
+            obj = bpy.data.objects.new(name, data)
+            collection.objects.link(obj)
+            patch_properties(data, requested, allowed)
+            obj.rotation_mode = "XYZ"
+            obj.location = world_location
+            obj.rotation_euler = world_rotation
+        except Exception:
+            if obj is not None:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            if data is not None and data.users == 0:
+                bpy.data.lights.remove(data)
+            if collection is not None and not collection_was_in_scene:
+                linked = scene.collection.children.get(collection.name)
+                if linked == collection:
+                    scene.collection.children.unlink(collection)
+            if collection is not None and not collection_existed and collection.users == 0:
+                bpy.data.collections.remove(collection)
+            raise
         return {
             "scene": scene.name,
             "collection": collection.name,
@@ -174,6 +193,17 @@ class LightConstructionHandlers:
             raise ValueError("bounds_position must be CENTER, TOP, or BOTTOM")
         if method not in {"STATIC_ROTATION", "TRACK_TO", "DAMPED_TRACK"}:
             raise ValueError("method must be STATIC_ROTATION, TRACK_TO, or DAMPED_TRACK")
+        constraint = None
+        if method != "STATIC_ROTATION":
+            required_name(constraint_name, "constraint_name")
+            if target_point is not None or bounds_position != "CENTER":
+                required_name(helper_name, "helper_name")
+                required_name(helper_collection_name, "helper_collection_name")
+            constraint = light.constraints.get(constraint_name)
+            if constraint is not None and constraint.type != method:
+                raise ValueError(
+                    f"Constraint '{constraint_name}' exists with type {constraint.type}; choose another name"
+                )
         target_object = object_in_scene(scene, target_object_name) if target_object_name else None
         if target_bone_name:
             if target_object is None:
@@ -209,8 +239,6 @@ class LightConstructionHandlers:
                 scene, helper_collection_name, helper_name, world_target
             )
             live_target = helper
-        required_name(constraint_name, "constraint_name")
-        constraint = light.constraints.get(constraint_name)
         constraint_created = False
         old_constraint = None
         try:
@@ -218,10 +246,6 @@ class LightConstructionHandlers:
                 constraint = light.constraints.new(method)
                 constraint.name = constraint_name
                 constraint_created = True
-            elif constraint.type != method:
-                raise ValueError(
-                    f"Constraint '{constraint_name}' exists with type {constraint.type}; choose another name"
-                )
             else:
                 old_constraint = {
                     "target": constraint.target,

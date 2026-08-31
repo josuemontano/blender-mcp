@@ -15,7 +15,7 @@ ADDON_ID = __name__
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (2, 0),
+    "version": (2, 0, 0),
     "blender": (5, 1, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",

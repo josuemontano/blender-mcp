@@ -31,6 +31,23 @@ def main() -> None:
     handler = LightingHandlers()
     scene = bpy.context.scene
     scene.name = "Lighting Smoke"
+
+    try:
+        handler.create_light(
+            scene.name,
+            "Failed Lighting",
+            "Invalid Light",
+            "AREA",
+            (0.0, 0.0, 0.0),
+            settings={"shape": "INVALID"},
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid light shape must fail")
+    assert bpy.data.objects.get("Invalid Light") is None
+    assert bpy.data.lights.get("Invalid Light Light") is None
+    assert bpy.data.collections.get("Failed Lighting") is None
     receivers = bpy.data.collections.new("Lighting Receivers")
     scene.collection.children.link(receivers)
 
@@ -45,6 +62,26 @@ def main() -> None:
     )
     assert created["object"] == "Key Light"
     assert created["settings"]["shape"] == "RECTANGLE"
+
+    conflicting_constraint = bpy.data.objects["Key Light"].constraints.new("COPY_LOCATION")
+    conflicting_constraint.name = "Conflicting Aim"
+    try:
+        handler.aim_light(
+            scene.name,
+            "Key Light",
+            target_point=(0.0, 0.0, 0.0),
+            method="TRACK_TO",
+            constraint_name="Conflicting Aim",
+            helper_name="Unwanted Aim Helper",
+            helper_collection_name="Unwanted Aim Helpers",
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("An incompatible named constraint must fail")
+    assert bpy.data.objects.get("Unwanted Aim Helper") is None
+    assert bpy.data.collections.get("Unwanted Aim Helpers") is None
+    bpy.data.objects["Key Light"].constraints.remove(conflicting_constraint)
 
     configured = handler.configure_light("Key Light", {"exposure": 1.0, "use_shadow": True})
     assert configured["new"]["exposure"] == 1.0

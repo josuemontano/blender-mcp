@@ -26,11 +26,12 @@ MAX_ENVIRONMENT_BYTES = 1024 * 1024 * 1024
 class _ManagedWorldEdit:
     """Track a managed world-node edit so a handler can restore it on failure."""
 
-    def __init__(self, scene, world) -> None:
+    def __init__(self, scene, world, created_world) -> None:
         self.scene = scene
         self.world = world
         self.previous_world = scene.world
         self.previous_use_nodes = bool(world.use_nodes)
+        self.created_world = created_world
         self.created_nodes = []
         self.changed_values = []
         self.replaced_inputs = []
@@ -86,13 +87,16 @@ class _ManagedWorldEdit:
                 pass
         self.world.use_nodes = self.previous_use_nodes
         self.scene.world = self.previous_world
+        if self.created_world and self.world.users == 0:
+            bpy.data.worlds.remove(self.world)
 
 
 def _begin_world_edit(scene, world_name, create_world):
     """Resolve a world and initialize managed mutation bookkeeping."""
     previous_world = scene.world
+    world_existed = world_name is None or bpy.data.worlds.get(world_name) is not None
     world = world_for_edit(scene, world_name, create_world)
-    edit = _ManagedWorldEdit(scene, world)
+    edit = _ManagedWorldEdit(scene, world, created_world=not world_existed)
     edit.previous_world = previous_world
     world.use_nodes = True
     return world, edit
@@ -178,8 +182,12 @@ def _validate_sky_settings(settings):
     for field in ("altitude", "air_density", "dust_density", "ozone_density", "sun_intensity", "background_strength"):
         if field in settings and settings[field] < 0:
             raise ValueError(f"{field} must be non-negative")
-    if "sun_size" in settings and not 0 < settings["sun_size"] <= math.pi:
-        raise ValueError("sun_size must be in (0, pi]")
+    if "altitude" in settings and settings["altitude"] > 100_000:
+        raise ValueError("altitude must be in [0, 100000]")
+    if "sun_size" in settings and not 0 < settings["sun_size"] <= math.pi / 2:
+        raise ValueError("sun_size must be in (0, pi/2]")
+    if "sun_intensity" in settings and settings["sun_intensity"] > 1_000:
+        raise ValueError("sun_intensity must be in [0, 1000]")
     return settings
 
 
@@ -264,8 +272,12 @@ class EnvironmentLightingHandlers:
         ):
             edit.rollback()
             raise ValueError("A managed HDRI or sky source already exists; choose REPLACE_MANAGED to update it")
+        image = None
+        image_was_loaded = False
         try:
+            loaded_images = {candidate.as_pointer() for candidate in bpy.data.images}
             image = bpy.data.images.load(image_path, check_existing=True)
+            image_was_loaded = image.as_pointer() not in loaded_images
             texture_coordinates = edit.node("ShaderNodeTexCoord", "texture_coordinate")
             mapping = edit.node("ShaderNodeMapping", "environment_mapping")
             environment = edit.node("ShaderNodeTexEnvironment", "environment_texture")
@@ -283,6 +295,8 @@ class EnvironmentLightingHandlers:
         except Exception:
             scene.render.film_transparent = previous_film
             edit.rollback()
+            if image_was_loaded and image is not None and image.users == 0:
+                bpy.data.images.remove(image)
             raise
         result = _environment_result(scene, world, "HDRI", edit.created_nodes)
         result.update(

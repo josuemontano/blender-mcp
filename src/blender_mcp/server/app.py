@@ -8,6 +8,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .. import __version__
 from ..addon_manager import check_addon_status_on_startup, format_handshake_log
 from .connection import disconnect_blender, get_blender_connection, get_last_handshake
 
@@ -15,12 +16,12 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @asynccontextmanager
-async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+async def server_lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     """
     Manage server startup and shutdown lifecycle.
 
     Args:
-        server: Value for server.
+        _server: FastMCP instance supplied by the SDK.
 
     Yields:
         AsyncIterator[dict[str, Any]]: Result produced by the operation.
@@ -107,3 +108,7 @@ locally.
 
 # Create the MCP server with lifespan support
 mcp = FastMCP("BlenderMCP", lifespan=server_lifespan, instructions=SERVER_INSTRUCTIONS)
+# FastMCP 1.x does not expose its low-level server's version in the public
+# constructor. Set it explicitly so MCP initialize responses advertise this
+# package's version instead of falling back to the unrelated MCP SDK version.
+mcp._mcp_server.version = __version__

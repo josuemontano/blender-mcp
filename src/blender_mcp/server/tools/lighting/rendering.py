@@ -145,11 +145,13 @@ def _preview_paths(engine: str, output_path: str | None, cycles_output_path: str
             os.unlink(path)
             resolved[item] = path
             temporary.add(path)
+    if len(set(resolved.values())) != len(resolved):
+        raise ToolError("Each preview engine requires a distinct output path")
     return resolved, temporary
 
 
 @mcp.tool(structured_output=False)
-def render_lighting_preview(
+async def render_lighting_preview(
     ctx: Context,
     scene_name: str,
     camera_name: str,
@@ -176,7 +178,8 @@ def render_lighting_preview(
         raise ToolError("Cycles previews above 64 samples require confirm_long_render=true")
     paths, temporary = _preview_paths(target_engine, output_path, cycles_output_path, eevee_output_path)
     try:
-        result = call_blender(
+        result = await asyncio.to_thread(
+            call_blender,
             "render_lighting_preview",
             {
                 "scene_name": scene_name,

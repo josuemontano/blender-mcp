@@ -266,6 +266,8 @@ class LightingRenderHandlers:
         paths = dict(output_paths or {})
         if set(paths) != set(engines):
             raise ValueError(f"output_paths must contain exactly {engines}")
+        if len(set(paths.values())) != len(paths):
+            raise ValueError("Each preview engine requires a distinct output path")
         for engine, path in paths.items():
             if not isinstance(path, str) or not os.path.isabs(path) or os.path.splitext(path)[1].lower() != ".png":
                 raise ValueError(f"{engine} output path must be an absolute .png path")
