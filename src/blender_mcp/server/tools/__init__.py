@@ -1,5 +1,8 @@
 """Import every tool submodule for its @mcp.tool() registration side effect."""
 
+# Registration order is intentional: the documentation pass must run last.
+# ruff: file-ignore[unsorted-imports]
+
 from . import camera as camera
 from . import character_rigging as character_rigging
 from . import cloth as cloth
@@ -15,3 +18,4 @@ from . import retopology as retopology
 from . import rigid_body as rigid_body
 from . import sketchfab as sketchfab
 from . import viewport as viewport
+from . import _documentation as _documentation

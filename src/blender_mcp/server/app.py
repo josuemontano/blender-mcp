@@ -89,15 +89,11 @@ Every tool below returns one of two shapes:
    fully explicit output paths return only the envelope. Read the final item for metadata and
    warnings rather than inspecting only the image content.
 
-Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data, list_lights,
-inspect_lighting_setup, validate_lighting_setup,
-get_cloth_simulation_info, get_cloth_object_info, estimate_cloth_resources, get_liquid_simulation_info,
-get_character_rig_info, get_skinning_info, validate_character_rig, get_rigid_body_scene_info,
-get_rigid_body_constraint_info, inspect_retopology,
-search_polyhaven_assets) paginate through their "data" dict, not through this envelope. Look for
-"truncated" and "next_offset" in each page record, and re-call with the corresponding offset while
-truncated is true to see the rest. A truncated validate_cloth_setup result should be rerun with a
-narrower collection or cloth_object_names scope.
+For any tool exposing limit/offset parameters, pagination metadata is inside the envelope's "data"
+dict. Continue with the returned "next_offset" while "truncated" is true. Independent limit/offset
+pairs page independent result sets. A validation tool that reports truncation without a continuation
+offset must be rerun with a narrower object or collection scope. Catalog tools without limit/offset
+return only the provider-bounded result set; do not assume the result is a complete provider catalog.
 
 Before editing, inspect the scene (list_scene_objects, get_object_info, get_mesh_data)
 rather than assuming which object is active or selected. Prefer non-destructive tools

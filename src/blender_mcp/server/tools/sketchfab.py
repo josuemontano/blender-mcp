@@ -3,8 +3,11 @@
 import base64
 import logging
 
+from typing import Annotated
+
 from mcp.server.fastmcp import Context, Image
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -38,13 +41,16 @@ def _preview_metadata(result: dict, uid: str) -> dict:
 @mcp.tool()
 async def search_sketchfab_models(
     ctx: Context,
-    query: str,
+    query: Annotated[str, Field(min_length=1)],
     categories: str | None = None,
-    count: int = 20,
+    count: Annotated[int, Field(ge=1, le=100)] = 20,
     downloadable: bool = True,
 ) -> dict:
     """
-    Search the Sketchfab catalog for models, optionally filtering by category and downloadability.
+    Search one bounded Sketchfab result page for models, optionally filtering by category and downloadability.
+
+    This compatibility surface does not expose the provider continuation cursor. Refine `query`
+    or `categories` when the bounded result is insufficient; do not assume it is the full catalog.
 
     Args:
         ctx: MCP request context.
@@ -88,7 +94,7 @@ async def search_sketchfab_models(
 
 
 @mcp.tool(structured_output=False)
-async def get_sketchfab_model_preview(ctx: Context, uid: str) -> list[Image | dict]:
+async def get_sketchfab_model_preview(ctx: Context, uid: Annotated[str, Field(min_length=1)]) -> list[Image | dict]:
     """
     Return a Sketchfab model's thumbnail for visual review before import.
 
@@ -137,7 +143,11 @@ async def get_sketchfab_model_preview(ctx: Context, uid: str) -> list[Image | di
 
 
 @mcp.tool()
-async def download_sketchfab_model(ctx: Context, uid: str, target_size: float) -> dict:
+async def download_sketchfab_model(
+    ctx: Context,
+    uid: Annotated[str, Field(min_length=1)],
+    target_size: Annotated[float, Field(gt=0)],
+) -> dict:
     """
     Download and import a Sketchfab model, scaling its largest dimension to a chosen size.
 

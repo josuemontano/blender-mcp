@@ -2,10 +2,11 @@
 
 import logging
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -21,10 +22,10 @@ PrimitivePurpose = Literal["blockout"]
 async def create_primitive_object(
     ctx: Context,
     primitive_type: PrimitiveType,
-    name: str | None = None,
+    name: Annotated[str | None, Field(min_length=1)] = None,
     location: tuple[float, float, float] = (0, 0, 0),
     rotation: tuple[float, float, float] = (0, 0, 0),
-    size: float = 1.0,
+    size: Annotated[float, Field(gt=0)] = 1.0,
     dimensions: tuple[float, float, float] | None = None,
     purpose: PrimitivePurpose | None = None,
 ) -> dict:
@@ -63,7 +64,8 @@ async def create_primitive_object(
                 "purpose": purpose,
             },
         )
-        changed = [result.get("name")] if isinstance(result, dict) and result.get("name") else []
+        created_name = result.get("name") if isinstance(result, dict) else None
+        changed = [created_name] if isinstance(created_name, str) else []
         return ok(result, changed_objects=changed)
     except Exception as e:
         logger.error(f"Error creating primitive: {e}")
@@ -117,7 +119,7 @@ async def mesh_extrude(
 async def mesh_inset(
     ctx: Context,
     object_name: str,
-    thickness: float = 0.05,
+    thickness: Annotated[float, Field(ge=0)] = 0.05,
     depth: float = 0.0,
     face_indices: list[int] | None = None,
 ) -> dict:
@@ -163,8 +165,8 @@ async def mesh_inset(
 async def mesh_bevel(
     ctx: Context,
     object_name: str,
-    offset: float = 0.05,
-    segments: int = 1,
+    offset: Annotated[float, Field(ge=0)] = 0.05,
+    segments: Annotated[int, Field(ge=1, le=1000)] = 1,
     affect: Literal["EDGES", "VERTICES"] = "EDGES",
     edge_indices: list[int] | None = None,
     vertex_indices: list[int] | None = None,
@@ -220,9 +222,9 @@ async def mesh_bridge(
     loop_a_edge_indices: list[int] | None = None,
     loop_b_edge_indices: list[int] | None = None,
     edge_indices: list[int] | None = None,
-    cuts: int = 0,
+    cuts: Annotated[int, Field(ge=0, le=1000)] = 0,
     interpolation: Literal["LINEAR", "PATH", "SURFACE"] = "LINEAR",
-    smoothness: float = 0.0,
+    smoothness: Annotated[float, Field(ge=-1000, le=1000)] = 0.0,
     twist_offset: int = 0,
     expected_revision: str | None = None,
 ) -> dict:
@@ -365,7 +367,7 @@ async def mesh_boolean(
 async def mesh_subdivide(
     ctx: Context,
     object_name: str,
-    cuts: int = 1,
+    cuts: Annotated[int, Field(ge=1, le=1000)] = 1,
     face_indices: list[int] | None = None,
 ) -> dict:
     """
@@ -405,7 +407,7 @@ async def mesh_subdivide(
 
 
 @mcp.tool()
-async def mesh_remesh(ctx: Context, object_name: str, voxel_size: float = 0.1) -> dict:
+async def mesh_remesh(ctx: Context, object_name: str, voxel_size: Annotated[float, Field(gt=0)] = 0.1) -> dict:
     """
     Voxel-remesh a mesh object, rebuilding its topology at a uniform resolution.
 
@@ -485,7 +487,9 @@ async def mesh_solidify(
 
 
 @mcp.tool()
-async def clear_materials(ctx: Context, object_names: list[str]) -> dict:
+async def clear_materials(
+    ctx: Context, object_names: Annotated[list[str], Field(min_length=1, max_length=500)]
+) -> dict:
     """
     Remove all material slots from the given objects.
 

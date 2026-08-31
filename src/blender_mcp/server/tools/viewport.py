@@ -4,10 +4,11 @@ import logging
 import os
 import tempfile
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context, Image
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -17,7 +18,11 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def list_scene_objects(ctx: Context, limit: int = 25, offset: int = 0) -> dict:
+async def list_scene_objects(
+    ctx: Context,
+    limit: Annotated[int, Field(ge=1, le=200)] = 25,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
     """
     Inspect the current Blender scene and page through its objects.
 
@@ -119,8 +124,8 @@ async def get_mesh_data(
     ctx: Context,
     object_name: str,
     element_type: Literal["vertices", "edges", "faces", "loops"] = "vertices",
-    limit: int = 100,
-    offset: int = 0,
+    limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Field(ge=0)] = 0,
     selected_only: bool = False,
 ) -> dict:
     """
@@ -198,7 +203,7 @@ def _screenshot_metadata(result: dict) -> dict:
 
 
 @mcp.tool(structured_output=False)
-def get_viewport_screenshot(ctx: Context, max_size: int = 1000) -> list[Image | dict]:
+def get_viewport_screenshot(ctx: Context, max_size: Annotated[int, Field(ge=16, le=4096)] = 1000) -> list[Image | dict]:
     """
     Capture the current Blender 3D viewport as an image for visual inspection.
 

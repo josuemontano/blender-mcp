@@ -2,10 +2,11 @@
 
 import logging
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -15,6 +16,7 @@ logger = logging.getLogger("BlenderMCPServer")
 
 Axis = Literal["X", "Y", "Z"]
 Space = Literal["LOCAL", "WORLD"]
+DisplaceTextureType = Literal["NOISE"]
 
 
 @mcp.tool()
@@ -74,7 +76,7 @@ async def copy_object_transform(
 async def add_subdivision_surface_modifier(
     ctx: Context,
     object_name: str,
-    levels: int = 1,
+    levels: Annotated[int, Field(ge=0, le=6)] = 1,
     apply: bool = False,
 ) -> dict:
     """
@@ -121,8 +123,8 @@ async def add_displace_modifier(
     ctx: Context,
     object_name: str,
     strength: float = 0.1,
-    scale: float = 5.0,
-    texture_type: str = "NOISE",
+    scale: Annotated[float, Field(gt=0)] = 5.0,
+    texture_type: DisplaceTextureType = "NOISE",
     apply: bool = False,
     subdivide: bool = False,
 ) -> dict:
@@ -232,7 +234,7 @@ async def model_mirror(
 async def model_array(
     ctx: Context,
     object_name: str,
-    count: int = 2,
+    count: Annotated[int, Field(ge=1, le=10000)] = 2,
     relative_offset: tuple[float, float, float] = (1, 0, 0),
     apply: bool = False,
 ) -> dict:
@@ -280,12 +282,12 @@ async def model_array(
 async def model_radial_array(
     ctx: Context,
     object_name: str,
-    count: int = 6,
+    count: Annotated[int, Field(ge=2, le=10000)] = 6,
     axis: Axis = "Z",
     apply: bool = False,
     pivot_object_name: str | None = None,
     pivot_location: tuple[float, float, float] | None = None,
-    radius: float | None = None,
+    radius: Annotated[float | None, Field(gt=0)] = None,
 ) -> dict:
     """
     Duplicate an object radially around a pivot, evenly spaced about an axis.
@@ -342,7 +344,7 @@ async def model_radial_array(
 
 
 @mcp.tool()
-async def sync_data_name(ctx: Context, object_names: list[str]) -> dict:
+async def sync_data_name(ctx: Context, object_names: Annotated[list[str], Field(min_length=1, max_length=500)]) -> dict:
     """
     Sync each object's data-block name to match its object name.
 

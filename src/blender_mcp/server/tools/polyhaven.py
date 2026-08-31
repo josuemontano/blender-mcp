@@ -2,10 +2,11 @@
 
 import logging
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -14,6 +15,8 @@ from ._envelope import ok
 logger = logging.getLogger("BlenderMCPServer")
 
 AssetType = Literal["hdris", "textures", "models", "all"]
+ImportAssetType = Literal["hdris", "textures", "models"]
+AssetResolution = Annotated[str, Field(pattern=r"^[1-9][0-9]*k$")]
 
 
 def _polyhaven_changed(asset_type: str, result: dict) -> tuple[list[str], list[str]]:
@@ -83,7 +86,9 @@ async def search_polyhaven_assets(
     List Polyhaven assets, optionally filtered by one or more categories.
 
     This catalog query has no free-text parameter; use `categories` to narrow the
-    result set and `get_polyhaven_categories` to discover valid categories.
+    result set and `get_polyhaven_categories` to discover valid categories. Despite
+    the legacy `search_` name, this lists a provider-bounded first page and exposes
+    no continuation parameter; do not treat it as a complete catalog dump.
 
     Args:
         ctx: MCP request context.
@@ -122,10 +127,10 @@ async def search_polyhaven_assets(
 @mcp.tool()
 async def import_polyhaven_asset(
     ctx: Context,
-    asset_id: str,
-    asset_type: str,
-    resolution: str = "1k",
-    file_format: str | None = None,
+    asset_id: Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")],
+    asset_type: ImportAssetType,
+    resolution: AssetResolution = "1k",
+    file_format: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9]+$")] = None,
 ) -> dict:
     """
     Download a Polyhaven HDRI, texture, or model and make it available in Blender.
@@ -178,7 +183,11 @@ async def import_polyhaven_asset(
 
 
 @mcp.tool()
-async def apply_polyhaven_texture(ctx: Context, object_name: str, texture_id: str) -> dict:
+async def apply_polyhaven_texture(
+    ctx: Context,
+    object_name: Annotated[str, Field(min_length=1)],
+    texture_id: Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")],
+) -> dict:
     """
     Assign a previously downloaded Polyhaven texture to an object.
 
