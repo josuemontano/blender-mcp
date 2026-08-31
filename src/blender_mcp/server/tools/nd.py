@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from ._envelope import ok
+from .envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 

@@ -7,7 +7,7 @@ import pytest
 from test_mutation_transaction import _load_addon
 
 from blender_mcp.server.tools import mesh
-from blender_mcp.server.tools._envelope import STALE_INDEX_WARNING
+from blender_mcp.server.tools.envelope import STALE_INDEX_WARNING
 from blender_mcp.server.tools.retopology import _shared, advanced, construction, editing, production, quality, target
 
 RETOPOLOGY_TOOL_NAMES = {

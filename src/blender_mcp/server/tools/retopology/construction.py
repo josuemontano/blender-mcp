@@ -8,7 +8,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from .._envelope import STALE_INDEX_WARNING, ok
+from ..envelope import STALE_INDEX_WARNING, ok
 from ._shared import _call
 
 

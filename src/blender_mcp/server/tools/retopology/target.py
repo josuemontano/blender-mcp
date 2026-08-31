@@ -6,7 +6,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from .._envelope import ok
+from ..envelope import ok
 from ._shared import _call
 
 InitialGeometry = Literal["EMPTY", "SINGLE_VERTEX", "PLANE", "GRID", "DUPLICATED_EVALUATED_SURFACE"]

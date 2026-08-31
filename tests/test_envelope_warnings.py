@@ -1,6 +1,6 @@
 """Coverage for ok() lifting an addon-supplied `warnings` list into the envelope."""
 
-from blender_mcp.server.tools._envelope import ok
+from blender_mcp.server.tools.envelope import ok
 
 
 def test_ok_lifts_data_warnings_into_envelope_and_drops_the_key() -> None:

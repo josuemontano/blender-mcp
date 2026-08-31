@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from blender_mcp.server.tools import model
-from blender_mcp.server.tools._envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING
+from blender_mcp.server.tools.envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING
 
 
 class _StubConnection:

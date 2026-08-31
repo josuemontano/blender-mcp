@@ -10,7 +10,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from ...addon_manager import EXPECTED_ADDON_PROTOCOL_VERSION
 from ..app import mcp
 from ..connection import force_addon_handshake, get_blender_connection
-from ._envelope import ok
+from .envelope import ok
 
 logger = logging.getLogger("BlenderMCPServer")
 

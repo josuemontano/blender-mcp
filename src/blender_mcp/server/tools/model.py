@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from ._envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING, ok
+from .envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 

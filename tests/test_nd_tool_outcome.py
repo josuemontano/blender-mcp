@@ -1,4 +1,4 @@
-from blender_mcp.server.tools._envelope import ok
+from blender_mcp.server.tools.envelope import ok
 from blender_mcp.server.tools.nd import _CANCELLED_WARNING, _nd_outcome
 
 

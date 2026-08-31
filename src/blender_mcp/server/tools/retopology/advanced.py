@@ -7,7 +7,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from .._envelope import ok
+from ..envelope import ok
 from ._shared import RetopologyProfile, _call
 
 QuadriFlowMode = Literal["RATIO", "EDGE", "FACES"]
