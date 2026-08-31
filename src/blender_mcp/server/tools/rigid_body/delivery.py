@@ -24,7 +24,16 @@ async def bake_rigid_bodies_to_keyframes(
     key_scale: bool = False,
     confirm_overwrite_animation: bool = False,
 ) -> dict:
-    """Record evaluated rigid-body world transforms into new actions, preserving simulation sources by default."""
+    """
+    Record evaluated rigid-body world transforms into new actions, preserving simulation sources by default.
+
+    output_mode="DUPLICATES" (default) creates new copy objects in output_collection_name with the
+    baked action, leaving object_names and their simulation untouched - non-destructive.
+    output_mode="SOURCE" instead bakes directly onto object_names' own action, replacing their
+    live rigid-body simulation with keyframes; this requires confirm_overwrite_animation=True since
+    it discards the ability to re-simulate those objects from their prior state. Use
+    sample_rigid_body_simulation first if you only need to inspect transforms without baking.
+    """
     if frame_start > frame_end:
         raise ValueError("frame_start must not exceed frame_end")
     return await asyncio.to_thread(

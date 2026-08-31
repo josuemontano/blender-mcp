@@ -1,8 +1,9 @@
 """Agent-facing tools for editing existing retopology geometry: projection, edge flow, symmetry."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from ...app import mcp
 from .._envelope import STALE_INDEX_WARNING, ok
@@ -23,7 +24,7 @@ async def configure_surface_projection(
     ] = "NEAREST_SURFACEPOINT",
     wrap_mode: Literal["ON_SURFACE", "INSIDE", "OUTSIDE", "OUTSIDE_SURFACE", "ABOVE_SURFACE"] = "ON_SURFACE",
     offset: float = 0.0,
-    project_limit: float = 0.0,
+    project_limit: Annotated[float, Field(ge=0)] = 0.0,
     project_axes: tuple[bool, bool, bool] = (False, False, True),
     positive_direction: bool = True,
     negative_direction: bool = True,
@@ -60,13 +61,13 @@ async def project_mesh_elements(
     direction: tuple[float, float, float] = (0.0, 0.0, -1.0),
     direction_space: Literal["LOCAL", "WORLD"] = "WORLD",
     offset: float = 0.0,
-    max_distance: float | None = None,
+    max_distance: Annotated[float, Field(gt=0)] | None = None,
     positive_direction: bool = True,
     negative_direction: bool = False,
     backface_policy: Literal["ALLOW", "CULL"] = "ALLOW",
     preserve_boundary: bool = False,
     preserve_symmetry_axis: Literal["NONE", "X", "Y", "Z"] = "NONE",
-    symmetry_tolerance: float = 0.0001,
+    symmetry_tolerance: Annotated[float, Field(ge=0)] = 0.0001,
     expected_revision: str | None = None,
 ) -> dict:
     """Project explicit target vertices onto an evaluated source without snapping.
@@ -90,7 +91,7 @@ async def reroute_topology(
     action: RerouteAction,
     vertex_indices: list[int] | None = None,
     edge_indices: list[int] | None = None,
-    cuts: int = 1,
+    cuts: Annotated[int, Field(ge=1, le=1000)] = 1,
     expected_revision: str | None = None,
 ) -> dict:
     """Perform one bounded local edge-flow correction.
@@ -111,8 +112,8 @@ async def relax_topology(
     ctx: Context,
     object_name: str,
     vertex_indices: list[int],
-    iterations: int = 3,
-    factor: float = 0.5,
+    iterations: Annotated[int, Field(ge=1, le=1000)] = 3,
+    factor: Annotated[float, Field(ge=0, le=1)] = 0.5,
     lock_boundary: bool = True,
     lock_vertex_group: str | None = None,
     source_object_name: str | None = None,
@@ -166,10 +167,10 @@ async def configure_retopology_symmetry(
     bisect: bool = False,
     clipping: bool = True,
     merge: bool = True,
-    merge_tolerance: float = 0.001,
+    merge_tolerance: Annotated[float, Field(ge=0)] = 0.001,
     mirror_vertex_groups: bool = True,
     validate_seam: bool = True,
-    symmetry_tolerance: float = 0.001,
+    symmetry_tolerance: Annotated[float, Field(ge=0)] = 0.001,
     modifier_name: str = "RetopologyMirror",
 ) -> dict:
     """Idempotently configure and validate a live retopology Mirror modifier.

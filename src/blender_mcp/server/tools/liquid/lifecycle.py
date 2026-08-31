@@ -1,10 +1,12 @@
-# ruff: file-ignore[docstring-missing-returns, unused-function-argument]
+# ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, unused-function-argument]
 """Typed tools for removing fluid modifier components."""
 
 import asyncio
 
+from typing import Annotated
+
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...app import mcp
 from .inspection_and_setup import _call
@@ -23,10 +25,13 @@ class FluidComponentTarget(_StrictModel):
 @mcp.tool()
 async def remove_fluid_components(
     ctx: Context,
-    targets: list[FluidComponentTarget],
+    targets: Annotated[list[FluidComponentTarget], Field(min_length=1)],
     accept_orphaned_cache: bool = False,
 ) -> dict:
-    """Remove exact fluid modifiers and optionally MCP-owned helper objects after complete preflight."""
+    """Remove exact fluid modifiers and optionally MCP-owned helper objects after a cache-orphan preflight.
+
+    Preflight rejects removal if it would orphan an existing on-disk bake, unless accept_orphaned_cache=True.
+    """
     return await asyncio.to_thread(
         _call,
         "remove_fluid_components",

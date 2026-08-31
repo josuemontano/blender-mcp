@@ -1,9 +1,10 @@
 # ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, unused-async]
 """Agent-facing specialized retopology accelerators: quadriflow, primitive fitting, surface deform, LODs."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from ...app import mcp
 from .._envelope import ok
@@ -21,15 +22,15 @@ async def generate_quadriflow_draft(
     name: str | None = None,
     collection_name: str = "Retopology Drafts",
     mode: QuadriFlowMode = "FACES",
-    target_faces: int = 4000,
-    target_ratio: float = 1.0,
-    target_edge_length: float = 0.1,
+    target_faces: Annotated[int, Field(ge=1)] = 4000,
+    target_ratio: Annotated[float, Field(gt=0, le=1)] = 1.0,
+    target_edge_length: Annotated[float, Field(gt=0)] = 0.1,
     use_mesh_symmetry: bool = False,
     preserve_sharp: bool = False,
     preserve_boundary: bool = False,
     preserve_attributes: bool = True,
     smooth_normals: bool = True,
-    seed: int = 0,
+    seed: Annotated[int, Field(ge=0)] = 0,
     validation_profile: RetopologyProfile = "CHARACTER",
 ) -> dict:
     """Create a QuadriFlow draft from a source's evaluated surface.
@@ -59,11 +60,11 @@ async def fit_surface_primitive(
     expected_source_revision: str,
     name: str | None = None,
     collection_name: str = "Retopology",
-    u_segments: int = 16,
-    v_segments: int = 4,
+    u_segments: Annotated[int, Field(ge=3, le=1000)] = 16,
+    v_segments: Annotated[int, Field(ge=1, le=1000)] = 4,
     project_to_source: bool = True,
     projection_offset: float = 0.0,
-    max_fit_residual: float | None = None,
+    max_fit_residual: Annotated[float, Field(ge=0)] | None = None,
     axis_hint_world: tuple[float, float, float] | None = None,
 ) -> dict:
     """Fit a deterministic quad primitive to explicit source samples.
@@ -96,12 +97,12 @@ async def bind_surface_deformation(
     action: SurfaceDeformAction,
     target_object_name: str | None = None,
     modifier_name: str = "RetopologySurfaceDeform",
-    falloff: float = 4.0,
-    strength: float = 1.0,
+    falloff: Annotated[float, Field(ge=2, le=16)] = 4.0,
+    strength: Annotated[float, Field(ge=-100, le=100)] = 1.0,
     vertex_group: str | None = None,
     invert_vertex_group: bool = False,
     sparse_bind: bool = False,
-    duplicate_tolerance: float = 1e-6,
+    duplicate_tolerance: Annotated[float, Field(ge=0)] = 1e-6,
 ) -> dict:
     """Bind or unbind a mesh through a live Surface Deform modifier.
 

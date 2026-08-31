@@ -1,6 +1,9 @@
 """Agent-facing tools for measuring and validating retopology quality."""
 
+from typing import Annotated
+
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from ...app import mcp
 from .._envelope import ok
@@ -15,8 +18,8 @@ async def analyze_surface_conformity(
     sample_vertices: bool = True,
     sample_edge_midpoints: bool = False,
     sample_face_centroids: bool = False,
-    max_distance: float | None = None,
-    worst_limit: int = 20,
+    max_distance: Annotated[float, Field(gt=0)] | None = None,
+    worst_limit: Annotated[int, Field(ge=1, le=1000)] = 20,
     create_heat_map: bool = False,
     attribute_name: str = "retopology_distance",
 ) -> dict:
@@ -56,7 +59,7 @@ async def validate_retopology(
     check_self_intersections: bool = True,
     check_uv_overlap: bool = True,
     check_skin_weights: bool = True,
-    issue_limit: int = 100,
+    issue_limit: Annotated[int, Field(ge=1, le=2000)] = 100,
 ) -> dict:
     """Return a production pass/warn/fail report for a retopology profile.
 
@@ -78,14 +81,14 @@ async def validate_retopology(
 async def test_deformation(
     ctx: Context,
     object_name: str,
-    frames: list[int],
+    frames: Annotated[list[int], Field(min_length=1)],
     reference_frame: int | None = None,
     source_object_name: str | None = None,
     joint_vertex_groups: list[str] | None = None,
-    stretch_warning_ratio: float = 1.25,
-    area_warning_ratio: float = 1.5,
+    stretch_warning_ratio: Annotated[float, Field(gt=0)] = 1.25,
+    area_warning_ratio: Annotated[float, Field(gt=0)] = 1.5,
     check_self_intersections: bool = True,
-    issue_limit: int = 100,
+    issue_limit: Annotated[int, Field(ge=1, le=2000)] = 100,
 ) -> dict:
     """Evaluate deformation quality at explicit animation frames without editing it.
 

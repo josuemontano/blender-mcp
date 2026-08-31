@@ -73,7 +73,7 @@ async def create_camera(
     ctx: Context,
     scene_name: str,
     collection_name: str,
-    name: str,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
     projection: Projection = "PERSP",
     location: tuple[float, float, float] = (0.0, 0.0, 0.0),
     rotation_euler: tuple[float, float, float] | None = None,

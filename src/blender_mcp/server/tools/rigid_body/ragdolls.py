@@ -68,11 +68,24 @@ async def create_ragdoll_rig(
     total_mass: Annotated[float, Field(gt=0.0)],
     proxy_collection_name: str = "Ragdoll Proxies",
     constraint_collection_name: str = "Ragdoll Constraints",
-    collision_layers: Annotated[list[int] | None, Field(min_length=1, max_length=20)] = None,
+    collision_layers: Annotated[
+        list[Annotated[int, Field(ge=1, le=20)]] | None, Field(min_length=1, max_length=20)
+    ] = None,
     start_kinematic: bool = True,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Build reviewed bone proxies and anatomical constraints without altering the source armature."""
+    """
+    Build reviewed bone proxies and anatomical constraints without altering the source armature.
+
+    Unlike create_rigid_body_proxy_rig (arbitrary mesh objects) or setup_animated_passive_collider
+    (a single passive collider), this is specifically for driving simulated ragdoll physics from
+    armature_object_name's pose bones: each RagdollBodySpec creates one simulated proxy for a mapped
+    bone, and each RagdollJointSpec constrains two mapped bones' proxies together at an anatomical
+    joint. start_kinematic=True (default) starts the ragdoll following the armature's existing
+    animation until switched dynamic; False lets it fall immediately under gravity from frame 1.
+    Requires scene_name to already have a rigid body world. Rejects with
+    confirm_delete_baked_cache=False if that world already has a baked simulation cache.
+    """
     layers = collision_layers or [4]
     bone_names = [body.bone_name for body in bodies]
     if len(bone_names) != len(set(bone_names)):
@@ -137,7 +150,15 @@ async def bake_ragdoll_to_armature(
     angular_tolerance_radians: Annotated[float, Field(ge=0.0, le=3.141592653589793)] = 0.001,
     confirm_overwrite_action: bool = False,
 ) -> dict:
-    """Bake proxy world motion to pose-bone quaternion channels in a new preserved animation layer."""
+    """
+    Bake proxy world motion to pose-bone quaternion channels in a new preserved animation layer.
+
+    Writes to a new action named action_name rather than modifying the armature's currently
+    assigned action; reusing an existing action_name requires confirm_overwrite_action=True.
+    blend_in_frames/blend_out_frames ease into and out of the baked range from the armature's prior
+    pose so the ragdoll's start/end don't pop. reduce_keys removes redundant keyframes within
+    position_tolerance/angular_tolerance_radians after baking.
+    """
     if frame_start > frame_end:
         raise ToolError("frame_start must not exceed frame_end")
     bone_names = [mapping.bone_name for mapping in mappings]

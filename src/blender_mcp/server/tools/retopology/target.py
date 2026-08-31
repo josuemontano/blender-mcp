@@ -1,8 +1,9 @@
 """Agent-facing retopology target creation, inspection, and checkpoints."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from ...app import mcp
 from .._envelope import ok
@@ -19,11 +20,11 @@ async def create_retopology_target(
     name: str | None = None,
     initial_geometry: InitialGeometry = "EMPTY",
     collection_name: str = "Retopology",
-    size: float = 1.0,
+    size: Annotated[float, Field(gt=0)] = 1.0,
     grid_segments: tuple[int, int] = (4, 4),
     add_mirror: bool = False,
     add_shrinkwrap: bool = True,
-    subdivision_levels: int = 0,
+    subdivision_levels: Annotated[int, Field(ge=0, le=6)] = 0,
 ) -> dict:
     """Create an editable low-poly target linked to one or more source meshes.
 
@@ -72,9 +73,9 @@ async def inspect_retopology(
     ctx: Context,
     object_name: str,
     selected_vertex_indices: list[int] | None = None,
-    adjacency_depth: int = 1,
-    limit: int = 100,
-    offset: int = 0,
+    adjacency_depth: Annotated[int, Field(ge=0, le=20)] = 1,
+    limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """Inspect topology quality and a bounded set of planning details.
 

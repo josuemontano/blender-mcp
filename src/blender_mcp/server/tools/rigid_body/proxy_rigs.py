@@ -44,7 +44,19 @@ async def create_rigid_body_proxy_rig(
     transform_tolerance: Annotated[float, Field(gt=0.0, le=1.0)] = 0.001,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Build a tagged proxy rig while preserving render meshes, modifiers, and materials."""
+    """
+    Build a tagged proxy rig while preserving render meshes, modifiers, and materials.
+
+    Each mapping creates or reuses a physics proxy for one render object without altering the
+    render object's own mesh, modifiers, or materials. `driver` controls how the render object is
+    kept in sync with its proxy's simulated motion: PARENT parents the render object to the proxy
+    (preserving its existing world transform), COPY_TRANSFORMS instead adds a Copy Transforms
+    constraint, leaving parenting untouched. `approximation` picks the proxy's collision shape; use
+    LOW_RES_SOURCE with low_resolution_source_name to reuse an existing low-poly mesh as the proxy's
+    collision geometry instead of a primitive shape. Requires scene_name to already have a rigid
+    body world. Rejects with confirm_delete_baked_cache=False if that world already has a baked
+    simulation cache.
+    """
     frames = verification_frames or []
     render_names = [mapping.render_object_name for mapping in mappings]
     explicit_proxy_names = [mapping.proxy_object_name for mapping in mappings if mapping.proxy_object_name]

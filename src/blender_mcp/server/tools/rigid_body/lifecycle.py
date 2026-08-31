@@ -17,10 +17,20 @@ async def remove_rigid_body_components(
     scene_name: str,
     component_type: Literal["BODY_SETTINGS", "CONSTRAINT_SETTINGS", "TAGGED_HELPERS", "WORLD"],
     object_names: Annotated[list[str] | None, Field(max_length=500)] = None,
-    rig_id: str | None = None,
+    rig_id: Annotated[str | None, Field(min_length=1)] = None,
     confirm_destructive: bool = False,
 ) -> dict:
-    """Remove precisely scoped physics components without deleting ordinary mesh objects."""
+    """
+    Remove precisely scoped physics components without deleting ordinary mesh objects.
+
+    component_type selects what's removed: BODY_SETTINGS clears rigid-body settings from
+    object_names (required); CONSTRAINT_SETTINGS clears rigid-body constraint settings from
+    object_names (required); TAGGED_HELPERS deletes helper objects created by other rigid-body
+    tools (proxies, colliders, constraint empties) selected by rig_id and/or object_names (at least
+    one required); WORLD removes scene_name's entire rigid body world and accepts neither
+    object_names nor rig_id. TAGGED_HELPERS and WORLD delete objects outright rather than just
+    clearing settings, so both require confirm_destructive=True.
+    """
     names = object_names or []
     if component_type in {"BODY_SETTINGS", "CONSTRAINT_SETTINGS"} and not names:
         raise ToolError(f"{component_type} requires object_names")

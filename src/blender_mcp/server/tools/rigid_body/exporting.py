@@ -16,7 +16,7 @@ async def export_rigid_body_animation(
     ctx: Context,
     scene_name: str,
     object_names: Annotated[list[str], Field(min_length=1, max_length=100)],
-    filepath: str,
+    filepath: Annotated[str, Field(min_length=1)],
     format: Literal["JSON", "ALEMBIC", "USD", "GLTF", "FBX"],
     frame_start: Annotated[int, Field(ge=-1_000_000, le=1_000_000)],
     frame_end: Annotated[int, Field(ge=-1_000_000, le=1_000_000)],
@@ -25,7 +25,13 @@ async def export_rigid_body_animation(
     unit_scale: Annotated[float, Field(gt=0.0, le=10_000.0)] = 1.0,
     confirm_overwrite: bool = False,
 ) -> dict:
-    """Export explicit objects and bounded animation without altering the simulation source."""
+    """
+    Export explicit objects and bounded animation without altering the simulation source.
+
+    coordinate_convention is constrained per format: GLTF requires Y_UP_RIGHT_HANDED and ALEMBIC
+    currently requires BLENDER_Z_UP; JSON, USD, and FBX accept either. Rejects with
+    confirm_overwrite=False if filepath already exists.
+    """
     if frame_start > frame_end:
         raise ToolError("frame_start must not exceed frame_end")
     if not filepath.strip():

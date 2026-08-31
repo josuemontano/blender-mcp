@@ -88,12 +88,24 @@ async def create_rigid_body_debris_field(
     transform_range: DebrisTransformRange | None = None,
     collection_name: str = "Rigid Body Debris",
     collision_shape: Literal["BOX", "SPHERE", "CAPSULE", "CYLINDER", "CONE", "CONVEX_HULL"] = "CONVEX_HULL",
-    collision_layers: Annotated[list[int] | None, Field(min_length=1, max_length=20)] = None,
+    collision_layers: Annotated[
+        list[Annotated[int, Field(ge=1, le=20)]] | None, Field(min_length=1, max_length=20)
+    ] = None,
     start_deactivated: bool = True,
     settings: RigidBodySettingsPatch | None = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Create deterministic linked-mesh debris objects with bounded count and placement."""
+    """
+    Create deterministic linked-mesh debris objects with bounded count and placement.
+
+    Every created debris object links (shares) its mesh data with the DebrisSourceSpec it was
+    sampled from rather than copying it - editing that source object's mesh afterward changes the
+    appearance of every debris instance sampled from it. `count` objects are sampled from `sources`
+    weighted by each source's `weight`, then placed within `region` (a BOX, SPHERE, or
+    COLLECTION_BOUNDS volume) using `seed` for deterministic, repeatable placement. Requires
+    scene_name to already have a rigid body world set up. Rejects with confirm_delete_baked_cache=False
+    if that world already has a baked simulation cache.
+    """
     layers = collision_layers or [3]
     source_names = [source.object_name for source in sources]
     if len(source_names) != len(set(source_names)):

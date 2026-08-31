@@ -24,7 +24,17 @@ async def animate_rigid_body_release(
     overwrite_existing_action: bool = False,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Key a deterministic handoff between authored transforms and rigid-body simulation."""
+    """
+    Key a deterministic handoff between authored keyframe animation and rigid-body simulation.
+
+    RELEASE inserts a keyframe on object_name's authored transform at `frame`, then lets rigid-body
+    simulation drive it from that pose (and linear_velocity/angular_velocity, if given) onward.
+    CAPTURE does the reverse: it bakes object_name's simulated transform at `frame` into an authored
+    keyframe so animation takes back over from that point. object_name must already have rigid body
+    physics enabled in scene_name's rigid body world. Rejects with confirm_delete_baked_cache=False if
+    that world already has a baked simulation cache, since inserting a release/capture keyframe
+    invalidates it.
+    """
     return await asyncio.to_thread(
         _call,
         "animate_rigid_body_release",

@@ -63,7 +63,14 @@ async def set_character_pose(
     reset_unspecified: bool = False,
     confirm_reset_unspecified: bool = False,
 ) -> dict:
-    """Apply explicit bone transforms without inserting animation keys."""
+    """
+    Apply explicit bone transforms without inserting animation keys.
+
+    Each pose's bone_name must name an existing pose bone on armature_object_name. Only fields
+    explicitly set on a pose entry are sent and changed; bones not named in poses are left as-is
+    unless reset_unspecified=True (which requires confirm_reset_unspecified) resets every other
+    pose bone to rest. Use keyframe_character_pose instead to record this as animation.
+    """
     if reset_unspecified and not confirm_reset_unspecified:
         raise ValueError("confirm_reset_unspecified=True is required to reset unspecified pose bones")
     return await asyncio.to_thread(
@@ -84,7 +91,7 @@ async def set_character_pose(
 async def keyframe_character_pose(
     ctx: Context,
     armature_object_name: str,
-    action_name: str,
+    action_name: Annotated[str, Field(min_length=1, max_length=63)],
     frame: float,
     poses: Annotated[list[BonePose], Field(min_length=1, max_length=500)],
     space: Literal["LOCAL", "LOCAL_WITH_PARENT", "POSE", "WORLD"] = "LOCAL",
@@ -93,7 +100,16 @@ async def keyframe_character_pose(
     action_policy: Literal["CREATE", "REUSE"] = "CREATE",
     action_slot_identifier: str | None = None,
 ) -> dict:
-    """Apply a pose and insert, replace, or remove exact keys in a named action."""
+    """
+    Apply a pose and insert, replace, or remove exact keys in a named action.
+
+    action_policy="CREATE" (default) requires action_name to not already exist; "REUSE" requires
+    it to already exist, and is the only policy keying_policy="REMOVE" accepts. Each pose's
+    bone_name must name an existing pose bone on armature_object_name. action_slot_identifier
+    selects which of the action's animation slots to key by its `identifier`; it is only required
+    when the action already has multiple candidate slots and none is unambiguously suitable
+    (inspect the action's slots before assuming this can be omitted).
+    """
     if keying_policy == "REMOVE" and action_policy != "REUSE":
         raise ValueError("Removing keys requires action_policy='REUSE'")
     return await asyncio.to_thread(

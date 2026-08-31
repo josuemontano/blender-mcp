@@ -1,8 +1,11 @@
 """Agent-facing tools for building new retopology geometry: guides, patches, and boundaries."""
 
-from typing import Any, Literal
+import math
+
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from ...app import mcp
 from .._envelope import STALE_INDEX_WARNING, ok
@@ -16,7 +19,7 @@ async def create_retopology_guides(
     guides: list[dict[str, Any]],
     collection_name: str = "Retopology Guides",
     projection_offset: float = 0.0,
-    max_projection_distance: float | None = None,
+    max_projection_distance: Annotated[float, Field(gt=0)] | None = None,
 ) -> dict:
     """Create explicit world-space curve guides projected onto an evaluated source.
 
@@ -49,10 +52,10 @@ async def create_surface_section(
     source_object_name: str,
     plane_origin: tuple[float, float, float],
     plane_normal: tuple[float, float, float],
-    vertex_count: int,
+    vertex_count: Annotated[int, Field(ge=2)],
     name: str | None = None,
     collection_name: str = "Retopology Guides",
-    component_index: int = 0,
+    component_index: Annotated[int, Field(ge=0)] = 0,
     cyclic: bool = True,
     projection_offset: float = 0.0,
 ) -> dict:
@@ -77,15 +80,15 @@ async def set_retopology_features(
     object_name: str,
     edge_indices: list[int] | None = None,
     detect_source_object_name: str | None = None,
-    source_dihedral_angle: float | None = None,
+    source_dihedral_angle: Annotated[float, Field(ge=0, le=math.pi)] | None = None,
     include_material_boundaries: bool = False,
     guide_object_names: list[str] | None = None,
-    guide_distance: float = 0.01,
+    guide_distance: Annotated[float, Field(ge=0)] = 0.01,
     apply_detected: bool = False,
     seam: bool | None = None,
     sharp: bool | None = None,
-    crease: float | None = None,
-    bevel_weight: float | None = None,
+    crease: Annotated[float, Field(ge=0, le=1)] | None = None,
+    bevel_weight: Annotated[float, Field(ge=0, le=1)] | None = None,
     expected_revision: str | None = None,
 ) -> dict:
     """Detect and optionally write coherent feature marks on explicit target edges.
@@ -109,13 +112,13 @@ async def add_support_loops(
     ctx: Context,
     object_name: str,
     edge_indices: list[int],
-    width: float,
+    width: Annotated[float, Field(gt=0, le=10)],
     side: Literal["BOTH", "LEFT", "RIGHT"] = "BOTH",
     clamp: bool = True,
     corner_policy: Literal["MITER", "CAP_ENDPOINTS"] = "MITER",
     source_object_name: str | None = None,
     projection_offset: float = 0.0,
-    subdivision_levels: int = 2,
+    subdivision_levels: Annotated[int, Field(ge=0, le=6)] = 2,
     expected_revision: str | None = None,
 ) -> dict:
     """Insert deterministic support loops around selected manifold feature edges.
@@ -143,8 +146,8 @@ async def build_quad_patch(
     ctx: Context,
     object_name: str,
     corners: list[tuple[float, float, float]],
-    u_segments: int,
-    v_segments: int,
+    u_segments: Annotated[int, Field(ge=1, le=1000)],
+    v_segments: Annotated[int, Field(ge=1, le=1000)],
     source_object_name: str | None = None,
     coordinate_space: Literal["LOCAL", "WORLD"] = "WORLD",
     interpolation: Literal["BILINEAR", "COONS"] = "BILINEAR",
@@ -173,8 +176,8 @@ async def extend_boundary(
     ctx: Context,
     object_name: str,
     ordered_boundary_vertex_indices: list[int],
-    rows: int = 1,
-    distance: float = 0.1,
+    rows: Annotated[int, Field(ge=1, le=500)] = 1,
+    distance: Annotated[float, Field(gt=0)] = 0.1,
     mode: Literal["FIXED_VECTOR", "VERTEX_NORMAL", "GUIDE_DIRECTED", "SURFACE_TANGENT"] = "VERTEX_NORMAL",
     vector: tuple[float, float, float] = (0.0, 0.0, 1.0),
     guide_points: list[tuple[float, float, float]] | None = None,
@@ -201,7 +204,7 @@ async def fill_boundary_quads(
     ctx: Context,
     object_name: str,
     boundary_edge_indices: list[int],
-    span: int = 1,
+    span: Annotated[int, Field(ge=1)] = 1,
     offset: int = 0,
     use_interp_simple: bool = False,
     source_object_name: str | None = None,

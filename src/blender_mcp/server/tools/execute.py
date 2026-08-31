@@ -2,8 +2,11 @@
 
 import logging
 
+from typing import Annotated
+
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -13,7 +16,7 @@ logger = logging.getLogger("BlenderMCPServer")
 
 
 @mcp.tool()
-async def execute_blender_code(ctx: Context, code: str) -> dict:
+async def execute_blender_code(ctx: Context, code: Annotated[str, Field(min_length=1)]) -> dict:
     """
     Run arbitrary Python in the connected Blender session.
 

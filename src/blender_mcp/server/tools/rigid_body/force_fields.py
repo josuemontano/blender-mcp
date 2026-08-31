@@ -42,7 +42,16 @@ async def configure_rigid_body_force_fields(
     weights: RigidBodyEffectorWeightsPatch | None = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Create or patch force fields and the rigid-body world's effector weights."""
+    """
+    Create or patch force fields and the rigid-body world's effector weights.
+
+    Each entry in `fields` is matched to an existing object by object_name; set
+    create_if_missing=True on an entry to create that object when it doesn't already exist,
+    otherwise a missing object_name is an error. Fields are placed in force_collection_name, which
+    must already exist unless create_collection=True. This targets scene_name's rigid body world -
+    it must already exist. Rejects with confirm_delete_baked_cache=False if that world already has
+    a baked simulation cache, since editing fields/weights invalidates it.
+    """
     return await asyncio.to_thread(
         _call,
         "configure_rigid_body_force_fields",

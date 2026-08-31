@@ -263,7 +263,7 @@ def _models(items: Sequence[BaseModel]) -> list[dict]:
 @mcp.tool()
 async def get_rigid_body_scene_info(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     member_limit: Annotated[int, Field(ge=1, le=500)] = 100,
     member_offset: Annotated[int, Field(ge=0, le=99_999)] = 0,
     constraint_limit: Annotated[int, Field(ge=1, le=500)] = 100,
@@ -295,7 +295,7 @@ async def get_rigid_body_object_info(
 @mcp.tool()
 async def get_rigid_body_constraint_info(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     constraint_object_names: Annotated[list[str], Field(max_length=500)] | None = None,
     limit: Annotated[int, Field(ge=1, le=500)] = 100,
     offset: Annotated[int, Field(ge=0, le=99_999)] = 0,
@@ -316,9 +316,9 @@ async def get_rigid_body_constraint_info(
 @mcp.tool()
 async def configure_rigid_body_world(
     ctx: Context,
-    scene_name: str,
-    body_collection_name: str = "RigidBodyWorld",
-    constraint_collection_name: str = "RigidBodyConstraints",
+    scene_name: Annotated[str, Field(min_length=1)],
+    body_collection_name: Annotated[str, Field(min_length=1)] = "RigidBodyWorld",
+    constraint_collection_name: Annotated[str, Field(min_length=1)] = "RigidBodyConstraints",
     world: RigidBodyWorldPatch | None = None,
     gravity: Vector3 | None = None,
     use_gravity: bool | None = None,
@@ -349,16 +349,21 @@ async def configure_rigid_body_world(
 @mcp.tool()
 async def add_rigid_bodies(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     object_names: Annotated[list[str], Field(min_length=1, max_length=500)],
     body_type: BodyType,
     settings: RigidBodySettingsPatch | None = None,
-    source_settings_object_name: str | None = None,
-    world_collection_name: str | None = None,
+    source_settings_object_name: Annotated[str | None, Field(min_length=1)] = None,
+    world_collection_name: Annotated[str | None, Field(min_length=1)] = None,
     existing_policy: Literal["ERROR", "REUSE"] = "ERROR",
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Atomically add rigid bodies to validated mesh objects and preserve their existing collection links."""
+    """
+    Atomically add rigid bodies to validated mesh objects and preserve their existing collection links.
+
+    existing_policy="ERROR" (default) rejects any object that already has a rigid body; "REUSE" patches
+    it in place instead. To modify bodies you know already exist, prefer configure_rigid_bodies.
+    """
     if settings is not None and settings.type is not None and settings.type != body_type:
         raise ToolError("settings.type must match body_type")
     return await asyncio.to_thread(
@@ -381,11 +386,16 @@ async def add_rigid_bodies(
 @mcp.tool()
 async def configure_rigid_bodies(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     targets: Annotated[list[RigidBodyTarget], Field(min_length=1, max_length=500)],
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Atomically patch allowlisted rigid-body properties after validating the complete batch."""
+    """
+    Atomically patch allowlisted rigid-body properties after validating the complete batch.
+
+    Every target object must already have a rigid body; use add_rigid_bodies first for objects that
+    do not.
+    """
     if any(not target.settings.model_fields_set for target in targets):
         raise ToolError("Every target settings patch must contain at least one property")
     return await asyncio.to_thread(
@@ -403,12 +413,18 @@ async def configure_rigid_bodies(
 @mcp.tool()
 async def set_rigid_body_mass(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     assignments: Annotated[list[RigidBodyMassTarget], Field(min_length=1, max_length=500)],
     target_total_mass: Annotated[float | None, Field(gt=0.0)] = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Set direct mass or derive it from density and evaluated closed-mesh world volume."""
+    """
+    Set direct mass or derive it from density and evaluated closed-mesh world volume.
+
+    Each assignment must already have a rigid body and supplies exactly one of mass or density
+    (density-derived mass depends on a closed/manifold evaluated mesh). target_total_mass, when given,
+    additionally normalizes the batch's resulting masses to sum to that total.
+    """
     return await asyncio.to_thread(
         _call,
         "set_rigid_body_mass",
@@ -425,7 +441,7 @@ async def set_rigid_body_mass(
 @mcp.tool()
 async def set_rigid_body_collision_layers(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     targets: Annotated[list[RigidBodyLayerTarget], Field(min_length=1, max_length=500)],
     policy: Literal["REPLACE", "ADD", "REMOVE"] = "REPLACE",
     confirm_delete_baked_cache: bool = False,
@@ -447,13 +463,13 @@ async def set_rigid_body_collision_layers(
 @mcp.tool()
 async def create_rigid_body_collision_proxy(
     ctx: Context,
-    scene_name: str,
-    source_object_name: str,
-    proxy_name: str,
-    collection_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
+    source_object_name: Annotated[str, Field(min_length=1)],
+    proxy_name: Annotated[str, Field(min_length=1)],
+    collection_name: Annotated[str, Field(min_length=1)],
     approximation: Literal["BOX", "SPHERE", "CAPSULE", "CYLINDER", "CONVEX_HULL", "LOW_RES_SOURCE"],
     body_type: BodyType,
-    low_resolution_source_name: str | None = None,
+    low_resolution_source_name: Annotated[str | None, Field(min_length=1)] = None,
     drive_render_object: Literal["NONE", "PARENT", "COPY_TRANSFORMS"] = "NONE",
     hide_from_render: bool = True,
     settings: RigidBodySettingsPatch | None = None,
@@ -494,13 +510,13 @@ async def create_rigid_body_collision_proxy(
 @mcp.tool()
 async def create_rigid_body_constraint(
     ctx: Context,
-    scene_name: str,
-    name: str,
-    object1_name: str,
-    object2_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
+    name: Annotated[str, Field(min_length=1)],
+    object1_name: Annotated[str, Field(min_length=1)],
+    object2_name: Annotated[str, Field(min_length=1)],
     transform: ConstraintTransform,
     configuration: RigidBodyConstraintSpec,
-    collection_name: str | None = None,
+    collection_name: Annotated[str | None, Field(min_length=1)] = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
     """Create a typed rigid-body constraint at an explicit world transform between two bodies."""
@@ -524,11 +540,11 @@ async def create_rigid_body_constraint(
 @mcp.tool()
 async def configure_rigid_body_constraint(
     ctx: Context,
-    scene_name: str,
-    constraint_object_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
+    constraint_object_name: Annotated[str, Field(min_length=1)],
     configuration: RigidBodyConstraintSpec,
-    object1_name: str | None = None,
-    object2_name: str | None = None,
+    object1_name: Annotated[str | None, Field(min_length=1)] = None,
+    object2_name: Annotated[str | None, Field(min_length=1)] = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
     """Patch a constraint through a type-specific schema and optionally replace validated endpoints."""
@@ -552,7 +568,7 @@ async def configure_rigid_body_constraint(
 @mcp.tool()
 async def validate_rigid_body_setup(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     object_names: Annotated[list[str], Field(max_length=500)] | None = None,
     max_findings: Annotated[int, Field(ge=1, le=1000)] = 200,
     collision_pair_limit: Annotated[int, Field(ge=1, le=256)] = 64,

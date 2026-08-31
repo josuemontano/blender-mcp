@@ -3,7 +3,7 @@
 import asyncio
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
@@ -42,7 +42,7 @@ async def configure_world_background(
     ctx: Context,
     scene_name: str,
     color: tuple[float, float, float] | None = None,
-    strength: float | None = None,
+    strength: Annotated[float | None, Field(ge=0)] = None,
     transparent_film: bool | None = None,
     world_name: str | None = None,
     create_world: bool = False,
@@ -58,8 +58,6 @@ async def configure_world_background(
         raise ToolError("Provide color, strength, or transparent_film")
     if color is not None and any(channel < 0 or channel > 1 for channel in color):
         raise ToolError("color channels must be in [0, 1]")
-    if strength is not None and strength < 0:
-        raise ToolError("strength must be non-negative")
     if create_world and not world_name:
         raise ToolError("world_name is required when create_world is true")
     return await asyncio.to_thread(
@@ -81,7 +79,7 @@ async def configure_hdri_environment(
     ctx: Context,
     scene_name: str,
     image_path: str,
-    strength: float = 1.0,
+    strength: Annotated[float, Field(ge=0)] = 1.0,
     rotation: float = 0.0,
     projection: Literal["EQUIRECTANGULAR", "MIRROR_BALL"] = "EQUIRECTANGULAR",
     replacement_policy: Literal["REPLACE_MANAGED", "ERROR_IF_MANAGED"] = "REPLACE_MANAGED",
@@ -102,8 +100,6 @@ async def configure_hdri_environment(
         raise ToolError("image_path must be absolute")
     if path.suffix.lower() not in {".hdr", ".exr"}:
         raise ToolError("image_path must use .hdr or .exr")
-    if strength < 0:
-        raise ToolError("strength must be non-negative")
     if create_world and not world_name:
         raise ToolError("world_name is required when create_world is true")
     return await asyncio.to_thread(
@@ -132,7 +128,7 @@ async def configure_procedural_sky(
     sync_sun: bool = False,
     sun_name: str | None = None,
     sun_collection_name: str = "Lighting",
-    sun_energy: float = 1.0,
+    sun_energy: Annotated[float, Field(ge=0)] = 1.0,
     world_name: str | None = None,
     create_world: bool = False,
 ) -> dict:
@@ -145,8 +141,6 @@ async def configure_procedural_sky(
     """
     if sync_sun and not sun_name:
         raise ToolError("sun_name is required when sync_sun is true")
-    if sun_energy < 0:
-        raise ToolError("sun_energy must be non-negative")
     if create_world and not world_name:
         raise ToolError("world_name is required when create_world is true")
     return await asyncio.to_thread(

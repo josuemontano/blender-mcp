@@ -38,7 +38,15 @@ async def create_compound_rigid_body(
     child_collision_shape: Literal["BOX", "SPHERE", "CAPSULE", "CYLINDER", "CONE", "CONVEX_HULL"] = "CONVEX_HULL",
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Assemble convex child colliders beneath an active COMPOUND root while preserving world transforms."""
+    """
+    Assemble convex child colliders beneath an active COMPOUND root while preserving world transforms.
+
+    root_object_name becomes the single active COMPOUND rigid body; child_object_names become its
+    child shapes (each shaped per child_collision_shape) without their own independent rigid body
+    settings. render_object_name, if given, is an existing visual mesh that is parented to the root
+    so it follows the compound's simulated motion, but is not itself treated as a collider - use this
+    to keep a single non-convex render mesh in sync with a compound made of simpler convex proxies.
+    """
     if root_object_name in child_object_names or len(set(child_object_names)) != len(child_object_names):
         raise ToolError("root and child_object_names must be unique")
     return await asyncio.to_thread(
@@ -71,7 +79,16 @@ async def create_rigid_body_constraint_network(
     collection_name: str | None = None,
     confirm_delete_baked_cache: bool = False,
 ) -> dict:
-    """Build a bounded, deterministic constraint graph through the shared constraint builder."""
+    """
+    Build a bounded, deterministic constraint graph connecting body_names with `configuration`.
+
+    pairing selects how edges are derived: EXPLICIT uses exactly the given `edges` (required, and
+    the only pairing that accepts edges); CHAIN links each consecutive pair in body_names in order;
+    NEAREST links each body to its single closest other body; RADIUS links every pair of bodies
+    within `radius` (required) of each other, up to max_neighbors per body; PARENT links each body
+    to its existing Blender object-parent, if that parent is also in body_names. All pairings other
+    than EXPLICIT ignore edges.
+    """
     if len(set(body_names)) != len(body_names):
         raise ToolError("body_names must be unique")
     if pairing == "EXPLICIT" and not edges:

@@ -58,6 +58,7 @@ _DESTRUCTIVE_PREFIXES = (
     "copy_",
     "fit_",
     "frame_",
+    "keyframe_",
     "manage_",
     "match_",
     "mesh_",
@@ -75,6 +76,7 @@ _DESTRUCTIVE_PREFIXES = (
 )
 _DESTRUCTIVE_TOOLS = {
     "apply_polyhaven_texture",
+    "assign_bone_custom_shapes",
     "bind_mesh_to_armature",
     "clean_skin_weights",
     "create_camera_markers",
@@ -134,8 +136,16 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "Whether to apply the result to base data. False keeps the operation live and reversible; "
         "true may change topology irreversibly."
     ),
+    "array_index": (
+        "Zero-based index into the target array property (for example 0/1/2 for X/Y/Z on a vector or color "
+        "channel); the tool description states the sentinel meaning 'not an array property'."
+    ),
     "asset_id": "Exact Poly Haven asset identifier returned by search_polyhaven_assets.",
     "asset_type": "Provider asset class used to filter, download, or interpret the result.",
+    "cache_directory": (
+        "Explicit external filesystem directory for this simulation's disk cache; omitting it keeps the cache "
+        "in Blender's default location alongside the .blend file."
+    ),
     "camera_name": "Exact name of the existing Blender Camera object to inspect or modify.",
     "categories": "Comma-separated provider category slugs; omit to avoid category filtering.",
     "code": (
@@ -143,6 +153,10 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
     ),
     "collection_name": (
         "Exact Blender collection name to use. The tool description states whether it must exist or may be created."
+    ),
+    "collision_layers": (
+        "Rigid-body collision layer indices, each from 1 to 20, this object belongs to; two rigid bodies can "
+        "collide only if they share at least one layer."
     ),
     "confirm": (
         "Explicit acknowledgement required for the consequential operation; false performs no confirmed "
@@ -168,6 +182,10 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "topology changes."
     ),
     "element_type": "Mesh element kind to inspect; determines the shape of each returned element record.",
+    "existing_policy": (
+        "How to handle an already-existing same-named resource: ERROR fails the operation; REUSE targets the "
+        "existing resource instead of creating a new one."
+    ),
     "expected_revision": (
         "Topology revision from the latest inspection. When supplied, stale topology is rejected before mutation."
     ),
@@ -201,8 +219,24 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "Whether an existing destination may be replaced. False preserves existing data and returns an error on "
         "collision."
     ),
+    "owner_space": (
+        "Coordinate space the constrained object's own transform is evaluated in before the constraint applies."
+    ),
     "patch": "Strict partial update object. Omitted fields remain unchanged and unknown fields are rejected.",
     "policy": "Conflict or replacement policy controlling how existing data is handled.",
+    "projection_offset": (
+        "Signed offset applied along the reference surface normal when projecting or reprojecting geometry; "
+        "positive moves outward, negative moves inward."
+    ),
+    "property_bone_name": (
+        "Exact pose bone name that owns the referenced custom property; required when property_owner is "
+        "POSE_BONE and ignored otherwise."
+    ),
+    "property_owner": "Whether the referenced custom property lives on the object itself or on one of its pose bones.",
+    "rig_id": (
+        "Exact identifier tag assigned when the rig's helper objects were created; selects all of that rig's "
+        "generated helpers together."
+    ),
     "rotation_euler": "Three XYZ Euler angles [x, y, z] in radians.",
     "rotation_quaternion": "Quaternion [w, x, y, z]; use a normalized non-zero quaternion.",
     "scene_name": "Exact name of the Blender scene to inspect or modify.",
@@ -214,8 +248,14 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "source_object_names": (
         "Ordered exact names of existing source objects; ordering significance is stated by the tool."
     ),
+    "stack_index": (
+        "Zero-based position within the existing modifier or constraint stack to target; -1 means the last entry."
+    ),
     "target_object_name": "Exact name of the existing Blender object receiving or defining the operation target.",
     "target_size": "Positive target size in Blender scene units.",
+    "target_space": (
+        "Coordinate space the constraint target's transform is evaluated in before the constraint applies."
+    ),
     "texture_id": "Exact Poly Haven texture identifier previously imported with import_polyhaven_asset.",
     "uid": "Exact Sketchfab model UID returned by search_sketchfab_models.",
     "vertex_indices": (

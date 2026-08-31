@@ -61,7 +61,7 @@ async def sample_liquid_simulation(
     ctx: Context,
     domain_object_name: str,
     modifier_name: str,
-    frames: list[int],
+    frames: Annotated[list[int], Field(min_length=1, max_length=32)],
     timeout_seconds: Annotated[float, Field(gt=0.0, le=300.0)] = 30.0,
     boundary_tolerance_cells: Annotated[float, Field(ge=0.0, le=10.0)] = 1.0,
 ) -> dict:

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import sys
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
@@ -145,12 +145,12 @@ def _call(command: str, params: dict, changed_objects: list[str] | None = None) 
 @mcp.tool()
 async def get_liquid_simulation_info(
     ctx: Context,
-    scene_name: str | None = None,
+    scene_name: Annotated[str | None, Field(min_length=1)] = None,
     domain_object_name: str | None = None,
-    domain_limit: int = 25,
-    domain_offset: int = 0,
-    dependency_limit: int = 100,
-    dependency_offset: int = 0,
+    domain_limit: Annotated[int, Field(ge=1, le=100)] = 25,
+    domain_offset: Annotated[int, Field(ge=0)] = 0,
+    dependency_limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+    dependency_offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """Inspect liquid domains, scoped dependencies, cache stages, and outputs without evaluating frames.
 
@@ -180,8 +180,8 @@ async def get_fluid_object_info(ctx: Context, object_name: str) -> dict:
 @mcp.tool()
 async def create_liquid_domain(
     ctx: Context,
-    scene_name: str,
-    cache_directory: str,
+    scene_name: Annotated[str, Field(min_length=1)],
+    cache_directory: Annotated[str, Field(min_length=1)],
     object_name: str | None = None,
     new_object_name: str = "Liquid Domain",
     collection_name: str | None = None,
@@ -193,18 +193,21 @@ async def create_liquid_domain(
     cache_type: CacheType = "REPLAY",
     cache_frame_start: int = 1,
     cache_frame_end: int = 250,
-    resolution_max: int = 64,
+    resolution_max: Annotated[int, Field(ge=6, le=10_000)] = 64,
     simulation_method: SimulationMethod = "FLIP",
-    time_scale: float = 1.0,
+    time_scale: Annotated[float, Field(gt=0.0)] = 1.0,
     use_adaptive_timesteps: bool = True,
-    timesteps_min: int = 1,
-    timesteps_max: int = 4,
-    cfl_condition: float = 4.0,
+    timesteps_min: Annotated[int, Field(ge=1)] = 1,
+    timesteps_max: Annotated[int, Field(ge=1)] = 4,
+    cfl_condition: Annotated[float, Field(gt=0.0)] = 4.0,
 ) -> dict:
     """Create a unit-scale box domain or add a live liquid domain to an explicit mesh.
 
     The cache path is configured but no directory, cache, or bake is created. New boxes bake their
-    requested dimensions into mesh coordinates. Named flow/effector collections are created or reused.
+    requested dimensions into mesh coordinates; dimensions must be three positive, finite values.
+    Named flow/effector collections are created or reused. cache_frame_start must be <=
+    cache_frame_end and timesteps_min must be <= timesteps_max. When object_name is given, that mesh
+    must already have vertices/faces, non-zero finite scale, and no existing fluid domain modifier.
     """
     return await asyncio.to_thread(
         _call,
@@ -238,26 +241,30 @@ async def create_liquid_domain(
 @mcp.tool()
 async def fit_liquid_domain(
     ctx: Context,
-    scene_name: str,
-    source_object_names: list[str],
+    scene_name: Annotated[str, Field(min_length=1)],
+    source_object_names: Annotated[list[str], Field(min_length=1)],
     collider_object_names: list[str] | None = None,
     domain_object_name: str | None = None,
     new_domain_name: str = "Liquid Domain",
-    cache_directory: str | None = None,
+    cache_directory: Annotated[str | None, Field(min_length=1)] = None,
     collection_name: str | None = None,
     modifier_name: str = "Liquid Domain",
     padding: tuple[float, float, float] = (0.25, 0.25, 0.25),
     expected_travel: tuple[float, float, float] = (0.0, 0.0, 0.0),
-    splash_height: float = 0.0,
+    splash_height: Annotated[float, Field(ge=0.0)] = 0.0,
     sample_frame_start: int | None = None,
     sample_frame_end: int | None = None,
-    sample_frame_step: int = 1,
+    sample_frame_step: Annotated[int, Field(ge=1)] = 1,
     open_boundaries: list[BoundaryFace] | None = None,
 ) -> dict:
     """Fit an unbaked domain to bounded sampled world-space source/collider motion.
 
-    With no domain name, a new unit-scale box is created and ``cache_directory`` is required. At most
-    32 frames are sampled; the original frame is always restored. Existing object transforms are kept.
+    With no domain name, a new unit-scale box is created and ``cache_directory`` is required. Frames
+    are sampled from sample_frame_start through sample_frame_end (sample_frame_end must be >=
+    sample_frame_start; at most 32 frames total, narrow the range or raise sample_frame_step if that
+    is exceeded), and the original current frame is always restored afterward. padding must be three
+    non-negative values; existing object transforms are kept. Refitting an existing domain requires
+    its mesh datablock to be single-user (not shared with another object).
     """
     return await asyncio.to_thread(
         _call,
@@ -287,7 +294,11 @@ async def fit_liquid_domain(
 async def configure_liquid_solver(
     ctx: Context, domain_object_name: str, modifier_name: str, patch: LiquidSolverPatch
 ) -> dict:
-    """Patch only supplied core liquid solver fields on one unbaked domain."""
+    """Patch only supplied core liquid solver fields on one unbaked domain.
+
+    patch must set at least one field. If both are given, timesteps_min must be <= timesteps_max and
+    particle_min must be <= particle_max (enforced by LiquidSolverPatch).
+    """
     return await asyncio.to_thread(
         _call,
         "configure_liquid_solver",
@@ -309,7 +320,9 @@ async def add_liquid_flow(
     """Add or explicitly reuse a liquid mesh flow and register it with one unbaked domain.
 
     Blender 5.1 exposes mesh emission for this surface; unsupported particle sources are rejected
-    instead of assigning the unstable dynamic ``flow_source`` enum.
+    instead of assigning the unstable dynamic ``flow_source`` enum. object_name and domain_object_name
+    must differ - a domain cannot also be its own flow. existing_policy="REUSE" requires object_name
+    to already carry a LIQUID flow modifier; existing_policy="ERROR" fails if modifier_name is taken.
     """
     return await asyncio.to_thread(
         _call,
@@ -334,7 +347,11 @@ async def configure_liquid_flow(
     domain_object_name: str,
     patch: LiquidFlowPatch,
 ) -> dict:
-    """Patch emission, subframes, and velocity on an existing domain-associated liquid flow."""
+    """Patch emission, subframes, and velocity on an existing domain-associated liquid flow.
+
+    patch must set at least one field. patch.use_inflow only has an effect when the flow's behavior
+    is INFLOW. patch.density_vertex_group, if set, must name an existing vertex group on object_name.
+    """
     return await asyncio.to_thread(
         _call,
         "configure_liquid_flow",
@@ -358,7 +375,12 @@ async def add_liquid_effector(
     effector_type: EffectorType = "COLLISION",
     settings: LiquidEffectorPatch | None = None,
 ) -> dict:
-    """Add or reuse a collision/guide effector and register it without changing existing links or animation."""
+    """Add or reuse a collision/guide effector and register it without changing existing links or animation.
+
+    object_name and domain_object_name must differ - a domain cannot also be its own effector.
+    existing_policy="REUSE" requires object_name to already carry a LIQUID effector modifier;
+    existing_policy="ERROR" fails if modifier_name is taken.
+    """
     return await asyncio.to_thread(
         _call,
         "add_liquid_effector",
@@ -382,7 +404,10 @@ async def configure_liquid_effector(
     domain_object_name: str,
     patch: LiquidEffectorPatch,
 ) -> dict:
-    """Patch an existing domain-associated liquid collision or guide effector."""
+    """Patch an existing domain-associated liquid collision or guide effector.
+
+    patch must set at least one field.
+    """
     return await asyncio.to_thread(
         _call,
         "configure_liquid_effector",
@@ -413,7 +438,10 @@ async def configure_liquid_scope_and_boundaries(
     """Set domain collection scopes and domain-local collision faces on an unbaked domain.
 
     ``True`` means the local face collides; ``False`` opens it. The returned world matrix makes the
-    local FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM mapping explicit.
+    local FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM mapping explicit. At least one collection name, clear_*
+    flag, or boundaries field must be given - calling this with every parameter left at its default
+    is rejected. For each of flow/effector/force, setting the matching *_collection_name and clear_*
+    flag together in the same call is also rejected.
     """
     return await asyncio.to_thread(
         _call,
@@ -447,11 +475,16 @@ async def estimate_liquid_resources(ctx: Context, domain_object_name: str, modif
 @mcp.tool()
 async def validate_liquid_setup(
     ctx: Context,
-    scene_name: str,
+    scene_name: Annotated[str, Field(min_length=1)],
     domain_object_names: list[str] | None = None,
-    max_findings: int = 200,
+    max_findings: Annotated[int, Field(ge=1, le=1000)] = 200,
 ) -> dict:
-    """Run a bounded non-mutating preflight over liquid domains, dependencies, cache, and output readiness."""
+    """Run a bounded non-mutating preflight over liquid domains, dependencies, cache, and output readiness.
+
+    Omitting domain_object_names (or passing an empty list) validates every liquid domain in the
+    scene. The result's "truncated" flag indicates more findings existed than max_findings allowed
+    through.
+    """
     return await asyncio.to_thread(
         _call,
         "validate_liquid_setup",

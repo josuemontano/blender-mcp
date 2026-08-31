@@ -529,7 +529,8 @@ async def get_character_rig_info(
     dependency_offset: Annotated[int, Field(ge=0, le=99_999)] = 0,
     include_custom_properties: bool = True,
 ) -> dict:
-    """Inspect a rig without changing it.
+    """
+    Inspect a rig without changing it.
 
     Rest coordinates are armature-local; pose records include armature-space and world-space matrices.
     """
@@ -551,7 +552,7 @@ async def get_character_rig_info(
 async def get_skinning_info(
     ctx: Context,
     armature_object_name: str,
-    mesh_object_names: list[str] | None = None,
+    mesh_object_names: Annotated[list[str], Field(min_length=1, max_length=200)] | None = None,
     influence_limit: Annotated[int, Field(ge=1, le=64)] = 4,
     normalization_tolerance: Annotated[float, Field(ge=0.0, le=1.0)] = 1e-4,
     weight_epsilon: Annotated[float, Field(ge=0.0, le=1.0)] = 1e-6,
@@ -577,13 +578,18 @@ async def get_skinning_info(
 @mcp.tool()
 async def create_armature(
     ctx: Context,
-    name: str,
-    collection_name: str,
+    name: Annotated[str, Field(min_length=1, max_length=63)],
+    collection_name: Annotated[str, Field(min_length=1, max_length=63)],
     bones: Annotated[list[InitialBone], Field(max_length=1_000)] | None = None,
     world_transform: RigWorldTransform | None = None,
     display: ArmatureDisplaySettings | None = None,
 ) -> dict:
-    """Create a collision-safe armature and one fully prevalidated initial hierarchy."""
+    """
+    Create a collision-safe armature and one fully prevalidated initial hierarchy.
+
+    collection_name is looked up by name and reused if it already exists in the scene, or
+    created if it does not - it is never required to pre-exist.
+    """
     return await asyncio.to_thread(
         _call,
         "create_armature",
@@ -695,7 +701,11 @@ async def bind_mesh_to_armature(
     replacement_policy: Literal["PRESERVE", "REPLACE"] = "PRESERVE",
     confirm_replace_weights: bool = False,
 ) -> dict:
-    """Bind explicit meshes using groups, automatic weights, envelopes, or existing weights with rollback on failure."""
+    """
+    Bind explicit meshes using groups, automatic weights, envelopes, or existing weights with rollback on failure.
+
+    armature_object_name must already reference an object of type ARMATURE.
+    """
     if replacement_policy == "REPLACE" and not confirm_replace_weights:
         raise ToolError("confirm_replace_weights=True is required when replacement_policy='REPLACE'")
     return await asyncio.to_thread(
@@ -740,11 +750,11 @@ async def clean_skin_weights(
     ctx: Context,
     mesh_object_name: str,
     armature_object_name: str | None = None,
-    vertex_indices: list[int] | None = None,
+    vertex_indices: Annotated[list[int], Field(min_length=1, max_length=100_000)] | None = None,
     threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 1e-4,
     influence_limit: Annotated[int | None, Field(ge=1, le=64)] = 4,
     normalize: Literal["NONE", "ALL", "DEFORM"] = "DEFORM",
-    protected_group_names: list[str] | None = None,
+    protected_group_names: Annotated[list[str], Field(min_length=1, max_length=500)] | None = None,
     remove_orphan_groups: bool = False,
     confirm_remove_orphan_groups: bool = False,
 ) -> dict:
@@ -776,7 +786,11 @@ async def add_pose_bone_constraint(
     bone_name: str,
     constraint: PoseConstraintSpec,
 ) -> dict:
-    """Create or update one typed pose-bone constraint after validating targets and dependency cycles."""
+    """
+    Create or update one typed pose-bone constraint after validating targets and dependency cycles.
+
+    bone_name must already exist as a pose bone on armature_object_name; this tool cannot create bones.
+    """
     return await asyncio.to_thread(
         _call,
         "add_pose_bone_constraint",
@@ -792,8 +806,8 @@ async def add_pose_bone_constraint(
 @mcp.tool()
 async def validate_character_rig(
     ctx: Context,
-    armature_object_names: list[str] | None = None,
-    mesh_object_names: list[str] | None = None,
+    armature_object_names: Annotated[list[str], Field(min_length=1, max_length=200)] | None = None,
+    mesh_object_names: Annotated[list[str], Field(min_length=1, max_length=200)] | None = None,
     frames: Annotated[list[int], Field(max_length=50)] | None = None,
     influence_limit: Annotated[int, Field(ge=1, le=64)] = 4,
     normalization_tolerance: Annotated[float, Field(ge=0.0, le=1.0)] = 1e-4,

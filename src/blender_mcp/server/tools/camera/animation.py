@@ -72,9 +72,9 @@ async def keyframe_camera_rig(
 @mcp.tool()
 async def set_camera_interpolation(
     ctx: Context,
-    object_name: str,
+    object_name: Annotated[str, Field(min_length=1)],
     owner: Literal["OBJECT", "CAMERA_DATA"],
-    data_path: str,
+    data_path: Annotated[str, Field(min_length=1)],
     frame_start: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
     frame_end: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
     array_index: Annotated[int | None, Field(ge=0, le=3)] = None,
@@ -83,7 +83,14 @@ async def set_camera_interpolation(
     handle_right: HandleType = "AUTO_CLAMPED",
     easing: Literal["AUTO", "EASE_IN", "EASE_OUT", "EASE_IN_OUT"] | None = None,
 ) -> dict:
-    """Change interpolation only on one exact channel and inclusive frame interval."""
+    """
+    Change interpolation only on one exact channel and inclusive frame interval.
+
+    ``data_path`` must be one of: for ``owner="OBJECT"``, ``location``, ``rotation_euler``,
+    ``rotation_quaternion``, or ``scale``; for ``owner="CAMERA_DATA"``, ``lens``, ``ortho_scale``,
+    ``shift_x``, ``shift_y``, ``clip_start``, or ``clip_end``. Use ``keyframe_camera_rig`` first to
+    author keys on these channels; this tool never creates keyframes itself.
+    """
     if frame_start > frame_end:
         raise ToolError("frame_start must be less than or equal to frame_end")
     return await asyncio.to_thread(_call, "set_camera_interpolation", _tool_params(locals()), [object_name])

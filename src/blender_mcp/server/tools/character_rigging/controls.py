@@ -171,11 +171,19 @@ async def create_ik_chain(
     chain_bone_names: Annotated[list[str], Field(min_length=1, max_length=64)],
     target_control: ControlBoneDefinition,
     pole_control: PoleControlDefinition | None = None,
-    constraint_name: str = "IK",
+    constraint_name: Annotated[str, Field(min_length=1, max_length=63)] = "IK",
     iterations: Annotated[int, Field(ge=1, le=10_000)] = 500,
     use_stretch: bool = False,
 ) -> dict:
-    """Create non-deforming target/pole controls and an IK constraint on a contiguous chain."""
+    """
+    Create non-deforming target/pole controls and an IK constraint on a contiguous chain.
+
+    All bones named in chain_bone_names, and armature_object_name itself, must already exist.
+    chain_bone_names must be ordered from the chain root to its tip and form an unbroken
+    parent/child chain; the IK constraint is added to the tip bone. target_control (and
+    pole_control, when given) describe new non-deforming control bones this call creates - use
+    create_ik_fk_limb instead when the goal is a switchable FK/IK blend rather than IK-only.
+    """
     return await asyncio.to_thread(
         _call,
         "create_ik_chain",
@@ -197,16 +205,26 @@ async def create_ik_fk_limb(
     ctx: Context,
     armature_object_name: str,
     deform_bone_names: Annotated[list[str], Field(min_length=2, max_length=16)],
-    property_bone_name: str,
-    property_name: str = "ik_fk",
-    fk_prefix: str = "FK-",
-    ik_prefix: str = "IK-",
-    mechanism_collection: str = "MCH",
-    control_collection: str = "CTRL",
+    property_bone_name: Annotated[str, Field(min_length=1, max_length=63)],
+    property_name: Annotated[str, Field(min_length=1)] = "ik_fk",
+    fk_prefix: Annotated[str, Field(min_length=1, max_length=32)] = "FK-",
+    ik_prefix: Annotated[str, Field(min_length=1, max_length=32)] = "IK-",
+    mechanism_collection: Annotated[str, Field(min_length=1, max_length=63)] = "MCH",
+    control_collection: Annotated[str, Field(min_length=1, max_length=63)] = "CTRL",
     ik_target: ControlBoneDefinition | None = None,
     pole_control: PoleControlDefinition | None = None,
 ) -> dict:
-    """Duplicate explicit DEF bones into FK/IK chains and drive a bounded IK/FK blend."""
+    """
+    Duplicate explicit DEF bones into FK/IK chains and drive a bounded IK/FK blend.
+
+    deform_bone_names must be an existing, unbroken, root-to-tip parent chain of deforming
+    bones on armature_object_name; each is duplicated (not modified) into an FK copy and an IK
+    copy named with fk_prefix/ik_prefix, which must differ. property_bone_name/property_name
+    identify a custom property (created at 0=FK, 1=IK) whose drivers blend the DEF bones between
+    the two duplicated chains - read it back with get_character_rig_info or similar inspection
+    tools before assuming a starting pose. Use create_ik_chain instead for a plain, non-switchable
+    IK setup.
+    """
     if fk_prefix == ik_prefix:
         raise ValueError("fk_prefix and ik_prefix must differ")
     return await asyncio.to_thread(
@@ -233,19 +251,25 @@ async def create_spline_ik_rig(
     ctx: Context,
     armature_object_name: str,
     chain_bone_names: Annotated[list[str], Field(min_length=2, max_length=256)],
-    constraint_name: str = "Spline IK",
+    constraint_name: Annotated[str, Field(min_length=1, max_length=63)] = "Spline IK",
     curve_object_name: str | None = None,
-    new_curve_name: str | None = None,
+    new_curve_name: Annotated[str | None, Field(min_length=1, max_length=63)] = None,
     curve_points: Annotated[list[tuple[float, float, float]], Field(min_length=2, max_length=256)] | None = None,
-    curve_collection_name: str | None = None,
+    curve_collection_name: Annotated[str | None, Field(min_length=1, max_length=63)] = None,
     use_even_divisions: bool = True,
     y_scale_mode: Literal["NONE", "FIT_CURVE", "BONE_ORIGINAL"] = "FIT_CURVE",
     xz_scale_mode: Literal["NONE", "BONE_ORIGINAL", "INVERSE_PRESERVE", "VOLUME_PRESERVE"] = "VOLUME_PRESERVE",
     use_curve_radius: bool = True,
 ) -> dict:
-    """Add Spline IK to a contiguous chain using an existing or newly-created curve.
+    """
+    Add Spline IK to a contiguous chain using an existing or newly-created curve.
 
-    New curve points are armature-local, and the curve object receives the armature's world transform.
+    chain_bone_names must be an existing, unbroken, root-to-tip parent chain on
+    armature_object_name. Supply exactly one of: curve_object_name (an existing curve object to
+    reuse as-is), or all three of new_curve_name/curve_points/curve_collection_name together (to
+    create a new curve) - mixing or omitting both raises a validation error before anything is
+    changed. New curve points are armature-local, and the curve object receives the armature's
+    world transform.
     """
     existing = curve_object_name is not None
     creating = new_curve_name is not None or curve_points is not None or curve_collection_name is not None
@@ -278,9 +302,9 @@ async def create_rig_property_driver(
     ctx: Context,
     armature_object_name: str,
     property_owner: Literal["OBJECT", "POSE_BONE"],
-    property_name: str,
+    property_name: Annotated[str, Field(min_length=1)],
     destinations: Annotated[list[DrivenChannel], Field(min_length=1, max_length=100)],
-    property_bone_name: str | None = None,
+    property_bone_name: Annotated[str | None, Field(min_length=1, max_length=63)] = None,
     default: float = 0.0,
     minimum: float = 0.0,
     maximum: float = 1.0,
@@ -289,7 +313,16 @@ async def create_rig_property_driver(
     factor: float = 1.0,
     offset: float = 0.0,
 ) -> dict:
-    """Create one bounded rig property and safely drive allowlisted destination channels."""
+    """
+    Create one bounded custom property and drive allowlisted destination channels from it.
+
+    property_bone_name is required (and must name an existing pose bone) when property_owner is
+    POSE_BONE, and is ignored for OBJECT. minimum/maximum/soft_minimum/soft_maximum/default must
+    satisfy minimum <= soft_minimum <= soft_maximum <= maximum and minimum <= default <= maximum,
+    or this raises before anything is changed. Each destination's owner-specific identity field
+    (bone_name, constraint_name, shape_key_name, or modifier_name) must reference an object,
+    bone, constraint, shape key, or modifier that already exists on the named object.
+    """
     if minimum >= maximum or not minimum <= default <= maximum:
         raise ValueError("Require minimum < maximum and default inside that range")
     if soft_minimum is not None and not minimum <= soft_minimum <= maximum:
@@ -326,10 +359,19 @@ async def assign_bone_custom_shapes(
     ctx: Context,
     armature_object_name: str,
     assignments: Annotated[list[CustomShapeAssignment], Field(min_length=1, max_length=500)],
-    widget_collection_name: str | None = None,
+    widget_collection_name: Annotated[str | None, Field(min_length=1, max_length=63)] = None,
     hide_widgets_from_render: bool = True,
 ) -> dict:
-    """Assign reusable widget objects to pose bones without duplicating their geometry."""
+    """
+    Assign reusable widget objects to pose bones without duplicating their geometry.
+
+    Each assignment's bone_name must name an existing pose bone on armature_object_name, and
+    shape_object_name must name an existing mesh or curve object already in the scene - this
+    tool references that object as the bone's display shape, it does not create one.
+    transform_bone_name, if given, must also name an existing bone whose transform offsets the
+    displayed shape. widget_collection_name, if given, moves referenced widget objects into that
+    collection (created if missing).
+    """
     return await asyncio.to_thread(
         _call,
         "assign_bone_custom_shapes",
@@ -350,9 +392,17 @@ async def create_shape_key_controls(
     armature_object_name: str,
     property_owner: Literal["OBJECT", "POSE_BONE"],
     controls: Annotated[list[ShapeKeyControl], Field(min_length=1, max_length=200)],
-    property_bone_name: str | None = None,
+    property_bone_name: Annotated[str | None, Field(min_length=1, max_length=63)] = None,
 ) -> dict:
-    """Drive existing shape keys from bounded armature or pose-bone properties."""
+    """
+    Drive existing shape keys from new bounded armature or pose-bone custom properties.
+
+    Every shape key named in controls (shape_key_name, or positive_shape_key_name/
+    negative_shape_key_name for a SIGNED control) must already exist on mesh_object_name's mesh -
+    this tool only creates the driving custom properties and drivers, not the shape keys
+    themselves. property_bone_name is required (and must name an existing pose bone) when
+    property_owner is POSE_BONE, and is ignored for OBJECT.
+    """
     if property_owner == "POSE_BONE" and not property_bone_name:
         raise ValueError("property_bone_name is required for a POSE_BONE property")
     return await asyncio.to_thread(

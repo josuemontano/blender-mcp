@@ -21,7 +21,16 @@ async def analyze_rigid_body_performance(
     triangle_warning_threshold: Annotated[int, Field(ge=100, le=10_000_000)] = 50_000,
     timeout_seconds: Annotated[float, Field(gt=0.0, le=120.0)] = 20.0,
 ) -> dict:
-    """Report structural costs and optional whole-frame evaluation timing without inventing Bullet profiler data."""
+    """
+    Report structural costs and optional whole-frame evaluation timing without inventing Bullet profiler data.
+
+    Always reports structural costs for object_names: triangle counts (flagged against
+    triangle_warning_threshold) and an estimated collision-pair count (bounded by
+    maximum_pair_checks). When sample_frames is given, additionally times how long evaluating the
+    scene at each of those frames actually takes, bounded by timeout_seconds; omit sample_frames to
+    skip that timing pass. This never fabricates Bullet (Blender's rigid-body physics engine)
+    internal profiler numbers that aren't available through the API.
+    """
     frames = sample_frames or []
     if len(object_names) != len(set(object_names)):
         raise ToolError("object_names must be unique")

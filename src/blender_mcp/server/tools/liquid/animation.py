@@ -42,7 +42,7 @@ async def animate_liquid_flow(
     object_name: str,
     modifier_name: str,
     domain_object_name: str,
-    keyframes: list[LiquidFlowKeyframe],
+    keyframes: Annotated[list[LiquidFlowKeyframe], Field(min_length=1)],
     policy: AnimationPolicy = "INSERT_ONLY",
     subframes: Annotated[int, Field(ge=0, le=200)] | None = None,
 ) -> dict:

@@ -70,7 +70,16 @@ async def sample_rigid_body_simulation(
     escape_bounds_max: Vector3 | None = None,
     timeout_seconds: Annotated[float, Field(gt=0.0, le=300.0)] = 30.0,
 ) -> dict:
-    """Sequentially evaluate bounded frames and return transforms plus stability diagnostics."""
+    """
+    Sequentially evaluate bounded frames and return transforms plus stability diagnostics.
+
+    For each object at each selected frame, reports its transform and, when include_velocity is
+    true, linear/angular velocity. An object whose speed drops below stationary_speed is reported
+    as settled; supplying escape_bounds_min and escape_bounds_max together (both or neither) flags
+    any object whose location leaves that world-space box as having escaped the simulation. This
+    only evaluates the current scene state frame-by-frame - it does not bake or write keyframes; use
+    bake_rigid_bodies_to_keyframes for that.
+    """
     if (escape_bounds_min is None) != (escape_bounds_max is None):
         raise ToolError("escape_bounds_min and escape_bounds_max must be supplied together")
     return await asyncio.to_thread(
@@ -102,7 +111,19 @@ async def manage_rigid_body_cache(
     confirm_external_overwrite: bool = False,
     max_frame_steps: Annotated[int, Field(ge=1, le=10_000)] = 250,
 ) -> dict:
-    """Inspect, configure, evaluate, bake, or explicitly free the exact rigid-body world cache."""
+    """
+    Inspect, configure, evaluate, bake, or explicitly free scene_name's rigid-body world point cache.
+
+    action selects the operation: INSPECT reports the current cache settings and bake state (no
+    settings or calculate_frame accepted); CONFIGURE applies `settings` (required, and only accepted
+    for this action) such as frame range, disk/external cache paths, and cache name/index;
+    CALCULATE_TO_FRAME evaluates up to calculate_frame (required only for this action) without a
+    full bake; BAKE and BAKE_FROM_CACHE compute or continue the full cache and require
+    confirm_bake=True; FREE discards the cache and requires confirm_free=True.
+    confirm_external_overwrite additionally guards actions that would overwrite an existing external
+    cache file. max_frame_steps bounds how many frames a single call may evaluate before returning
+    early.
+    """
     patch = settings.model_dump(exclude_none=True, exclude_unset=True) if settings else {}
     if action == "CONFIGURE" and not patch:
         raise ToolError("CONFIGURE requires settings")

@@ -5,7 +5,7 @@
 import asyncio
 import logging
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
@@ -60,6 +60,7 @@ ClothExportUnits = Literal["SCENE", "METERS", "CENTIMETERS", "MILLIMETERS"]
 ClothExportAxis = Literal["X", "Y", "Z", "NEGATIVE_X", "NEGATIVE_Y", "NEGATIVE_Z"]
 ClothTopologyPolicy = Literal["REQUIRE_STABLE", "ALLOW_VARYING"]
 ClothEvaluationPolicy = Literal["REQUIRE_BAKED", "EVALUATE"]
+ProxyBindType = Literal["SURFACE_DEFORM", "MESH_DEFORM"]
 
 
 class _StrictModel(BaseModel):
@@ -69,69 +70,69 @@ class _StrictModel(BaseModel):
 class ClothMaterialPatch(_StrictModel):
     """Allowlisted Blender 5.1 cloth material properties."""
 
-    mass: float | None = None
-    air_damping: float | None = None
+    mass: Annotated[float, Field(gt=0)] | None = None
+    air_damping: Annotated[float, Field(ge=0)] | None = None
     bending_model: Literal["ANGULAR", "LINEAR"] | None = None
-    tension_stiffness: float | None = None
-    tension_stiffness_max: float | None = None
-    compression_stiffness: float | None = None
-    compression_stiffness_max: float | None = None
-    shear_stiffness: float | None = None
-    shear_stiffness_max: float | None = None
-    bending_stiffness: float | None = None
-    bending_stiffness_max: float | None = None
-    tension_damping: float | None = None
-    compression_damping: float | None = None
-    shear_damping: float | None = None
-    bending_damping: float | None = None
+    tension_stiffness: Annotated[float, Field(ge=0)] | None = None
+    tension_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    compression_stiffness: Annotated[float, Field(ge=0)] | None = None
+    compression_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    shear_stiffness: Annotated[float, Field(ge=0)] | None = None
+    shear_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    bending_stiffness: Annotated[float, Field(ge=0)] | None = None
+    bending_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    tension_damping: Annotated[float, Field(ge=0)] | None = None
+    compression_damping: Annotated[float, Field(ge=0)] | None = None
+    shear_damping: Annotated[float, Field(ge=0)] | None = None
+    bending_damping: Annotated[float, Field(ge=0)] | None = None
 
 
 class ClothSolverPatch(_StrictModel):
     """Allowlisted solver controls, deliberately excluding material and collision settings."""
 
-    quality: int | None = None
-    time_scale: float | None = None
+    quality: Annotated[int, Field(ge=1)] | None = None
+    time_scale: Annotated[float, Field(ge=0)] | None = None
     gravity: tuple[float, float, float] | None = None
-    voxel_cell_size: float | None = None
+    voxel_cell_size: Annotated[float, Field(gt=0)] | None = None
 
 
 class ClothCollisionPatch(_StrictModel):
     """Allowlisted cloth-side object and self-collision controls."""
 
     use_collision: bool | None = None
-    collision_quality: int | None = None
-    distance_min: float | None = None
-    impulse_clamp: float | None = None
-    damping: float | None = None
-    friction: float | None = None
-    collection_name: str | None = None
+    collision_quality: Annotated[int, Field(ge=1)] | None = None
+    distance_min: Annotated[float, Field(ge=0)] | None = None
+    impulse_clamp: Annotated[float, Field(ge=0)] | None = None
+    damping: Annotated[float, Field(ge=0)] | None = None
+    friction: Annotated[float, Field(ge=0)] | None = None
+    collection_name: Annotated[str, Field(min_length=1)] | None = None
     clear_collection: bool = False
-    vertex_group_object_collisions: str | None = None
+    vertex_group_object_collisions: Annotated[str, Field(min_length=1)] | None = None
     use_self_collision: bool | None = None
-    self_distance_min: float | None = None
-    self_friction: float | None = None
-    self_impulse_clamp: float | None = None
-    vertex_group_self_collisions: str | None = None
+    self_distance_min: Annotated[float, Field(ge=0)] | None = None
+    self_friction: Annotated[float, Field(ge=0)] | None = None
+    self_impulse_clamp: Annotated[float, Field(ge=0)] | None = None
+    vertex_group_self_collisions: Annotated[str, Field(min_length=1)] | None = None
 
 
 class ClothPinningPatch(_StrictModel):
     """Pin goal controls applied to an existing vertex group."""
 
-    pin_stiffness: float | None = None
-    goal_min: float | None = None
-    goal_max: float | None = None
-    goal_default: float | None = None
-    goal_spring: float | None = None
-    goal_friction: float | None = None
+    pin_stiffness: Annotated[float, Field(ge=0)] | None = None
+    goal_min: Annotated[float, Field(ge=0, le=1)] | None = None
+    goal_max: Annotated[float, Field(ge=0, le=1)] | None = None
+    goal_default: Annotated[float, Field(ge=0, le=1)] | None = None
+    goal_spring: Annotated[float, Field(ge=0, le=1)] | None = None
+    goal_friction: Annotated[float, Field(ge=0)] | None = None
 
 
 class ClothColliderPatch(_StrictModel):
     """CollisionSettings fields documented as cloth-relevant in Blender 5.1."""
 
     use: bool | None = None
-    thickness_outer: float | None = None
-    cloth_friction: float | None = None
-    damping: float | None = None
+    thickness_outer: Annotated[float, Field(ge=0)] | None = None
+    cloth_friction: Annotated[float, Field(ge=0)] | None = None
+    damping: Annotated[float, Field(ge=0)] | None = None
     use_culling: bool | None = None
     use_normal: bool | None = None
 
@@ -146,9 +147,9 @@ class VertexWeightAssignment(_StrictModel):
 class ClothColliderRegistration(_StrictModel):
     """Register one collider through an explicit cloth and collection relationship."""
 
-    cloth_object_name: str
-    cloth_modifier_name: str
-    collection_name: str
+    cloth_object_name: Annotated[str, Field(min_length=1)]
+    cloth_modifier_name: Annotated[str, Field(min_length=1)]
+    collection_name: Annotated[str, Field(min_length=1)]
 
 
 class SewingPair(_StrictModel):
@@ -164,25 +165,25 @@ class ClothPressurePatch(_StrictModel):
     use_pressure: bool | None = None
     uniform_pressure_force: float | None = None
     use_pressure_volume: bool | None = None
-    target_volume: float | None = None
-    pressure_factor: float | None = None
-    fluid_density: float | None = None
-    vertex_group_pressure: str | None = None
+    target_volume: Annotated[float, Field(ge=0)] | None = None
+    pressure_factor: Annotated[float, Field(ge=0)] | None = None
+    fluid_density: Annotated[float, Field(gt=0)] | None = None
+    vertex_group_pressure: Annotated[str, Field(min_length=1)] | None = None
 
 
 class ClothInternalSpringsPatch(_StrictModel):
     """Allowlisted Blender 5.1 internal-spring properties."""
 
     use_internal_springs: bool | None = None
-    internal_spring_max_length: float | None = None
-    internal_spring_max_diversion: float | None = None
+    internal_spring_max_length: Annotated[float, Field(ge=0)] | None = None
+    internal_spring_max_diversion: Annotated[float, Field(ge=0)] | None = None
     internal_spring_normal_check: bool | None = None
-    internal_tension_stiffness: float | None = None
-    internal_compression_stiffness: float | None = None
-    internal_tension_stiffness_max: float | None = None
-    internal_compression_stiffness_max: float | None = None
-    internal_friction: float | None = None
-    vertex_group_intern: str | None = None
+    internal_tension_stiffness: Annotated[float, Field(ge=0)] | None = None
+    internal_compression_stiffness: Annotated[float, Field(ge=0)] | None = None
+    internal_tension_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    internal_compression_stiffness_max: Annotated[float, Field(ge=0)] | None = None
+    internal_friction: Annotated[float, Field(ge=0)] | None = None
+    vertex_group_intern: Annotated[str, Field(min_length=1)] | None = None
 
 
 class ClothFieldWeightsPatch(_StrictModel):
@@ -204,7 +205,7 @@ class ClothFieldWeightsPatch(_StrictModel):
     boid: float | None = None
     smokeflow: float | None = None
     apply_to_hair_growing: bool | None = None
-    collection_name: str | None = None
+    collection_name: Annotated[str, Field(min_length=1)] | None = None
     clear_collection: bool = False
 
 
@@ -212,10 +213,10 @@ class ClothAnimationKeyframe(_StrictModel):
     """One curated RNA property value at an exact frame."""
 
     owner: AnimationOwner
-    property_name: str
+    property_name: Annotated[str, Field(min_length=1)]
     value: bool | int | float | tuple[float, float, float] | tuple[float, float, float, float]
     frame: float
-    target_name: str | None = None
+    target_name: Annotated[str, Field(min_length=1)] | None = None
     array_index: int = Field(default=-1, ge=-1, le=3)
     interpolation: Interpolation = "BEZIER"
 
@@ -223,35 +224,35 @@ class ClothAnimationKeyframe(_StrictModel):
 class PointCachePatch(_StrictModel):
     """Writable PointCache configuration fields."""
 
-    frame_start: int | None = None
-    frame_end: int | None = None
-    frame_step: int | None = None
-    name: str | None = None
-    index: int | None = None
+    frame_start: Annotated[int, Field(ge=0)] | None = None
+    frame_end: Annotated[int, Field(ge=0)] | None = None
+    frame_step: Annotated[int, Field(ge=1)] | None = None
+    name: Annotated[str, Field(min_length=1)] | None = None
+    index: Annotated[int, Field(ge=0)] | None = None
     use_disk_cache: bool | None = None
     use_external: bool | None = None
     use_library_path: bool | None = None
-    filepath: str | None = None
+    filepath: Annotated[str, Field(min_length=1)] | None = None
 
 
 class CorrectiveSmoothPatch(_StrictModel):
     """Allowlisted post-cloth Corrective Smooth controls."""
 
     factor: float | None = None
-    iterations: int | None = None
-    scale: float | None = None
+    iterations: Annotated[int, Field(ge=0)] | None = None
+    scale: Annotated[float, Field(gt=0)] | None = None
     rest_source: Literal["ORCO", "BIND"] | None = None
     smooth_type: Literal["SIMPLE", "LENGTH_WEIGHTED"] | None = None
     use_only_smooth: bool | None = None
     use_pin_boundary: bool | None = None
-    vertex_group: str | None = None
+    vertex_group: Annotated[str, Field(min_length=1)] | None = None
 
 
 class ClothSubdivisionPatch(_StrictModel):
     """Allowlisted post-cloth Subdivision Surface controls."""
 
-    levels: int | None = None
-    render_levels: int | None = None
+    levels: Annotated[int, Field(ge=0, le=6)] | None = None
+    render_levels: Annotated[int, Field(ge=0, le=6)] | None = None
     quality: int | None = None
     subdivision_type: Literal["CATMULL_CLARK", "SIMPLE"] | None = None
     uv_smooth: (
@@ -272,7 +273,7 @@ class ClothSolidifyPatch(_StrictModel):
     """Allowlisted post-cloth Solidify controls."""
 
     thickness: float | None = None
-    offset: float | None = None
+    offset: Annotated[float, Field(ge=-1, le=1)] | None = None
     material_offset: int | None = None
     material_offset_rim: int | None = None
     use_even_offset: bool | None = None
@@ -283,9 +284,9 @@ class ClothSolidifyPatch(_StrictModel):
 class ClothWeightedNormalPatch(_StrictModel):
     """Allowlisted Blender 5.1 Weighted Normal controls."""
 
-    weight: int | None = None
+    weight: Annotated[int, Field(ge=1, le=100)] | None = None
     mode: Literal["FACE_AREA", "CORNER_ANGLE", "FACE_AREA_WITH_ANGLE"] | None = None
-    thresh: float | None = None
+    thresh: Annotated[float, Field(ge=0)] | None = None
     keep_sharp: bool | None = None
     use_face_influence: bool | None = None
 
@@ -314,10 +315,10 @@ async def get_cloth_simulation_info(
     ctx: Context,
     scene_name: str,
     collection_name: str | None = None,
-    object_limit: int = 25,
-    object_offset: int = 0,
-    dependency_limit: int = 100,
-    dependency_offset: int = 0,
+    object_limit: Annotated[int, Field(ge=1, le=200)] = 25,
+    object_offset: Annotated[int, Field(ge=0)] = 0,
+    dependency_limit: Annotated[int, Field(ge=1, le=500)] = 100,
+    dependency_offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """Inspect cloth systems in one explicit scene or collection without evaluating another frame.
 
@@ -343,8 +344,8 @@ async def get_cloth_simulation_info(
 async def get_cloth_object_info(
     ctx: Context,
     object_name: str,
-    vertex_group_limit: int = 50,
-    vertex_group_offset: int = 0,
+    vertex_group_limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    vertex_group_offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """Inspect one named cloth or collider before planning a mutation.
 
@@ -369,8 +370,8 @@ async def add_cloth_simulation(
     modifier_name: str = "Cloth",
     modifier_index: int | None = None,
     existing_policy: ExistingPolicy = "ERROR",
-    cache_frame_start: int = 1,
-    cache_frame_end: int = 250,
+    cache_frame_start: Annotated[int, Field(ge=0)] = 1,
+    cache_frame_end: Annotated[int, Field(ge=0)] = 250,
     collision_collection_name: str | None = None,
     preset: MaterialPreset | None = None,
     material: ClothMaterialPatch | None = None,
@@ -380,8 +381,9 @@ async def add_cloth_simulation(
     """Add a named live Cloth modifier to an explicit nonempty mesh, without baking or applying it.
 
     ``existing_policy='ERROR'`` is the safe default. ``REUSE`` targets only a same-name Cloth
-    modifier and still refuses baked caches. All supplied patches and the cache range are validated;
-    failure removes a newly created modifier or restores the reused modifier's touched properties.
+    modifier and still refuses baked caches. All supplied patches and the cache range are validated,
+    including that ``cache_frame_end`` is not before ``cache_frame_start``; failure removes a newly
+    created modifier or restores the reused modifier's touched properties.
     """
     return await asyncio.to_thread(
         _call,
@@ -447,7 +449,7 @@ async def set_cloth_vertex_weights(
     modifier_name: str,
     role: WeightRole,
     group_name: str,
-    assignments: list[VertexWeightAssignment],
+    assignments: Annotated[list[VertexWeightAssignment], Field(min_length=1)],
     operation: WeightOperation = "REPLACE",
 ) -> dict:
     """Create or update one role-specific cloth vertex group using exact base-mesh indices.
@@ -566,8 +568,8 @@ async def estimate_cloth_resources(
     scene_name: str,
     collection_name: str | None = None,
     cloth_object_names: list[str] | None = None,
-    object_limit: int = 25,
-    object_offset: int = 0,
+    object_limit: Annotated[int, Field(ge=1, le=200)] = 25,
+    object_offset: Annotated[int, Field(ge=0)] = 0,
 ) -> dict:
     """Estimate bounded relative CPU, memory, cache, and contact pressure for scoped cloth objects.
 
@@ -593,9 +595,9 @@ async def validate_cloth_setup(
     scene_name: str,
     collection_name: str | None = None,
     cloth_object_names: list[str] | None = None,
-    max_findings: int = 200,
-    collision_pair_limit: int = 64,
-    evaluated_triangle_limit: int = 250_000,
+    max_findings: Annotated[int, Field(ge=1, le=2000)] = 200,
+    collision_pair_limit: Annotated[int, Field(ge=1)] = 64,
+    evaluated_triangle_limit: Annotated[int, Field(ge=1)] = 250_000,
 ) -> dict:
     """Run a bounded, non-mutating structural preflight over scoped cloth systems.
 
@@ -622,11 +624,11 @@ async def configure_cloth_sewing(
     ctx: Context,
     object_name: str,
     modifier_name: str,
-    seam_pairs: list[SewingPair],
-    sewing_force_max: float,
+    seam_pairs: Annotated[list[SewingPair], Field(min_length=1)],
+    sewing_force_max: Annotated[float, Field(gt=0)],
     create_missing_edges: bool = False,
     dry_run: bool = True,
-    max_pair_distance: float | None = None,
+    max_pair_distance: Annotated[float, Field(gt=0)] | None = None,
 ) -> dict:
     """Inspect or configure explicit loose-edge sewing springs on one cloth base mesh.
 
@@ -676,7 +678,7 @@ async def configure_cloth_internal_springs(
     object_name: str,
     modifier_name: str,
     patch: ClothInternalSpringsPatch,
-    max_estimated_springs: int = 2_000_000,
+    max_estimated_springs: Annotated[int, Field(ge=1)] = 2_000_000,
 ) -> dict:
     """Configure volumetric internal springs with a caller-visible conservative cost bound.
 
@@ -703,13 +705,14 @@ async def configure_cloth_rest_shape(
     modifier_name: str,
     shape_key_name: str,
     use_dynamic_mesh: bool,
-    cache_frame_start: int,
-    cache_frame_end: int,
+    cache_frame_start: Annotated[int, Field(ge=0)],
+    cache_frame_end: Annotated[int, Field(ge=0)],
 ) -> dict:
     """Assign one existing shape key as Cloth's rest shape over an explicit cache range.
 
-    All shape keys and modifiers remain live and in their current order. Dynamic mesh mode respects
-    base-mesh deformation and can be expensive; topology-changing upstream modifiers are reported.
+    All shape keys and modifiers remain live and in their current order, and ``cache_frame_end`` must
+    not precede ``cache_frame_start``. Dynamic mesh mode respects base-mesh deformation and can be
+    expensive; topology-changing upstream modifiers are reported.
     """
     return await asyncio.to_thread(
         _call,
@@ -750,7 +753,7 @@ async def configure_cloth_field_weights(
 async def animate_cloth_parameters(
     ctx: Context,
     object_name: str,
-    keyframes: list[ClothAnimationKeyframe],
+    keyframes: Annotated[list[ClothAnimationKeyframe], Field(min_length=1)],
     cloth_modifier_name: str | None = None,
     policy: KeyframePolicy = "INSERT_ONLY",
 ) -> dict:
@@ -784,7 +787,7 @@ async def create_cloth_attachment(
     attachment_type: AttachmentType = "HOOK",
     attachment_modifier_name: str = "Cloth Attachment",
     bone_name: str | None = None,
-    rest_frame: int = 1,
+    rest_frame: Annotated[int, Field(ge=0)] = 1,
     existing_policy: ExistingPolicy = "ERROR",
     bind: bool = True,
 ) -> dict:
@@ -832,18 +835,19 @@ async def create_character_cloth_setup(
     collisions: ClothCollisionPatch | None = None,
     collider_settings: ClothColliderPatch | None = None,
     add_subdivision: bool = False,
-    subdivision_levels: int = 1,
+    subdivision_levels: Annotated[int, Field(ge=0, le=6)] = 1,
     add_solidify: bool = False,
     solidify_thickness: float = 0.002,
-    rest_frame: int = 1,
-    cache_frame_start: int = 1,
-    cache_frame_end: int = 250,
+    rest_frame: Annotated[int, Field(ge=0)] = 1,
+    cache_frame_start: Annotated[int, Field(ge=0)] = 1,
+    cache_frame_end: Annotated[int, Field(ge=0)] = 250,
 ) -> dict:
     """Assemble a non-destructive garment, armature, collider, and finishing stack.
 
     All assets, the pin group, and collision collection must be explicitly named. No weights,
     collision proxies, or anatomy are inferred. Deformation is placed before Cloth and optional
-    render-only Subdivision/Solidify modifiers after it; no modifier is applied.
+    render-only Subdivision/Solidify modifiers after it; no modifier is applied. ``cache_frame_end``
+    must not precede ``cache_frame_start``.
     """
     return await asyncio.to_thread(
         _call,
@@ -881,10 +885,10 @@ async def sample_cloth_simulation(
     ctx: Context,
     object_name: str,
     modifier_name: str,
-    frames: list[int],
-    vertex_sample_limit: int = 10_000,
-    collider_sample_limit: int = 16,
-    timeout_seconds: float = 30.0,
+    frames: Annotated[list[int], Field(min_length=1)],
+    vertex_sample_limit: Annotated[int, Field(ge=1)] = 10_000,
+    collider_sample_limit: Annotated[int, Field(ge=0)] = 16,
+    timeout_seconds: Annotated[float, Field(gt=0)] = 30.0,
 ) -> dict:
     """Evaluate bounded frames and measure the cloth without baking it.
 
@@ -917,7 +921,7 @@ async def manage_cloth_cache(
     confirm_bake: bool = False,
     confirm_free_bake: bool = False,
     confirm_external_overwrite: bool = False,
-    max_bake_frames: int = 250,
+    max_bake_frames: Annotated[int, Field(ge=1)] = 250,
 ) -> dict:
     """Inspect, configure, bake, mark baked-from-cache, or free one exact Cloth point cache.
 
@@ -980,16 +984,16 @@ async def create_cloth_proxy_rig(
     render_object_name: str,
     proxy_object_name: str,
     proxy_source_policy: ProxySourcePolicy = "EXISTING",
-    bind_type: Literal["SURFACE_DEFORM", "MESH_DEFORM"] = "SURFACE_DEFORM",
+    bind_type: ProxyBindType = "SURFACE_DEFORM",
     cloth_modifier_name: str = "Cloth",
     bind_modifier_name: str = "Cloth Proxy Bind",
     existing_policy: ExistingPolicy = "ERROR",
     allow_topology_change: bool = False,
-    decimate_ratio: float = 0.25,
+    decimate_ratio: Annotated[float, Field(gt=0, le=1)] = 0.25,
     vertex_group_name: str | None = None,
-    surface_deform_falloff: float = 4.0,
-    mesh_deform_precision: int = 5,
-    rest_frame: int = 1,
+    surface_deform_falloff: Annotated[float, Field(gt=0)] = 4.0,
+    mesh_deform_precision: Annotated[int, Field(ge=1)] = 5,
+    rest_frame: Annotated[int, Field(ge=0)] = 1,
     validation_frames: list[int] | None = None,
 ) -> dict:
     """Create a live low-resolution cloth proxy relationship for one render mesh.
@@ -1027,7 +1031,7 @@ async def duplicate_cloth_setup_variant(
     source_object_name: str,
     variant_object_name: str,
     variant_collection_name: str,
-    name_suffix: str,
+    name_suffix: Annotated[str, Field(min_length=1)],
     mesh_data_policy: VariantDataPolicy,
     material_policy: VariantDataPolicy,
     animation_policy: VariantDataPolicy,
@@ -1076,7 +1080,7 @@ async def prepare_cloth_render_surface(
     solidify_name: str = "Cloth Render Thickness",
     weighted_normal_name: str = "Cloth Weighted Normal",
     existing_policy: ExistingPolicy = "ERROR",
-    rest_frame: int = 1,
+    rest_frame: Annotated[int, Field(ge=0)] = 1,
 ) -> dict:
     """Add or update a reversible render-only modifier stack after Cloth.
 
@@ -1111,10 +1115,10 @@ async def export_cloth_simulation(
     scene_name: str,
     filepath: str,
     file_format: ClothExportFormat,
-    object_names: list[str],
-    frame_start: int,
-    frame_end: int,
-    frame_step: int,
+    object_names: Annotated[list[str], Field(min_length=1)],
+    frame_start: Annotated[int, Field(ge=0)],
+    frame_end: Annotated[int, Field(ge=0)],
+    frame_step: Annotated[int, Field(ge=1)],
     coordinate_space: ClothExportSpace,
     units: ClothExportUnits,
     forward_axis: ClothExportAxis,
@@ -1126,7 +1130,7 @@ async def export_cloth_simulation(
     include_vertex_colors: bool = True,
     include_materials: bool = True,
     overwrite: bool = False,
-    max_frames: int = 500,
+    max_frames: Annotated[int, Field(ge=1)] = 500,
 ) -> dict:
     """Export exact cloth objects to Alembic or USD using Blender 5.1's native exporter.
 
@@ -1167,13 +1171,13 @@ async def analyze_cloth_performance(
     ctx: Context,
     object_name: str,
     modifier_name: str,
-    frames: list[int],
-    warm_repeats: int = 2,
-    max_total_evaluations: int = 60,
+    frames: Annotated[list[int], Field(min_length=1)],
+    warm_repeats: Annotated[int, Field(ge=0)] = 2,
+    max_total_evaluations: Annotated[int, Field(ge=1)] = 60,
     include_short_bake: bool = False,
     confirm_short_bake: bool = False,
-    short_bake_frame_start: int | None = None,
-    short_bake_frame_end: int | None = None,
+    short_bake_frame_start: Annotated[int, Field(ge=0)] | None = None,
+    short_bake_frame_end: Annotated[int, Field(ge=0)] | None = None,
 ) -> dict:
     """Profile bounded first-pass/warm frame evaluation and optional isolated short baking.
 

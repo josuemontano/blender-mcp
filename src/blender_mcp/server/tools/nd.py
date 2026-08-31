@@ -2,10 +2,11 @@
 
 import logging
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
@@ -16,6 +17,8 @@ logger = logging.getLogger("BlenderMCPServer")
 BooleanMode = Literal["UNION", "DIFFERENCE", "INTERSECT"]
 LodMode = Literal["HIGH", "LOW"]
 PulseToggle = Literal["CLEAR_VIEW", "CUSTOM_VIEW", "UTILS"]
+
+ObjectNameList = Annotated[list[str], Field(min_length=1, max_length=500)]
 
 _CANCELLED_WARNING = "ND operator was cancelled - the scene is unchanged"
 
@@ -94,9 +97,9 @@ async def nd_boolean(
 @mcp.tool()
 async def nd_mark_as_util(
     ctx: Context,
-    object_names: list[str],
+    object_names: ObjectNameList,
     unmark: bool = False,
-    parent_to: str | None = None,
+    parent_to: Annotated[str | None, Field(min_length=1)] = None,
 ) -> dict:
     """
     Mark objects as ND utilities, or restore previously marked objects.
@@ -179,8 +182,8 @@ async def nd_clean_utils(ctx: Context, confirm: bool = False) -> dict:
 @mcp.tool()
 async def nd_create_id_material(
     ctx: Context,
-    object_names: list[str],
-    material_name: str,
+    object_names: ObjectNameList,
+    material_name: Annotated[str, Field(min_length=1)],
 ) -> dict:
     """
     Create/assign a single ND ID material to the given mesh/curve objects.
@@ -213,7 +216,7 @@ async def nd_create_id_material(
 
 
 @mcp.tool()
-async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> dict:
+async def nd_bulk_create_id_materials(ctx: Context, object_names: ObjectNameList) -> dict:
     """
     Assign a random distinct ND ID material to each given mesh/curve object.
 
@@ -244,7 +247,7 @@ async def nd_bulk_create_id_materials(ctx: Context, object_names: list[str]) -> 
 @mcp.tool()
 async def nd_set_lod_suffix(
     ctx: Context,
-    object_names: list[str],
+    object_names: ObjectNameList,
     mode: LodMode = "HIGH",
 ) -> dict:
     """
@@ -308,7 +311,7 @@ async def nd_single_vertex(
 
 
 @mcp.tool()
-async def nd_apply_modifiers(ctx: Context, object_names: list[str]) -> dict:
+async def nd_apply_modifiers(ctx: Context, object_names: ObjectNameList) -> dict:
     """
     Apply eligible modifiers on objects using ND's default REGULAR apply mode.
 

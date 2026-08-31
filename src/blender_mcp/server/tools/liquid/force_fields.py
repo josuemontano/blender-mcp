@@ -3,7 +3,7 @@
 
 import asyncio
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -67,7 +67,7 @@ async def configure_liquid_force_fields(
     scene_name: str,
     domain_object_name: str,
     modifier_name: str,
-    fields: list[LiquidForceFieldSpec],
+    fields: Annotated[list[LiquidForceFieldSpec], Field(min_length=1)],
     force_collection_name: str,
     create_collection: bool = False,
     weights: EffectorWeightsPatch | None = None,
