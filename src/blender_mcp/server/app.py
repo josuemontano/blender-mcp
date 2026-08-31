@@ -82,12 +82,14 @@ Every tool below returns one of two shapes:
      tool error instead of returning ok:false - stop and fix the input rather than retrying
      the same call.
 
-2. get_viewport_screenshot and get_sketchfab_model_preview return two content items
-   instead: an image, followed by the same ok() dict described above carrying that
-   image's metadata (dimensions, capture method, or model/author provenance). Read the
-   second item, not just the image.
+2. get_viewport_screenshot, get_sketchfab_model_preview, and render_lighting_preview
+   return image content followed by the same ok() dict described above. A lighting preview
+   returns inline images in CYCLES/EEVEE order for engines without explicit output paths;
+   fully explicit output paths return only the envelope. Read the final item for metadata and
+   warnings rather than inspecting only the image content.
 
-Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data,
+Tools with a "limit"/"offset" parameter (list_scene_objects, get_mesh_data, list_lights,
+inspect_lighting_setup, validate_lighting_setup,
 get_cloth_simulation_info, get_cloth_object_info, estimate_cloth_resources, get_liquid_simulation_info,
 get_character_rig_info, get_skinning_info, validate_character_rig, get_rigid_body_scene_info,
 get_rigid_body_constraint_info, inspect_retopology,

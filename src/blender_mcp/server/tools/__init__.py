@@ -5,6 +5,7 @@ from . import character_rigging as character_rigging
 from . import cloth as cloth
 from . import core as core
 from . import execute as execute
+from . import lighting as lighting
 from . import liquid as liquid
 from . import mesh as mesh
 from . import model as model

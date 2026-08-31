@@ -144,8 +144,10 @@ async def import_polyhaven_asset(
     Returns:
         a "message" string, plus asset_type-specific fields: for `models`, "imported_objects" (also reported in
         this response's changed_objects); for `textures`, "material" and "maps" (also reported in
-        changed_resources); for `hdris`, "image_name" (also reported in changed_resources, and set as the
-        active scene world). changed_objects/changed_resources never contain the Polyhaven asset_id itself.
+        changed_resources); for `hdris`, "image_name", "image_path", and "world". HDRIs are retained in a
+        stable Blender data cache and configured through the non-destructive managed World graph. The image is
+        also reported in changed_resources. changed_objects/changed_resources never contain the Polyhaven
+        asset_id itself.
 
     Raises:
         ToolError: If the operation cannot be completed.

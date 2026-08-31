@@ -100,6 +100,14 @@ class PolyhavenHandlersMixin:
                 # For HDRIs, download the .hdr or .exr file
                 if not file_format:
                     file_format = "hdr"  # Default format for HDRIs
+                file_format = file_format.lower()
+                if file_format not in {"hdr", "exr"}:
+                    return {"error": "Poly Haven HDRIs require file_format 'hdr' or 'exr'"}
+                if not isinstance(resolution, str) or not resolution or any(
+                    character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+                    for character in resolution
+                ):
+                    return {"error": "resolution contains unsupported filename characters"}
 
                 if (
                     "hdri" in files_data
@@ -108,90 +116,53 @@ class PolyhavenHandlersMixin:
                 ):
                     file_info = files_data["hdri"][resolution][file_format]
                     file_url = file_info["url"]
-
-                    # For HDRIs, we need to save to a temporary file first
-                    # since Blender can't properly load HDR data directly from memory
-                    with tempfile.NamedTemporaryFile(suffix=f".{file_format}", delete=False) as tmp_file:
-                        # Download the file
+                    safe_asset_id = "".join(
+                        character if character.isalnum() or character in {"-", "_"} else "_"
+                        for character in asset_id
+                    ).strip("_")
+                    if not safe_asset_id:
+                        return {"error": "asset_id does not contain a safe filename component"}
+                    cache_directory = bpy.utils.user_resource(
+                        "DATAFILES",
+                        path=os.path.join("blender_mcp", "polyhaven"),
+                        create=True,
+                    )
+                    if not cache_directory:
+                        return {"error": "Could not create the Blender MCP Poly Haven cache directory"}
+                    persistent_path = os.path.join(
+                        cache_directory,
+                        f"{safe_asset_id}_{resolution}.{file_format}",
+                    )
+                    partial_path = f"{persistent_path}.part"
+                    try:
                         response = requests.get(file_url, headers=REQ_HEADERS)
                         if response.status_code != 200:
                             return {"error": f"Failed to download HDRI: {response.status_code}"}
-
-                        tmp_file.write(response.content)
-                        tmp_path = tmp_file.name
-
-                    try:
-                        # Create a new world if none exists
-                        if not bpy.data.worlds:
-                            bpy.data.worlds.new("World")
-
-                        world = bpy.data.worlds[0]
-                        world.use_nodes = True
-                        node_tree = world.node_tree
-
-                        # Clear existing nodes
-                        for node in node_tree.nodes:
-                            node_tree.nodes.remove(node)
-
-                        # Create nodes
-                        tex_coord = node_tree.nodes.new(type="ShaderNodeTexCoord")
-                        tex_coord.location = (-800, 0)
-
-                        mapping = node_tree.nodes.new(type="ShaderNodeMapping")
-                        mapping.location = (-600, 0)
-
-                        # Load the image from the temporary file
-                        env_tex = node_tree.nodes.new(type="ShaderNodeTexEnvironment")
-                        env_tex.location = (-400, 0)
-                        env_tex.image = bpy.data.images.load(tmp_path)
-
-                        # Use a color space that exists in all Blender versions
-                        if file_format.lower() == "exr":
-                            # Try to use Linear color space for EXR files
-                            try:
-                                env_tex.image.colorspace_settings.name = "Linear"
-                            except Exception:
-                                # Fallback to Non-Color if Linear isn't available
-                                env_tex.image.colorspace_settings.name = "Non-Color"
-                        else:  # hdr
-                            # For HDR files, try these options in order
-                            for color_space in [
-                                "Linear",
-                                "Linear Rec.709",
-                                "Non-Color",
-                            ]:
-                                try:
-                                    env_tex.image.colorspace_settings.name = color_space
-                                    break  # Stop if we successfully set a color space
-                                except Exception:
-                                    continue
-
-                        background = node_tree.nodes.new(type="ShaderNodeBackground")
-                        background.location = (-200, 0)
-
-                        output = node_tree.nodes.new(type="ShaderNodeOutputWorld")
-                        output.location = (0, 0)
-
-                        # Connect nodes
-                        node_tree.links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
-                        node_tree.links.new(mapping.outputs["Vector"], env_tex.inputs["Vector"])
-                        node_tree.links.new(env_tex.outputs["Color"], background.inputs["Color"])
-                        node_tree.links.new(background.outputs["Background"], output.inputs["Surface"])
-
-                        # Set as active world
-                        bpy.context.scene.world = world
-
-                        # Clean up temporary file
-                        with suppress(Exception):
-                            tempfile._cleanup()  # This will clean up all temporary files
-
+                        with open(partial_path, "wb") as file_handle:
+                            file_handle.write(response.content)
+                        os.replace(partial_path, persistent_path)
+                        configured = self.configure_hdri_environment(
+                            scene_name=bpy.context.scene.name,
+                            image_path=persistent_path,
+                            strength=1.0,
+                            rotation=0.0,
+                            projection="EQUIRECTANGULAR",
+                            replacement_policy="REPLACE_MANAGED",
+                            world_name="World" if bpy.context.scene.world is None else None,
+                            create_world=bpy.context.scene.world is None,
+                        )
                         return {
                             "success": True,
                             "message": f"HDRI {asset_id} imported successfully",
-                            "image_name": env_tex.image.name,
+                            "image_name": configured["image"],
+                            "image_path": configured["image_path"],
+                            "world": configured["world"],
                         }
                     except Exception as e:
                         return {"error": f"Failed to set up HDRI in Blender: {e!s}"}
+                    finally:
+                        with suppress(FileNotFoundError):
+                            os.remove(partial_path)
                 else:
                     return {"error": "Requested resolution or format not available for this HDRI"}
 

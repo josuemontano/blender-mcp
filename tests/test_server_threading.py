@@ -69,6 +69,7 @@ def _load_server_class():
     mixin_names = (
         "ViewportHandlersMixin",
         "CameraHandlersMixin",
+        "LightingHandlers",
         "CharacterRiggingHandlersMixin",
         "RigidBodyHandlersMixin",
         "RetopologyHandlersMixin",

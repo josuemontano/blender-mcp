@@ -16,6 +16,7 @@ from . import ADDON_PROTOCOL_VERSION, bl_info
 from .handlers.camera import CameraHandlersMixin
 from .handlers.character_rigging import CharacterRiggingHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
+from .handlers.lighting import LightingHandlers
 from .handlers.liquid import LiquidHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
@@ -70,6 +71,7 @@ def _handler_failure_message(result):
 class BlenderMCPServer(
     ViewportHandlersMixin,
     CameraHandlersMixin,
+    LightingHandlers,
     CharacterRiggingHandlersMixin,
     RigidBodyHandlersMixin,
     RetopologyHandlersMixin,
@@ -566,6 +568,20 @@ class BlenderMCPServer(
             "add_camera_constraint": self.add_camera_constraint,
             "configure_camera_render_gate": self.configure_camera_render_gate,
             "validate_camera_rig": self.validate_camera_rig,
+            "list_lights": self.list_lights,
+            "inspect_light": self.inspect_light,
+            "inspect_lighting_setup": self.inspect_lighting_setup,
+            "validate_lighting_setup": self.validate_lighting_setup,
+            "create_light": self.create_light,
+            "configure_light": self.configure_light,
+            "aim_light": self.aim_light,
+            "configure_light_linking": self.configure_light_linking,
+            "configure_world_background": self.configure_world_background,
+            "configure_hdri_environment": self.configure_hdri_environment,
+            "configure_procedural_sky": self.configure_procedural_sky,
+            "configure_lighting_quality": self.configure_lighting_quality,
+            "configure_color_management": self.configure_color_management,
+            "render_lighting_preview": self.render_lighting_preview,
             "add_cloth_simulation": self.add_cloth_simulation,
             "configure_cloth_material": self.configure_cloth_material,
             "configure_cloth_solver": self.configure_cloth_solver,
@@ -684,6 +700,10 @@ class BlenderMCPServer(
             "get_rigid_body_constraint_info",
             "validate_rigid_body_setup",
             "validate_camera_rig",
+            "list_lights",
+            "inspect_light",
+            "inspect_lighting_setup",
+            "validate_lighting_setup",
             "estimate_cloth_resources",
             "validate_cloth_setup",
             "get_liquid_simulation_info",
@@ -746,6 +766,7 @@ class BlenderMCPServer(
     _TARGET_NAME_PARAMS = (
         "object_name",
         "camera_name",
+        "light_name",
         "curve_object_name",
         "cutter_object_name",
         "reference_object_name",
