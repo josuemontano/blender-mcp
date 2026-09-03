@@ -83,11 +83,13 @@ Every tool below returns one of two shapes:
      tool error instead of returning ok:false - stop and fix the input rather than retrying
      the same call.
 
-2. get_viewport_screenshot, get_sketchfab_model_preview, and render_lighting_preview
+2. get_viewport_screenshot, get_sketchfab_model_preview, render_lighting_preview, and
+   render_pbr_material_preview
    return image content followed by the same ok() dict described above. A lighting preview
    returns inline images in CYCLES/EEVEE order for engines without explicit output paths;
-   fully explicit output paths return only the envelope. Read the final item for metadata and
-   warnings rather than inspecting only the image content.
+   fully explicit output paths return only the envelope. PBR previews likewise return inline images
+   for engines without explicit paths, followed by their envelope. Read the final item for metadata
+   and warnings rather than inspecting only the image content.
 
 For any tool exposing limit/offset parameters, pagination metadata is inside the envelope's "data"
 dict. Continue with the returned "next_offset" while "truncated" is true. Independent limit/offset

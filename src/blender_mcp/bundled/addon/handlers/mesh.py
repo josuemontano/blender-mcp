@@ -9,6 +9,7 @@ from ..helpers import (
     preserve_mode_and_selection,
     set_active,
 )
+from .texture import TextureHandlers
 
 _SYMMETRIZE_DIRECTIONS = {
     "NEGATIVE_X",
@@ -20,7 +21,7 @@ _SYMMETRIZE_DIRECTIONS = {
 }
 
 
-class MeshHandlersMixin:
+class MeshHandlersMixin(TextureHandlers):
     """Provide handlers for creating and editing mesh objects."""
 
     # region Mesh editing handlers
