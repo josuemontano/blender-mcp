@@ -17,5 +17,6 @@ from . import polyhaven as polyhaven
 from . import retopology as retopology
 from . import rigid_body as rigid_body
 from . import sketchfab as sketchfab
+from . import texture as texture
 from . import viewport as viewport
 from . import _documentation as _documentation

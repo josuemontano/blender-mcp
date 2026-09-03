@@ -281,7 +281,7 @@ class _ProductionMixin:
     def create_bake_cage(
         self,
         object_name,
-        high_poly_object_names,
+        high_poly_object_names=None,
         name=None,
         collection_name="Retopology Bake Cages",
         offset=0.02,
@@ -389,9 +389,9 @@ class _ProductionMixin:
         if not confirm:
             raise ValueError("Baking is expensive and writes a file; call again with confirm=True")
         obj = get_mesh_object(object_name)
-        high_objects = [get_mesh_object(value) for value in high_poly_object_names]
-        if not high_objects or obj in high_objects:
-            raise ValueError("Provide at least one distinct high-poly mesh object")
+        high_objects = [get_mesh_object(value) for value in (high_poly_object_names or [])]
+        if obj in high_objects:
+            raise ValueError("Every high-poly source must differ from the bake target")
         bake_type = str(map_type).upper()
         bake_types = {
             "NORMAL": "NORMAL",
@@ -401,6 +401,10 @@ class _ProductionMixin:
             "DIFFUSE": "DIFFUSE",
             "ROUGHNESS": "ROUGHNESS",
             "EMISSION": "EMIT",
+            "COMBINED": "COMBINED",
+            "GLOSSY": "GLOSSY",
+            "SHADOW": "SHADOW",
+            "UV": "UV",
         }
         if bake_type not in bake_types:
             raise ValueError(f"map_type must be one of {sorted(bake_types)}")
@@ -481,7 +485,7 @@ class _ProductionMixin:
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
                 settings = scene.render.bake
-                settings.use_selected_to_active = True
+                settings.use_selected_to_active = bool(high_objects)
                 settings.use_cage = cage is not None
                 settings.cage_object = cage
                 settings.cage_extrusion = extrusion
