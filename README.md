@@ -130,6 +130,7 @@ In Blender's 3D viewport, press `N` → open the **BlenderMCP** tab → click **
 - [Technical Details](#technical-details)
 - [Limitations & Security Considerations](#limitations--security-considerations)
 - [Feedback](#feedback)
+- [Development](#development)
 - [Contributing](#contributing)
 - [Disclaimer](#disclaimer)
 - [Star History](#star-history)
@@ -497,6 +498,47 @@ If you have more detailed feedback, you can schedule a call with us [here](https
 ### Join the Community
 
 Give feedback, get inspired, and build on top of the MCP: [**Discord**](https://discord.gg/SNqPn4TcKQ)
+
+## Development
+
+*Building the project from source, rather than installing the published package with pipx.*
+
+### Setup
+
+```bash
+pipx install poetry
+poetry install --with dev
+```
+
+### Running from source
+
+```bash
+poetry run blender-mcp
+```
+
+### Lint, format, type-check, test
+
+```bash
+poetry run ruff check .
+poetry run ruff format --check .
+poetry run pytest
+basedpyright
+```
+
+### Building a distributable package
+
+```bash
+pip install build
+python -m build
+```
+
+This uses the `setuptools` backend declared in `pyproject.toml`'s `[build-system]` and produces `dist/blender_mcp-<version>-py3-none-any.whl` and `dist/blender_mcp-<version>.tar.gz`, the same as `.github/workflows/release.yml`.
+
+### Installing the addon from a local checkout
+
+See [Installing the Blender Addon](#installing-the-blender-addon) above — point **Preferences → Add-ons → Install…** at `src/blender_mcp/bundled/addon/` in your checkout instead of a downloaded release.
+
+---
 
 ## Contributing
 
