@@ -11,7 +11,7 @@ Treat every scene as production work: preserve user intent and data, make change
 - **Python:** 3.13 or newer.
 - **Blender:** 5.1 or newer.
 - **API target:** Blender 5.1+ only. Do not write compatibility code for removed 3.x/4.x APIs unless the repository explicitly needs it.
-- **Source of truth:** Prefer the Blender 5.1 API documentation and runtime introspection (`help`, `__doc__`, `dir`, RNA properties) over guessed operator arguments.
+- **Source of truth:** Real Blender 5.2 API introspection (`help`, `__doc__`, `dir`, RNA properties) over guessed operator arguments.
 - **Threading:** Blender data and `bpy` operators must run on Blender's main thread. Socket/client threads may receive and queue work, but must not mutate Blender state directly.
 
 Use modern, readable Python 3.13+ with type hints. Keep public tool inputs and results JSON-serializable, stable, and explicit.
