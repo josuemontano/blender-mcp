@@ -32,7 +32,7 @@ import json
 
 import pytest
 
-from test_server_threading import BlenderMCPServer
+from server.test_threading import BlenderMCPServer
 
 
 class ScriptedSocket:
