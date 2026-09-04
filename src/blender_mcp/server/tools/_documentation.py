@@ -86,6 +86,7 @@ _DESTRUCTIVE_PREFIXES = (
     "transfer_",
 )
 _DESTRUCTIVE_TOOLS = {
+    "apply_liquid_quality_profile",
     "apply_polyhaven_texture",
     "assign_bone_custom_shapes",
     "bind_mesh_to_armature",

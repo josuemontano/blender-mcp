@@ -17,13 +17,18 @@ import mathutils
 from ...helpers import preserve_mode_and_selection
 from .inspection_and_setup import (
     _CACHE_FLAGS,
+    _LIQUID_UUID_PROPERTY,
     _check_unique_cache_path,
     _ensure_collection,
+    _ensure_liquid_uuid,
     _get_domain,
     _get_object,
     _get_scene,
+    _liquid_object_identity,
     _read_fields,
+    _register_owned_objects,
     _resolved_cache_path,
+    _tag_liquid_object,
     _wall_thickness_samples,
     _world_bounds,
 )
@@ -439,7 +444,12 @@ class LiquidDeliveryHandlers:
         created_decimate = None
         created_solidify = None
         created_vertex_group = None
-        tag_keys = ("blendermcp_liquid_simulation_id", "blendermcp_liquid_role", "blendermcp_liquid_source")
+        tag_keys = (
+            "blendermcp_liquid_simulation_id",
+            "blendermcp_liquid_role",
+            "blendermcp_liquid_source",
+            _LIQUID_UUID_PROPERTY,
+        )
         old_tags = {key: (key in proxy, proxy.get(key)) for key in tag_keys}
         simulation_id = domain.get("blendermcp_liquid_simulation_id") or uuid.uuid4().hex
         try:
@@ -502,7 +512,9 @@ class LiquidDeliveryHandlers:
             proxy.hide_render = True
             proxy.display_type = "WIRE"
             proxy["blendermcp_liquid_simulation_id"] = simulation_id
-            proxy["blendermcp_liquid_role"] = f"{role}_PROXY"
+            # add_liquid_flow/add_liquid_effector already tagged the proxy with the plain FLOW/EFFECTOR
+            # role; re-tagging narrows it to the proxy role while keeping the same UUID.
+            proxy_uuid = _tag_liquid_object(proxy, f"{role}_PROXY")["uuid"]
             proxy["blendermcp_liquid_source"] = source.name
             evidence = []
             for frame in frames:
@@ -560,6 +572,8 @@ class LiquidDeliveryHandlers:
                     f"(min={min(thicknesses):.4g}, cell_size={cell_size:.4g}); liquid may leak through. "
                     "Increase wall_thickness/bottom_thickness or domain resolution."
                 )
+        domain_uuid = _ensure_liquid_uuid(domain)
+        manifest = _register_owned_objects(domain_settings, domain_uuid, [(proxy_uuid, proxy.name, f"{role}_PROXY")])
         return {
             "changed_objects": [proxy.name, domain.name],
             "source": source.name,
@@ -571,6 +585,10 @@ class LiquidDeliveryHandlers:
             "fluid_modifier": record["modifier"],
             "collection": collection.name,
             "simulation_id": simulation_id,
+            "domain_uuid": domain_uuid,
+            "proxy_uuid": proxy_uuid,
+            "proxy_role": f"{role}_PROXY",
+            "manifest_registered": manifest is not None,
             "transform_validation": evidence,
             "source_preserved": True,
             "proxy_render_hidden": True,
@@ -647,6 +665,7 @@ class LiquidDeliveryHandlers:
         mapping = {}
         material_map = {}
         animation_records = {}
+        variant_uuids = {}
         simulation_id = uuid.uuid4().hex
         source_visibility = (source_modifier.show_viewport, source_modifier.show_render)
         try:
@@ -666,6 +685,11 @@ class LiquidDeliveryHandlers:
                 duplicate["blendermcp_liquid_simulation_id"] = simulation_id
                 duplicate["blendermcp_liquid_variant_source"] = original.name
                 duplicate["blendermcp_liquid_schema_version"] = _SCHEMA_VERSION
+                # `Object.copy()` carries custom properties across, so each duplicate would otherwise
+                # share its original's liquid UUID. Re-issue a fresh identity, keeping the recorded role.
+                if _liquid_object_identity(original)["uuid"]:
+                    duplicate[_LIQUID_UUID_PROPERTY] = uuid.uuid4().hex
+                    variant_uuids[duplicate] = duplicate[_LIQUID_UUID_PROPERTY]
             variant = mapping[source]
             variant_modifier = variant.modifiers.get(source_modifier.name)
             if variant_modifier is None or variant_modifier.type != "FLUID" or variant_modifier.fluid_type != "DOMAIN":
@@ -718,6 +742,15 @@ class LiquidDeliveryHandlers:
         except Exception:
             source_modifier.show_viewport, source_modifier.show_render = source_visibility
             raise
+        variant_uuid = variant_uuids.get(variant) or _ensure_liquid_uuid(variant)
+        manifest = _register_owned_objects(
+            settings,
+            variant_uuid,
+            [
+                (object_uuid, duplicate.name, _liquid_object_identity(duplicate)["role"] or "UNKNOWN")
+                for duplicate, object_uuid in variant_uuids.items()
+            ],
+        )
         return {
             "changed_objects": [item.name for item in mapping.values()]
             + ([source.name] if disabled == source.name else []),
@@ -726,6 +759,9 @@ class LiquidDeliveryHandlers:
             "variant_modifier": variant_modifier.name,
             "variant_collection": collection.name,
             "simulation_id": simulation_id,
+            "variant_domain_uuid": variant_uuid,
+            "variant_object_uuids": {duplicate.name: value for duplicate, value in variant_uuids.items()},
+            "manifest_registered": manifest is not None,
             "object_mapping": {original.name: duplicate.name for original, duplicate in mapping.items()},
             "role_collections": {role: item.name for role, item in role_collections.items()},
             "animation_actions": animation_records,

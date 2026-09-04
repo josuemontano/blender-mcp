@@ -673,6 +673,7 @@ class BlenderMCPServer(
             "estimate_liquid_resources": self.estimate_liquid_resources,
             "validate_liquid_setup": self.validate_liquid_setup,
             "configure_liquid_mesh": self.configure_liquid_mesh,
+            "apply_liquid_quality_profile": self.apply_liquid_quality_profile,
             "configure_liquid_secondary_particles": self.configure_liquid_secondary_particles,
             "configure_liquid_diffusion": self.configure_liquid_diffusion,
             "animate_liquid_flow": self.animate_liquid_flow,

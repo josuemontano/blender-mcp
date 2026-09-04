@@ -48,6 +48,10 @@ class LiquidCachePatch(_StrictModel):
     cache_frame_end: int | None = None
     cache_frame_offset: int | None = None
     cache_resumable: bool | None = None
+    openvdb_cache_compress_type: Literal["ZIP", "BLOSC", "NONE"] | None = None
+    # Blender exposes this as a dynamic enum whose static RNA metadata is unreliable; the writable
+    # identifiers verified against Blender 5.2.1 are the strings "8", "16" and "32" (bit depth).
+    openvdb_data_depth: Literal["8", "16", "32"] | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> "LiquidCachePatch":
@@ -131,6 +135,10 @@ async def manage_liquid_cache(
 
     PAUSE now requires cache_type=MODULAR with cache_resumable=True in addition to a stage currently
     baking; Blender does not support pausing a Bake All run.
+
+    CONFIGURE's patch.openvdb_cache_compress_type and patch.openvdb_data_depth ("8"/"16"/"32" bits of
+    float precision) only affect OpenVDB-formatted stages, so they are rejected unless at least one of
+    cache_data_format/cache_mesh_format/cache_particle_format is (or is being set to) OPENVDB.
 
     CANCEL (requires `stage`) has no scripted equivalent to Blender's interactive Esc-to-abort for a
     running bake job, so it raises a clear error while that stage is actively baking; once the stage is

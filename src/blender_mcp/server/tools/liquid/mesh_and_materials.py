@@ -37,6 +37,16 @@ class LiquidMeshPatch(_StrictModel):
     use_speed_vectors: bool | None = None
     cache_mesh_format: CacheMeshFormat | None = None
 
+    @model_validator(mode="after")
+    def validate_concave_range(self) -> "LiquidMeshPatch":
+        if (
+            self.mesh_concave_lower is not None
+            and self.mesh_concave_upper is not None
+            and self.mesh_concave_lower > self.mesh_concave_upper
+        ):
+            raise ValueError("mesh_concave_lower must be <= mesh_concave_upper")
+        return self
+
 
 class LiquidSecondaryParticlePatch(_StrictModel):
     use_spray_particles: bool | None = None
@@ -55,6 +65,8 @@ class LiquidSecondaryParticlePatch(_StrictModel):
     sndparticle_potential_max_energy: float | None = Field(default=None, ge=0.0, le=1_000.0)
     sndparticle_sampling_wavecrest: int | None = Field(default=None, ge=0, le=10_000)
     sndparticle_sampling_trappedair: int | None = Field(default=None, ge=0, le=10_000)
+    # Both radii are integer cell counts in Blender 5.1+ (RNA hard range 1-4), not float distances.
+    sndparticle_potential_radius: int | None = Field(default=None, ge=1, le=4)
     sndparticle_update_radius: int | None = Field(default=None, ge=1, le=4)
     sndparticle_bubble_buoyancy: float | None = Field(default=None, ge=0.0, le=100.0)
     sndparticle_bubble_drag: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -118,7 +130,11 @@ class LiquidMaterialConfig(_StrictModel):
 async def configure_liquid_mesh(
     ctx: Context, domain_object_name: str, modifier_name: str, patch: LiquidMeshPatch
 ) -> dict:
-    """Patch render-surface generation on one unbaked liquid domain."""
+    """Patch render-surface generation on one unbaked liquid domain.
+
+    If both are given, mesh_concave_lower must be <= mesh_concave_upper; the same check is re-run
+    against the domain's current values when only one of the pair is supplied.
+    """
     return await asyncio.to_thread(
         _call,
         "configure_liquid_mesh",

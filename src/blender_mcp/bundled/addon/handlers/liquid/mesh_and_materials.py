@@ -23,6 +23,9 @@ from .simulation import (
     _update_or_restore,
 )
 
+# Recorded on ParticleSettings (not the ParticleSystem, which rejects ID properties) the first time a
+# Mantaflow system is observed, so later reads survive a rename of either datablock.
+_PARTICLE_ROLE_PROPERTY = "blendermcp_particle_role"
 _MESH_FIELDS = {
     "use_mesh",
     "mesh_scale",
@@ -52,6 +55,7 @@ _SECONDARY_FIELDS = {
     "sndparticle_potential_max_energy",
     "sndparticle_sampling_wavecrest",
     "sndparticle_sampling_trappedair",
+    "sndparticle_potential_radius",
     "sndparticle_update_radius",
     "sndparticle_bubble_buoyancy",
     "sndparticle_bubble_drag",
@@ -235,10 +239,46 @@ def _octahedron_mesh(name):
     return mesh
 
 
-def _particle_role(system):
+def _classify_particle_role_by_name(system):
+    """Derive a role from Blender's freshly generated system/settings labels.
+
+    Only used the first time a Mantaflow system is seen, before its role is recorded; every later
+    read comes from the stored property so a rename cannot silently reclassify a system.
+    """
     label = f"{system.name} {getattr(system.settings, 'name', '')}".lower()
     roles = [role for role in ("spray", "foam", "bubble", "tracer") if role in label]
     return "+".join(role.upper() for role in roles) if roles else "UNKNOWN"
+
+
+def _particle_role(system):
+    """Return the recorded role for a Mantaflow particle system, falling back to its labels.
+
+    The role lives on ``system.settings`` because ParticleSystem itself rejects ID properties
+    ("id properties not supported for this type" in Blender 5.2.1) while ParticleSettings is a real
+    datablock that accepts them.
+    """
+    recorded = getattr(system.settings, "get", lambda _key: None)(_PARTICLE_ROLE_PROPERTY)
+    if isinstance(recorded, str) and recorded:
+        return recorded
+    return _classify_particle_role_by_name(system)
+
+
+def _tag_particle_roles(obj):
+    """Record ``blendermcp_particle_role`` on any of the domain's systems that lack it, then report them.
+
+    Mantaflow, not this add-on, creates the systems, so the earliest moment a role can be captured is
+    the call that enables the corresponding secondary-particle toggle - at which point Blender's own
+    labels are still authoritative.
+    """
+    tagged = []
+    for system in obj.particle_systems:
+        settings = system.settings
+        recorded = settings.get(_PARTICLE_ROLE_PROPERTY) if hasattr(settings, "get") else None
+        if not isinstance(recorded, str) or not recorded:
+            role = _classify_particle_role_by_name(system)
+            settings[_PARTICLE_ROLE_PROPERTY] = role
+            tagged.append({"system": system.name, "settings": settings.name, "role": role})
+    return tagged
 
 
 class LiquidMeshAndMaterialHandlers:
@@ -259,6 +299,10 @@ class LiquidMeshAndMaterialHandlers:
                 ("has_cache_baked_data", "has_cache_baked_mesh", "is_cache_baking_any"),
                 "Speed vectors must be configured before data or mesh baking",
             )
+        concave_lower = patch.get("mesh_concave_lower", settings.mesh_concave_lower)
+        concave_upper = patch.get("mesh_concave_upper", settings.mesh_concave_upper)
+        if concave_lower > concave_upper:
+            raise ValueError("mesh_concave_lower must be <= mesh_concave_upper")
         changes = _patch_rna(settings, patch, _MESH_FIELDS)
         _update_or_restore(obj, settings, changes)
         return {
@@ -291,6 +335,9 @@ class LiquidMeshAndMaterialHandlers:
                 raise ValueError(f"{minimum} must be <= {maximum}")
         changes = _patch_rna(settings, patch, _SECONDARY_FIELDS)
         _update_or_restore(obj, settings, changes)
+        # Enabling a toggle is when Mantaflow materializes the matching system, so this is the first
+        # and most reliable moment to record its role for later name-independent lookups.
+        tagged_roles = _tag_particle_roles(obj)
         enabled = [
             name.removeprefix("use_").removesuffix("_particles").upper()
             for name in _SECONDARY_TOGGLES
@@ -302,6 +349,7 @@ class LiquidMeshAndMaterialHandlers:
             "modifier": modifier.name,
             "changes": changes,
             "enabled_particle_types": enabled,
+            "particle_roles_recorded": tagged_roles,
             "combined_export": settings.sndparticle_combined_export,
             "combined_export_semantics": (
                 "OFF creates separate eligible systems; another value combines the named roles into one output."
@@ -452,6 +500,7 @@ class LiquidMeshAndMaterialHandlers:
         systems = list(obj.particle_systems)
         if len(systems) > max_systems:
             raise ValueError(f"Domain has {len(systems)} particle systems, exceeding max_systems={max_systems}")
+        tagged_roles = _tag_particle_roles(obj)
         discovered = [(system, _particle_role(system)) for system in systems]
         eligible = [(system, role) for system, role in discovered if role != "UNKNOWN"]
         if not eligible:
@@ -534,7 +583,11 @@ class LiquidMeshAndMaterialHandlers:
             "instance_object": instance.name,
             "instance_helper_created": created_helper,
             "systems": mappings,
+            "particle_roles_recorded": tagged_roles,
             "unknown_systems_left_unchanged": [item["system"] for item in mappings if not item["configured"]],
-            "classification_basis": "Public particle-system and settings labels; unrecognized systems are not mutated.",
+            "classification_basis": (
+                f"Recorded '{_PARTICLE_ROLE_PROPERTY}' custom property on each system's ParticleSettings, "
+                "first derived from Blender's own labels; unrecognized systems are not mutated."
+            ),
             "warnings": ["Particle counts are observed at the current frame and may vary over the bake."],
         }

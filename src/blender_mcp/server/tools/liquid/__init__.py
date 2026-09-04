@@ -9,4 +9,5 @@ from .inspection_and_setup import _call as _call
 from .inspection_and_setup import mcp as mcp
 from .lifecycle import *  # noqa: F403
 from .mesh_and_materials import *  # noqa: F403
+from .quality import *  # noqa: F403
 from .simulation import *  # noqa: F403

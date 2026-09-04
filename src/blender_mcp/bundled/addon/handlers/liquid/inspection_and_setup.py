@@ -16,6 +16,8 @@ import bpy
 import mathutils
 
 from ...helpers import paginate, sync_from_editmode
+from .manifest import read_manifest
+from .manifest import register_objects as register_manifest_objects
 
 _DOMAIN_FIELDS = {
     "resolution_max",
@@ -35,7 +37,15 @@ _DOMAIN_FIELDS = {
     "use_fractions",
     "fractions_threshold",
     "fractions_distance",
+    "delete_in_obstacle",
+    "sys_particle_maximum",
 }
+# `use_flip_particles` is deliberately excluded from _DOMAIN_FIELDS. Verified against Blender 5.2.1:
+# its RNA setter ignores the assigned value and *toggles* the FLIP particle system on every
+# assignment (particle_systems count flips 1<->0 whether you write True or False), so routing it
+# through the generic idempotent _patch_rna path would turn the feature off for a caller who asked
+# for it to be on. _set_flip_particles below wraps it back into set-to-desired-state semantics.
+_FLIP_PARTICLES_FIELD = "use_flip_particles"
 _FLOW_FIELDS = {
     "flow_behavior",
     "use_inflow",
@@ -49,6 +59,28 @@ _FLOW_FIELDS = {
     "velocity_random",
     "density_vertex_group",
 }
+# Stable identity for every object the liquid tools create or adopt. UUID and role are custom
+# properties so a later rename cannot orphan a domain's dependencies; the same pair is mirrored into
+# the cache-side manifest so a setup remains resolvable after a scene reload.
+_LIQUID_UUID_PROPERTY = "blendermcp_liquid_uuid"
+_LIQUID_ROLE_PROPERTY = "blendermcp_liquid_role"
+_LIQUID_ROLES = frozenset(
+    {
+        "DOMAIN",
+        "FLOW",
+        "EFFECTOR",
+        "GUIDE",
+        # `create_liquid_proxy_rig` has always written these two exact strings to
+        # `blendermcp_liquid_role`; they stay verbatim so existing scenes keep resolving.
+        "FLOW_PROXY",
+        "EFFECTOR_PROXY",
+        "CONTAINER_VOLUME",
+        "SPILL_VOLUME",
+    }
+)
+# Real FluidFlowSettings properties that Blender only honours for particle-system smoke/fire
+# emission. They are rejected with an explanation rather than silently allowed on a liquid surface.
+_SMOKE_ONLY_FLOW_FIELDS = {"use_particle_size", "particle_size"}
 _EFFECTOR_FIELDS = {
     "use_effector",
     "effector_type",
@@ -85,6 +117,8 @@ _CACHE_FIELDS = (
     "cache_type",
     "cache_data_format",
     "cache_mesh_format",
+    "cache_particle_format",
+    "openvdb_cache_compress_type",
     "cache_frame_start",
     "cache_frame_end",
     "cache_frame_offset",
@@ -272,6 +306,26 @@ def _restore_rna(owner, changes):
             setattr(owner, name, values["old"])
 
 
+def _set_flip_particles(settings, desired):
+    """Give ``use_flip_particles`` set-to-desired-state semantics instead of Blender's toggle.
+
+    Verified against Blender 5.2.1: assigning this property ignores the assigned value and flips the
+    FLIP particle system on or off, so writing ``True`` to an already-enabled domain disables it.
+    Writing only when the current state differs makes the operation idempotent, which every other
+    liquid patch in this module relies on.
+    """
+    desired = bool(desired)
+    old = bool(getattr(settings, "use_flip_particles", False))
+    if old != desired:
+        settings.use_flip_particles = desired
+        if bool(settings.use_flip_particles) != desired:
+            raise ValueError(
+                f"Blender did not accept use_flip_particles={desired}; it reads back as "
+                f"{bool(settings.use_flip_particles)}"
+            )
+    return {"old": old, "new": bool(settings.use_flip_particles)}
+
+
 def _reject_baked(settings):
     active = [name for name in _CACHE_FLAGS if getattr(settings, name, False)]
     if active:
@@ -395,9 +449,12 @@ def _domain_info(obj, modifier, settings):
         for name in ("use_spray_particles", "use_foam_particles", "use_bubble_particles", "use_tracer_particles")
     ):
         fields["cache_particle_format"] = _serialize(settings.cache_particle_format)
+    identity = _liquid_object_identity(obj)
     return {
         "object": obj.name,
-        "domain_uuid": obj.get("blendermcp_liquid_uuid"),
+        "domain_uuid": identity["uuid"],
+        "role": identity["role"],
+        "owned_objects": _owned_object_registry(settings),
         "modifier": _modifier_info(obj, modifier),
         "transform": _native_transform(obj),
         **_domain_bounds(obj, settings),
@@ -459,6 +516,7 @@ def _domain_dependencies(scene, domain_obj, settings):
                         "domain": domain_obj.name,
                         "kind": role.lower(),
                         "object": obj.name,
+                        **_liquid_object_identity(obj),
                         "modifier": modifier.name,
                         "collection": collection.name if collection else None,
                         "in_scope": collection is None or _object_in_collection(obj, collection),
@@ -474,6 +532,7 @@ def _domain_dependencies(scene, domain_obj, settings):
                             "domain": domain_obj.name,
                             "kind": role.lower(),
                             "object": obj.name,
+                            **_liquid_object_identity(obj),
                             "modifier": None,
                             "collection": collection.name,
                             "in_scope": True,
@@ -544,12 +603,112 @@ def _validate_dimensions(values, label):
 
 def _ensure_liquid_uuid(obj):
     """Return the object's stable liquid UUID, assigning one the first time it's needed."""
-    existing = obj.get("blendermcp_liquid_uuid")
+    existing = obj.get(_LIQUID_UUID_PROPERTY)
     if isinstance(existing, str) and existing:
         return existing
     new_uuid = str(uuid.uuid4())
-    obj["blendermcp_liquid_uuid"] = new_uuid
+    obj[_LIQUID_UUID_PROPERTY] = new_uuid
     return new_uuid
+
+
+def _tag_liquid_object(obj, role):
+    """Give a liquid-owned object a stable UUID and role, returning a rollback token.
+
+    ``ObjectState`` does not snapshot custom properties, so a caller that fails after tagging must
+    pass the returned token to :func:`_untag_liquid_object` from its own rollback path.
+    """
+    if role not in _LIQUID_ROLES:
+        raise ValueError(f"Unknown liquid object role: {role}")
+    had_uuid = isinstance(obj.get(_LIQUID_UUID_PROPERTY), str) and bool(obj.get(_LIQUID_UUID_PROPERTY))
+    previous_role = obj.get(_LIQUID_ROLE_PROPERTY)
+    object_uuid = _ensure_liquid_uuid(obj)
+    obj[_LIQUID_ROLE_PROPERTY] = role
+    return {
+        "object": obj,
+        "uuid": object_uuid,
+        "role": role,
+        "had_uuid": had_uuid,
+        "previous_role": previous_role,
+    }
+
+
+def _untag_liquid_object(token):
+    """Undo a :func:`_tag_liquid_object` call, best effort."""
+    if not token:
+        return
+    obj = token["object"]
+    with contextlib.suppress(Exception):
+        if not token["had_uuid"]:
+            del obj[_LIQUID_UUID_PROPERTY]  # pyright: ignore[reportArgumentType]
+    with contextlib.suppress(Exception):
+        if token["previous_role"] is None:
+            del obj[_LIQUID_ROLE_PROPERTY]  # pyright: ignore[reportArgumentType]
+        else:
+            obj[_LIQUID_ROLE_PROPERTY] = token["previous_role"]
+
+
+def _liquid_object_identity(obj):
+    """Report an object's recorded liquid UUID and role without assigning either."""
+    recorded_uuid = obj.get(_LIQUID_UUID_PROPERTY)
+    recorded_role = obj.get(_LIQUID_ROLE_PROPERTY)
+    return {
+        "uuid": recorded_uuid if isinstance(recorded_uuid, str) and recorded_uuid else None,
+        "role": recorded_role if isinstance(recorded_role, str) and recorded_role else None,
+    }
+
+
+def _find_object_by_liquid_uuid(object_uuid):
+    """Resolve an object by its recorded liquid UUID, which survives renames as names do not.
+
+    Objects are scanned rather than read from the cache-side manifest because the manifest stores
+    names only as a human-readable convenience; the scene remains the authority on identity.
+    """
+    if not isinstance(object_uuid, str) or not object_uuid:
+        raise ValueError("object_uuid must be a non-empty string")
+    matches = [obj for obj in bpy.data.objects if obj.get(_LIQUID_UUID_PROPERTY) == object_uuid]
+    if not matches:
+        raise ValueError(f"No object carries liquid UUID '{object_uuid}'")
+    if len(matches) > 1:
+        raise ValueError(
+            f"Liquid UUID '{object_uuid}' is recorded on {len(matches)} objects "
+            f"({', '.join(sorted(item.name for item in matches))}); the scene is inconsistent"
+        )
+    return matches[0]
+
+
+def _owned_object_registry(settings):
+    """Report the manifest's UUID -> {name, role} registry for a domain, or None when unavailable."""
+    directory = getattr(settings, "cache_directory", None)
+    if not directory:
+        return None
+    try:
+        resolved = _resolved_cache_path(directory)
+    except ValueError:
+        return None
+    manifest = read_manifest(resolved)
+    if not manifest:
+        return None
+    objects = manifest.get("objects")
+    return objects if isinstance(objects, dict) else None
+
+
+def _register_owned_objects(domain_settings, domain_uuid, entries):
+    """Record owned (uuid, name, role) triples in the domain's cache-side manifest, best effort.
+
+    The manifest is bookkeeping written outside ``mutation_transaction``; a missing or read-only
+    cache directory must never fail an otherwise successful scene mutation, so failures are absorbed
+    and reported as an unwritten manifest instead.
+    """
+    directory = getattr(domain_settings, "cache_directory", None)
+    if not directory or not domain_uuid:
+        return None
+    try:
+        resolved = _resolved_cache_path(directory)
+    except ValueError:
+        return None
+    if not os.path.isdir(resolved):
+        return None
+    return register_manifest_objects(resolved, domain_uuid, entries)
 
 
 def _resolved_cache_path(path):
@@ -702,14 +861,23 @@ class LiquidInspectionAndSetupHandlers:
         self,
         scene_name=None,
         domain_object_name=None,
+        domain_uuid=None,
         domain_limit=25,
         domain_offset=0,
         dependency_limit=100,
         dependency_offset=0,
     ):
-        if scene_name is None and domain_object_name is None:
-            raise ValueError("Provide scene_name, domain_object_name, or both")
-        domain_filter = _get_object(domain_object_name, {"MESH"}) if domain_object_name else None
+        if scene_name is None and domain_object_name is None and domain_uuid is None:
+            raise ValueError("Provide scene_name, domain_object_name, domain_uuid, or a combination")
+        resolved_by_uuid = None
+        if domain_uuid is not None:
+            resolved_by_uuid = _find_object_by_liquid_uuid(domain_uuid)
+            if domain_object_name is not None and resolved_by_uuid.name != domain_object_name:
+                raise ValueError(
+                    f"domain_uuid '{domain_uuid}' resolves to '{resolved_by_uuid.name}', not '{domain_object_name}'"
+                )
+            domain_object_name = resolved_by_uuid.name
+        domain_filter = resolved_by_uuid or (_get_object(domain_object_name, {"MESH"}) if domain_object_name else None)
         if scene_name is not None:
             scene = _get_scene(scene_name)
             if domain_filter is not None and domain_filter.name not in scene.objects:
@@ -738,6 +906,7 @@ class LiquidInspectionAndSetupHandlers:
         return {
             "scene": scene.name,
             "frame_observed": scene.frame_current,
+            "resolved_by": "domain_uuid" if resolved_by_uuid is not None else "object_name",
             "domains": [_domain_info(*item) for item in page],
             "domain_page": {
                 "total": len(candidates),
@@ -837,6 +1006,8 @@ class LiquidInspectionAndSetupHandlers:
         old_collection_tags = []
         old_tag = None
         old_uuid = None
+        old_role = None
+        domain_uuid = None
         if created_object:
             target_collection_name = collection_name or "Liquid Domains"
             target_collection, _created, linked = _ensure_collection(scene, target_collection_name)
@@ -859,7 +1030,8 @@ class LiquidInspectionAndSetupHandlers:
             if any(not math.isfinite(float(value)) or float(value) == 0.0 for value in obj.scale):
                 raise ValueError(f"Domain mesh '{object_name}' has zero or non-finite scale")
             old_tag = obj.get("blendermcp_liquid_domain")
-            old_uuid = obj.get("blendermcp_liquid_uuid")
+            old_uuid = obj.get(_LIQUID_UUID_PROPERTY)
+            old_role = obj.get(_LIQUID_ROLE_PROPERTY)
         if any(mod.type == "FLUID" and mod.fluid_type == "DOMAIN" for mod in obj.modifiers):
             raise ValueError(f"Object '{obj.name}' already has a fluid domain modifier")
         modifier = None
@@ -925,7 +1097,7 @@ class LiquidInspectionAndSetupHandlers:
                 settings.cache_frame_start = cache_frame_start
                 settings.cache_frame_end = cache_frame_end
             obj["blendermcp_liquid_domain"] = 1
-            _ensure_liquid_uuid(obj)
+            domain_uuid = _tag_liquid_object(obj, "DOMAIN")["uuid"]
             bpy.context.view_layer.update()
         except Exception:
             if domain_changes and modifier is not None and modifier.domain_settings is not None:
@@ -940,9 +1112,14 @@ class LiquidInspectionAndSetupHandlers:
                     obj["blendermcp_liquid_domain"] = old_tag
                 if old_uuid is None:
                     with contextlib.suppress(Exception):
-                        del obj["blendermcp_liquid_uuid"]  # pyright: ignore[reportArgumentType]
+                        del obj[_LIQUID_UUID_PROPERTY]  # pyright: ignore[reportArgumentType]
                 else:
-                    obj["blendermcp_liquid_uuid"] = old_uuid
+                    obj[_LIQUID_UUID_PROPERTY] = old_uuid
+                if old_role is None:
+                    with contextlib.suppress(Exception):
+                        del obj[_LIQUID_ROLE_PROPERTY]  # pyright: ignore[reportArgumentType]
+                else:
+                    obj[_LIQUID_ROLE_PROPERTY] = old_role
                 with contextlib.suppress(Exception):
                     if modifier is not None:
                         obj.modifiers.remove(modifier)
@@ -964,8 +1141,13 @@ class LiquidInspectionAndSetupHandlers:
             "domain": _domain_info(obj, modifier, settings),
             "cache_directory_resolved": _resolved_cache_path(cache_directory),
             "retained_live_modifier": True,
+            "domain_uuid": domain_uuid,
+            "manifest_registered": _register_owned_objects(settings, domain_uuid, [(domain_uuid, obj.name, "DOMAIN")])
+            is not None,
             "ownership": {
                 "domain_property": "blendermcp_liquid_domain",
+                "uuid_property": _LIQUID_UUID_PROPERTY,
+                "role_property": _LIQUID_ROLE_PROPERTY,
                 "flow_collection": flow_collection.name,
                 "effector_collection": effector_collection.name,
             },
@@ -1118,12 +1300,24 @@ class LiquidInspectionAndSetupHandlers:
         particle_max = patch.get("particle_max", settings.particle_max)
         if particle_min > particle_max:
             raise ValueError("particle_min must be <= particle_max")
-        changes = _patch_rna(settings, patch, _DOMAIN_FIELDS)
+        flip_particles = patch.get(_FLIP_PARTICLES_FIELD)
+        rna_patch = {name: value for name, value in patch.items() if name != _FLIP_PARTICLES_FIELD}
+        changes = _patch_rna(settings, rna_patch, _DOMAIN_FIELDS)
+        flip_change = None
         try:
+            if flip_particles is not None:
+                flip_change = _set_flip_particles(settings, flip_particles)
             bpy.context.view_layer.update()
         except Exception:
+            # _restore_rna assigns old values back, which would *toggle* use_flip_particles rather
+            # than restore it, so that field is rolled back through its own idempotent setter.
             _restore_rna(settings, changes)
+            if flip_change is not None:
+                with contextlib.suppress(Exception):
+                    _set_flip_particles(settings, flip_change["old"])
             raise
+        if flip_change is not None and flip_change["old"] != flip_change["new"]:
+            changes[_FLIP_PARTICLES_FIELD] = flip_change
         estimate = self.estimate_liquid_resources(domain_object_name, modifier_name)
         return {
             "changed_objects": [obj.name],
@@ -1166,6 +1360,7 @@ class LiquidInspectionAndSetupHandlers:
         created = existing is None
         linked = False
         changes = {}
+        identity = None
         if existing is not None:
             if existing_policy == "ERROR":
                 raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
@@ -1187,8 +1382,10 @@ class LiquidInspectionAndSetupHandlers:
             patch["flow_behavior"] = behavior
             changes = self._configure_flow_settings(obj, flow, patch)
             linked = _link_object(collection, obj)
+            identity = _tag_liquid_object(obj, "FLOW")
             bpy.context.view_layer.update()
         except Exception:
+            _untag_liquid_object(identity)
             if changes and modifier.flow_settings is not None:
                 _restore_rna(modifier.flow_settings, changes)
             if linked:
@@ -1198,6 +1395,8 @@ class LiquidInspectionAndSetupHandlers:
                 with contextlib.suppress(Exception):
                     obj.modifiers.remove(modifier)
             raise
+        domain_uuid = _ensure_liquid_uuid(domain_obj)
+        manifest = _register_owned_objects(domain, domain_uuid, [(identity["uuid"], obj.name, "FLOW")])
         return {
             "changed_objects": [obj.name, domain_obj.name],
             "object": obj.name,
@@ -1205,6 +1404,9 @@ class LiquidInspectionAndSetupHandlers:
             "created": created,
             "domain": domain_obj.name,
             "domain_modifier": domain_modifier.name,
+            "domain_uuid": domain_uuid,
+            "object_uuid": identity["uuid"],
+            "manifest_registered": manifest is not None,
             "flow_collection": collection.name,
             "collection_membership_added": linked,
             "changes": changes,
@@ -1218,6 +1420,12 @@ class LiquidInspectionAndSetupHandlers:
         group = patch.get("density_vertex_group")
         if group and obj.vertex_groups.get(group) is None:
             raise ValueError(f"Vertex group not found on '{obj.name}': {group}")
+        smoke_only = sorted(_SMOKE_ONLY_FLOW_FIELDS & set(patch))
+        if smoke_only:
+            raise ValueError(
+                f"{', '.join(smoke_only)} only affects particle-system smoke/fire emission and is ignored "
+                "for a LIQUID flow; use surface_distance, subframes, or use_plane_init instead"
+            )
         effective_behavior = patch.get("flow_behavior", flow.flow_behavior)
         if effective_behavior == "GEOMETRY" and "use_inflow" in patch:
             raise ValueError(
@@ -1272,6 +1480,7 @@ class LiquidInspectionAndSetupHandlers:
         created = existing is None
         linked = False
         changes = {}
+        identity = None
         if existing is not None:
             if existing_policy == "ERROR":
                 raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
@@ -1289,8 +1498,10 @@ class LiquidInspectionAndSetupHandlers:
             patch["effector_type"] = effector_type
             changes = _patch_rna(effector, patch, _EFFECTOR_FIELDS)
             linked = _link_object(collection, obj)
+            identity = _tag_liquid_object(obj, "GUIDE" if effector_type == "GUIDE" else "EFFECTOR")
             bpy.context.view_layer.update()
         except Exception:
+            _untag_liquid_object(identity)
             if changes and modifier.effector_settings is not None:
                 _restore_rna(modifier.effector_settings, changes)
             if linked:
@@ -1300,6 +1511,8 @@ class LiquidInspectionAndSetupHandlers:
                 with contextlib.suppress(Exception):
                     obj.modifiers.remove(modifier)
             raise
+        domain_uuid = _ensure_liquid_uuid(domain_obj)
+        manifest = _register_owned_objects(domain, domain_uuid, [(identity["uuid"], obj.name, identity["role"])])
         return {
             "changed_objects": [obj.name, domain_obj.name],
             "object": obj.name,
@@ -1307,6 +1520,10 @@ class LiquidInspectionAndSetupHandlers:
             "created": created,
             "domain": domain_obj.name,
             "domain_modifier": domain_modifier.name,
+            "domain_uuid": domain_uuid,
+            "object_uuid": identity["uuid"],
+            "object_role": identity["role"],
+            "manifest_registered": manifest is not None,
             "effector_collection": collection.name,
             "collection_membership_added": linked,
             "changes": changes,
