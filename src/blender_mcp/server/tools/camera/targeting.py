@@ -11,7 +11,6 @@ from pydantic import Field
 from ...app import mcp
 from ._shared import ConstraintSpace, FollowForwardAxis, LockAxis, TrackAxis, UpAxis, _call, _tool_params
 
-AimMode = Literal["IMMEDIATE", "CONSTRAINT"]
 TrackingConstraint = Literal["TRACK_TO", "DAMPED_TRACK", "LOCKED_TRACK"]
 FramePolicy = Literal["MOVE_CAMERA", "CHANGE_LENS", "CHANGE_ORTHO_SCALE"]
 CameraConstraint = Literal[
@@ -30,31 +29,19 @@ CameraConstraint = Literal[
 
 
 @mcp.tool()
-async def aim_camera(
+async def point_camera_at(
     ctx: Context,
     scene_name: str,
     camera_name: str,
-    mode: AimMode = "IMMEDIATE",
     target_object_name: str | None = None,
     target_point: tuple[float, float, float] | None = None,
     subtarget: str | None = None,
-    controls_collection_name: str = "MCP Camera Controls",
-    constraint_name: Annotated[str, Field(min_length=1)] = "MCP Aim",
-    constraint_type: TrackingConstraint = "DAMPED_TRACK",
-    track_axis: TrackAxis = "TRACK_NEGATIVE_Z",
-    up_axis: UpAxis = "UP_Y",
-    lock_axis: LockAxis = "LOCK_Y",
-    influence: Annotated[float, Field(ge=0, le=1)] = 1.0,
-    owner_space: ConstraintSpace = "WORLD",
-    target_space: ConstraintSpace = "WORLD",
-    stack_index: Annotated[int, Field(ge=-1)] = -1,
 ) -> dict:
-    """Aim a camera once or maintain a live tracking relationship.
+    """Rotate a camera once to aim at an object or world-space point.
 
-    Supply exactly one world-space target source. Immediate mode rotates the camera with local -Z
-    toward the target and local Y as up, correctly resolving parent space. Constraint mode updates
-    only the named tracking constraint. A point target creates a tagged Empty because Blender live
-    constraints require an object target; its returned name is a retained rig dependency.
+    Supply exactly one target source. Rotates local -Z toward the target with local Y as up,
+    correctly resolving parent space. This is a one-shot rotation, not a constraint — use
+    add_camera_constraint for a live tracking relationship.
     """
     if (target_object_name is None) == (target_point is None):
         raise ToolError("Supply exactly one of target_object_name or target_point")
@@ -62,24 +49,13 @@ async def aim_camera(
         raise ToolError("subtarget requires target_object_name")
     return await asyncio.to_thread(
         _call,
-        "aim_camera",
+        "point_camera_at",
         {
             "scene_name": scene_name,
             "camera_name": camera_name,
-            "mode": mode,
             "target_object_name": target_object_name,
             "target_point": target_point,
             "subtarget": subtarget,
-            "controls_collection_name": controls_collection_name,
-            "constraint_name": constraint_name,
-            "constraint_type": constraint_type,
-            "track_axis": track_axis,
-            "up_axis": up_axis,
-            "lock_axis": lock_axis,
-            "influence": influence,
-            "owner_space": owner_space,
-            "target_space": target_space,
-            "stack_index": stack_index,
         },
         [camera_name],
     )

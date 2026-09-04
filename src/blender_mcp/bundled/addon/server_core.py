@@ -655,7 +655,7 @@ class BlenderMCPServer(
             "create_camera": self.create_camera,
             "configure_camera": self.configure_camera,
             "set_scene_camera": self.set_scene_camera,
-            "aim_camera": self.aim_camera,
+            "point_camera_at": self.point_camera_at,
             "create_camera_target": self.create_camera_target,
             "frame_camera_on_objects": self.frame_camera_on_objects,
             "create_orbit_camera_rig": self.create_orbit_camera_rig,

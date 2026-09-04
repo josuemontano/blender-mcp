@@ -18,7 +18,7 @@ CAMERA_COMMANDS = {
     "create_camera",
     "configure_camera",
     "set_scene_camera",
-    "aim_camera",
+    "point_camera_at",
     "create_camera_target",
     "frame_camera_on_objects",
     "create_orbit_camera_rig",
@@ -86,6 +86,30 @@ def test_create_camera_rejects_ambiguous_orientation_before_dispatch(monkeypatch
             name="Hero",
             rotation_euler=(0, 0, 0),
             look_at_point=(0, 0, 0),
+        )
+
+    assert connection.calls == []
+
+
+def test_point_camera_at_preflights_target_source_before_dispatch(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ToolError, match="exactly one of target_object_name or target_point"):
+        _run(
+            camera.point_camera_at,
+            scene_name="Scene",
+            camera_name="Hero",
+            target_object_name="Target",
+            target_point=(0, 0, 0),
+        )
+    with pytest.raises(ToolError, match="subtarget requires target_object_name"):
+        _run(
+            camera.point_camera_at,
+            scene_name="Scene",
+            camera_name="Hero",
+            target_point=(0, 0, 0),
+            subtarget="Head",
         )
 
     assert connection.calls == []
