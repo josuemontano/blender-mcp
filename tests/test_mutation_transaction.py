@@ -373,10 +373,10 @@ def test_captured_object_state_restored_on_failure(monkeypatch) -> None:
         target.material_slots[0].material = FakeDatablock("Gold")
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(server, "_build_command_handlers", lambda: {"add_array_modifier": fake_handler})
+    monkeypatch.setattr(server, "_build_command_handlers", lambda: {"manage_modifiers": fake_handler})
     monkeypatch.setattr(bpy.ops.ed, "undo_push", lambda **kw: None)
 
-    response = server.execute_command_internal({"type": "add_array_modifier", "params": {"object_names": ["Widget"]}})
+    response = server.execute_command_internal({"type": "manage_modifiers", "params": {"object_names": ["Widget"]}})
 
     assert response == {"status": "error", "message": "boom"}
     assert target.name == "Widget"

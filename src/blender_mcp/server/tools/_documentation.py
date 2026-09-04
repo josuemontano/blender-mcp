@@ -133,8 +133,6 @@ _TOOL_TITLES = {
     "import_sketchfab_model": "Import Sketchfab Model",
     "get_polyhaven_categories": "List Poly Haven Categories",
     "import_polyhaven_asset": "Import Poly Haven Asset",
-    "add_array_modifier": "Add Array Modifier",
-    "add_mirror_modifier": "Add Mirror Modifier",
     "add_radial_array_modifier": "Add Radial Array Modifier",
     "list_polyhaven_assets": "List Poly Haven Assets",
     "set_viewport_overlay": "Set Viewport Overlay",

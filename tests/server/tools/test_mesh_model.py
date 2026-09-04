@@ -579,11 +579,7 @@ MESH_HANDLER_CALLS = [
     ("mesh_subdivide", {}),
     ("mesh_remesh", {}),
     ("mesh_solidify", {}),
-    ("add_subdivision_surface_modifier", {}),
-    ("add_displace_modifier", {}),
     ("mesh_symmetrize", {}),
-    ("add_mirror_modifier", {}),
-    ("add_array_modifier", {}),
     ("add_radial_array_modifier", {"radius": 2.0}),
 ]
 
@@ -887,75 +883,6 @@ def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(
     assert cube_result["dimensions"] == pytest.approx([2, 2, 2])
     assert sphere_result["dimensions"] == pytest.approx([2, 2, 2])
     assert bpy.data.objects["blockout_cube"]["blockout"] is True
-
-
-def test_add_subdivision_surface_modifier_reports_evaluated_and_modifier_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R")
-
-    result = server.add_subdivision_surface_modifier(object_name="R", apply=False)
-
-    assert result["applied"] is False
-    assert result["modifier"] == "Subdivision"
-    assert set(result["evaluated"]) == {"vertices", "edges", "polygons"}
-    assert "bounds" in result and "min" in result["bounds"] and "max" in result["bounds"]
-
-
-def test_add_subdivision_surface_modifier_reports_no_modifier_when_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R2")
-
-    result = server.add_subdivision_surface_modifier(object_name="R2", apply=True)
-
-    assert result["applied"] is True
-    assert result["modifier"] is None
-
-
-def test_add_displace_modifier_removes_texture_orphan_when_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "D")
-
-    server.add_displace_modifier(object_name="D", apply=True)
-
-    assert bpy.data.textures.get("D_detail") is None
-
-
-def test_add_displace_modifier_keeps_texture_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "D2")
-
-    server.add_displace_modifier(object_name="D2", apply=False)
-
-    assert bpy.data.textures.get("D2_detail") is not None
-
-
-def test_add_displace_modifier_subdivide_stays_live_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    obj = _new_mesh_object(bpy, "D3")
-
-    server.add_displace_modifier(object_name="D3", apply=False, subdivide=True)
-
-    # With apply=False, subdivide must NOT be baked - both modifiers stay live.
-    names = [m.name for m in obj.modifiers]
-    assert names == ["Subdivision", "Displace"]
-
-
-def test_add_displace_modifier_subdivide_applies_extra_modifier_first(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    obj = _new_mesh_object(bpy, "D4")
-
-    server.add_displace_modifier(object_name="D4", apply=True, subdivide=True)
-
-    # With apply=True, the subdivide pass is baked (and removed) before Displace
-    # is applied, so no modifiers remain.
-    names = [m.name for m in obj.modifiers]
-    assert names == []
 
 
 def test_add_radial_array_modifier_requires_a_pivot(monkeypatch) -> None:

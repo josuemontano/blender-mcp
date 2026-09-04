@@ -42,8 +42,10 @@ def asset_creation_strategy() -> str:
           curve; purpose="blockout" for placeholder proxies).
         - Direct mesh edits: mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(),
           mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize().
-        - Higher-level modeling: copy_object_transform(), add_subdivision_surface_modifier(),
-          add_displace_modifier(), add_mirror_modifier(), add_array_modifier(), add_radial_array_modifier().
+        - Higher-level modeling: copy_object_transform(); manage_modifiers() for
+          Mirror/Array/Subdivision Surface/Displace/etc. (ADD/PATCH/MOVE/REMOVE/APPLY on any
+          allowlisted modifier type); add_radial_array_modifier() for a pivot-driven radial
+          array (it manages a helper empty, so it's not covered by manage_modifiers()).
         - Cleanup/data: clear_materials(), clear_vertex_groups(), clear_edge_marks(),
           sync_data_name().
         - Viewport: set_viewport_overlay() for native overlays (cavity, wireframe, face
