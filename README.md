@@ -482,7 +482,7 @@ messages on the same connection can never be mistaken for one another:
 
 ## Limitations & Security Considerations
 
-> **Warning:** The `execute_blender_code` tool allows running arbitrary Python code in Blender, which can be powerful but potentially dangerous. Use with caution in production environments. **ALWAYS save your work before using it.**
+The production tool surface does not expose arbitrary Python execution. Blender changes are made through validated, dedicated tools.
 
 - Poly Haven requires downloading models, textures, and HDRI images. If you do not want to use it, please turn it off in the checkbox in Blender.
 - Complex operations might need to be broken down into smaller steps.

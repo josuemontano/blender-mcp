@@ -354,7 +354,7 @@ async def nd_pulse_viewport_toggle(ctx: Context, toggle: PulseToggle) -> dict:
     flips ND's internal toggle operator - it is NOT guaranteed idempotent. ND's
     SILHOUETTE toggle is a genuine modal operator and is intentionally not exposed here.
     For the native Blender viewport overlays (cavity, wireframes, face orientation), use
-    viewport_overlay_toggle instead - those are true idempotent setters.
+    set_viewport_overlay instead - those are true idempotent setters.
 
     Args:
         ctx: MCP request context.

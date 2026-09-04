@@ -9,9 +9,7 @@ from ..helpers import (
     get_rotation_quaternion,
     modifier_result,
     pivot_rotation_matrix,
-    preserve_mode_and_selection,
     rotation_as_native_list,
-    set_active,
     set_rotation_quaternion,
 )
 from .geometry_nodes import GeometryNodesHandlersMixin
@@ -113,9 +111,6 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
         mod = obj.modifiers.new(name="Subdivision", type="SUBSURF")
         mod.levels = levels
         mod.render_levels = levels
-        with preserve_mode_and_selection():
-            set_active(obj)
-            bpy.ops.object.shade_smooth()
         if apply:
             apply_modifier(obj, mod)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
@@ -168,7 +163,7 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
             bpy.data.textures.remove(tex, do_unlink=True)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
-    def model_mirror(self, object_name, axis="X", merge=True, clip=True, apply=False):
+    def add_mirror_modifier(self, object_name, axis="X", merge=True, clip=True, apply=False):
         """
         Add a Mirror modifier to an object across the given axis.
 
@@ -198,7 +193,7 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
             apply_modifier(obj, mod)
         return {"name": obj.name, **modifier_result(obj, mod, apply)}
 
-    def model_array(self, object_name, count=2, relative_offset=(1, 0, 0), apply=False):
+    def add_array_modifier(self, object_name, count=2, relative_offset=(1, 0, 0), apply=False):
         """
         Add a linear Array modifier to an object.
 
@@ -222,7 +217,7 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
 
     _RADIAL_AXIS_PERP = {"X": "Y", "Y": "Z", "Z": "X"}
 
-    def model_radial_array(
+    def add_radial_array_modifier(
         self,
         object_name,
         count=6,
@@ -279,7 +274,7 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
             setattr(pivot_loc, perp, getattr(pivot_loc, perp) - radius)
         else:
             raise ValueError(
-                "model_radial_array needs a pivot offset from the object's own "
+                "add_radial_array_modifier needs a pivot offset from the object's own "
                 "location or every copy will overlap - pass pivot_object_name, "
                 "pivot_location, or radius"
             )
@@ -296,7 +291,11 @@ class ModelHandlersMixin(GeometryNodesHandlersMixin):
         if apply:
             apply_modifier(obj, mod)
             bpy.data.objects.remove(empty, do_unlink=True)
-        return {"name": obj.name, **modifier_result(obj, mod, apply)}
+        result = {"name": obj.name, **modifier_result(obj, mod, apply)}
+        if not apply:
+            result["helper_object"] = empty.name
+            result["changed_objects"] = [obj.name, empty.name]
+        return result
 
     def sync_data_name(self, object_names):
         """

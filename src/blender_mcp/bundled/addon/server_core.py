@@ -13,6 +13,7 @@ import bpy
 import mathutils
 
 from . import ADDON_PROTOCOL_VERSION, bl_info
+from .handlers.animation import AnimationHandlersMixin
 from .handlers.camera import CameraHandlersMixin
 from .handlers.character_rigging import CharacterRiggingHandlersMixin
 from .handlers.cloth import ClothHandlersMixin
@@ -24,7 +25,9 @@ from .handlers.nd import NDHandlersMixin
 from .handlers.object_animation import ObjectAnimationHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.retopology import RetopologyHandlersMixin
+from .handlers.rendering import RenderingHandlersMixin
 from .handlers.rigid_body import RigidBodyHandlersMixin
+from .handlers.scene import SceneHandlersMixin
 from .handlers.scene_physics import ScenePhysicsHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
@@ -62,6 +65,8 @@ def _handler_failure_message(result):
 
     """
     if isinstance(result, dict):
+        if result.get("cancelled"):
+            return None
         if result.get("succeed") is False:
             return str(result.get("error") or result)
         error = result.get("error")
@@ -72,6 +77,7 @@ def _handler_failure_message(result):
 
 class BlenderMCPServer(
     ViewportHandlersMixin,
+    AnimationHandlersMixin,
     CameraHandlersMixin,
     LightingHandlers,
     CharacterRiggingHandlersMixin,
@@ -81,8 +87,10 @@ class BlenderMCPServer(
     ModelHandlersMixin,
     ClothHandlersMixin,
     LiquidHandlersMixin,
+    SceneHandlersMixin,
     ScenePhysicsHandlersMixin,
     ObjectAnimationHandlersMixin,
+    RenderingHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
     SketchfabHandlersMixin,
@@ -100,7 +108,7 @@ class BlenderMCPServer(
         # thread-safe, so registering a timer per command (the previous
         # approach) could silently drop the callback - on Windows especially -
         # leaving the client blocked in recv() until its socket timeout.
-        self.command_queue = queue.Queue()
+        self.command_queue = queue.Queue(maxsize=self._MAX_QUEUED_COMMANDS)
         # Live client sockets, so stop() can unblock threads parked in recv().
         self._clients = set()
         self._clients_lock = threading.Lock()
@@ -270,7 +278,9 @@ class BlenderMCPServer(
         if not self.running:
             return None
 
-        while True:
+        processed = 0
+        deadline = time.monotonic() + self._DRAIN_TIME_BUDGET_SECONDS
+        while processed < self._MAX_COMMANDS_PER_TICK and time.monotonic() < deadline:
             try:
                 command, client = self.command_queue.get_nowait()
             except queue.Empty:
@@ -291,9 +301,22 @@ class BlenderMCPServer(
             try:
                 # Newline-terminated - see handle_client for why this
                 # protocol needs explicit framing.
-                client.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                payload = json.dumps(response).encode("utf-8") + b"\n"
+                if len(payload) > self._MAX_MESSAGE_BYTES:
+                    payload = (
+                        json.dumps(
+                            {
+                                "id": command.get("id"),
+                                "status": "error",
+                                "message": "Response exceeded the configured message-size limit",
+                            }
+                        ).encode("utf-8")
+                        + b"\n"
+                    )
+                client.sendall(payload)
             except Exception:
                 print("Failed to send response - client disconnected")
+            processed += 1
 
         return 0.05
 
@@ -304,6 +327,17 @@ class BlenderMCPServer(
     # dumps (capped well under 1000 elements); screenshots are written to
     # disk and never cross the socket. 64 MiB is generous headroom above that.
     _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+    _MAX_QUEUED_COMMANDS = 256
+    _MAX_COMMANDS_PER_TICK = 8
+    _DRAIN_TIME_BUDGET_SECONDS = 0.02
+
+    @staticmethod
+    def _send_protocol_error(client, request_id, message):
+        """Return a bounded transport-level validation error without touching bpy data."""
+        with suppress(Exception):
+            client.sendall(
+                json.dumps({"id": request_id, "status": "error", "message": message}).encode("utf-8") + b"\n"
+            )
 
     def _decode_and_queue_frame(self, line: bytes, client) -> bool:
         r"""
@@ -329,13 +363,31 @@ class BlenderMCPServer(
             command = json.loads(line.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             print(f"Discarding malformed message: {e!s}")
+            self._send_protocol_error(client, None, "Malformed UTF-8 JSON command")
+            return True
+
+        if not isinstance(command, dict):
+            self._send_protocol_error(client, None, "Command must be a JSON object")
+            return True
+        request_id = command.get("id")
+        if request_id is not None and not isinstance(request_id, str):
+            self._send_protocol_error(client, None, "Command id must be a string when provided")
+            return True
+        if not isinstance(command.get("type"), str) or not command["type"].strip():
+            self._send_protocol_error(client, request_id, "Command type must be a non-empty string")
+            return True
+        if not isinstance(command.get("params", {}), dict):
+            self._send_protocol_error(client, request_id, "Command params must be a JSON object")
             return True
 
         # Hand off to the main thread. Never call
         # bpy.app.timers.register() from here - it is not thread-safe and
         # the callback can be silently lost.
         print(f"Queued command: {command.get('type')}")
-        self.command_queue.put((command, client))
+        try:
+            self.command_queue.put_nowait((command, client))
+        except queue.Full:
+            self._send_protocol_error(client, request_id, "Blender command queue is full; retry later")
         return True
 
     def handle_client(self, client) -> None:
@@ -442,6 +494,11 @@ class BlenderMCPServer(
             "get_addon_info": self.get_addon_info,
             "get_object_info": self.get_object_info,
             "get_mesh_data": self.get_mesh_data,
+            "inspect_animation": self.inspect_animation,
+            "manage_animation_action": self.manage_animation_action,
+            "edit_keyframes": self.edit_keyframes,
+            "manage_nla_tracks": self.manage_nla_tracks,
+            "manage_animation_driver": self.manage_animation_driver,
             "list_procedural_systems": self.list_procedural_systems,
             "get_geometry_node_graph": self.get_geometry_node_graph,
             "get_geometry_node_type_info": self.get_geometry_node_type_info,
@@ -471,10 +528,21 @@ class BlenderMCPServer(
             "realize_procedural_output": self.realize_procedural_output,
             "analyze_procedural_performance": self.analyze_procedural_performance,
             "get_viewport_screenshot": self.get_viewport_screenshot,
-            "execute_code": self.execute_code,
+            "create_geometry_object": self.create_geometry_object,
+            "set_object_transform": self.set_object_transform,
+            "duplicate_or_instance_objects": self.duplicate_or_instance_objects,
+            "manage_scene_collections": self.manage_scene_collections,
+            "manage_object_hierarchy": self.manage_object_hierarchy,
+            "manage_object_constraints": self.manage_object_constraints,
+            "manage_modifiers": self.manage_modifiers,
+            "remove_scene_objects": self.remove_scene_objects,
+            "inspect_render_setup": self.inspect_render_setup,
+            "configure_render_settings": self.configure_render_settings,
             "get_scene_physics_info": self.get_scene_physics_info,
             "configure_scene_physics": self.configure_scene_physics,
             "keyframe_object_transform": self.keyframe_object_transform,
+            "manage_view_layers": self.manage_view_layers,
+            "render_scene": self.render_scene,
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_sketchfab_status": self.get_sketchfab_status,
             "create_primitive": self.create_primitive,
@@ -517,10 +585,10 @@ class BlenderMCPServer(
             "copy_object_transform": self.copy_object_transform,
             "add_subdivision_surface_modifier": self.add_subdivision_surface_modifier,
             "add_displace_modifier": self.add_displace_modifier,
-            "model_mirror": self.model_mirror,
-            "model_array": self.model_array,
-            "model_radial_array": self.model_radial_array,
-            "viewport_overlay_toggle": self.viewport_overlay_toggle,
+            "add_mirror_modifier": self.add_mirror_modifier,
+            "add_array_modifier": self.add_array_modifier,
+            "add_radial_array_modifier": self.add_radial_array_modifier,
+            "set_viewport_overlay": self.set_viewport_overlay,
             "clear_materials": self.clear_materials,
             "clear_vertex_groups": self.clear_vertex_groups,
             "clear_edge_marks": self.clear_edge_marks,
@@ -694,7 +762,7 @@ class BlenderMCPServer(
         if bpy.context.scene.blendermcp_use_polyhaven:
             polyhaven_handlers = {
                 "get_polyhaven_categories": self.get_polyhaven_categories,
-                "search_polyhaven_assets": self.search_polyhaven_assets,
+                "list_polyhaven_assets": self.list_polyhaven_assets,
                 "import_polyhaven_asset": self.import_polyhaven_asset,
                 "apply_polyhaven_texture": self.apply_polyhaven_texture,
             }
@@ -705,7 +773,7 @@ class BlenderMCPServer(
             sketchfab_handlers = {
                 "search_sketchfab_models": self.search_sketchfab_models,
                 "get_sketchfab_model_preview": self.get_sketchfab_model_preview,
-                "download_sketchfab_model": self.download_sketchfab_model,
+                "import_sketchfab_model": self.import_sketchfab_model,
             }
             handlers.update(sketchfab_handlers)
 
@@ -733,8 +801,10 @@ class BlenderMCPServer(
     _READ_ONLY_COMMANDS = frozenset(
         {
             "list_scene_objects",
+            "get_addon_info",
             "get_object_info",
             "get_mesh_data",
+            "inspect_animation",
             "list_procedural_systems",
             "get_geometry_node_graph",
             "get_geometry_node_type_info",
@@ -742,12 +812,11 @@ class BlenderMCPServer(
             "validate_geometry_node_graph",
             "analyze_procedural_performance",
             "get_viewport_screenshot",
-            "get_scene_physics_info",
             "get_polyhaven_status",
             "get_sketchfab_status",
             "get_nd_status",
             "get_polyhaven_categories",
-            "search_polyhaven_assets",
+            "list_polyhaven_assets",
             "search_sketchfab_models",
             "get_sketchfab_model_preview",
             "get_cloth_simulation_info",
@@ -779,6 +848,8 @@ class BlenderMCPServer(
             "inspect_retopology",
             "validate_retopology",
             "test_deformation",
+            "inspect_render_setup",
+            "get_scene_physics_info",
         }
     )
 
@@ -940,6 +1011,15 @@ class BlenderMCPServer(
         for record in params.get("keyframes", ()):
             if isinstance(record, dict) and isinstance(record.get("object_name"), str):
                 names.append(record["object_name"])
+        for record in params.get("assignments", ()):
+            if not isinstance(record, dict):
+                continue
+            for name_key in ("child_object_name", "parent_object_name"):
+                if isinstance(record.get(name_key), str):
+                    names.append(record[name_key])
+        constraint = params.get("constraint")
+        if isinstance(constraint, dict) and isinstance(constraint.get("target_object_name"), str):
+            names.append(constraint["target_object_name"])
         for record_key in ("sources", "mappings", "bodies"):
             for record in params.get(record_key, ()):
                 if not isinstance(record, dict):
@@ -1026,13 +1106,17 @@ class BlenderMCPServer(
                 )
             )
         )
-        if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
+        non_undo_commands = {"set_viewport_overlay", "nd_pulse_viewport_toggle", "nd_capture_utils", "render_scene"}
+        if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only or cmd_type in non_undo_commands:
             return handler(**params)
 
         targets = self._resolve_targets(params)
         capture_geometry = cmd_type in self._GEOMETRY_MUTATING_COMMANDS
         with mutation_transaction(cmd_type, targets, capture_geometry) as txn:
             result = handler(**params)
+            if isinstance(result, dict) and result.get("cancelled"):
+                txn.finish_without_checkpoint()
+                return result
             failure = _handler_failure_message(result)
             if failure is not None:
                 raise HandlerReportedError(failure)
@@ -1073,7 +1157,7 @@ class BlenderMCPServer(
         """
         try:
             print("Getting scene info...")
-            scene_objects = list(bpy.context.scene.objects)
+            scene_objects = sorted(bpy.context.scene.objects, key=lambda item: item.name.casefold())
             total = len(scene_objects)
             start, end, truncated, next_offset = paginate(total, offset, limit, self._SCENE_INFO_MAX_LIMIT)
 
@@ -1085,10 +1169,16 @@ class BlenderMCPServer(
                         "type": obj.type,
                         # Only include basic location data
                         "location": [
-                            round(float(obj.location.x), 2),
-                            round(float(obj.location.y), 2),
-                            round(float(obj.location.z), 2),
+                            float(obj.location.x),
+                            float(obj.location.y),
+                            float(obj.location.z),
                         ],
+                        "parent": obj.parent.name if obj.parent else None,
+                        "collections": sorted(collection.name for collection in obj.users_collection),
+                        "selected": bool(obj.select_get()),
+                        "visible": bool(obj.visible_get()),
+                        "hide_viewport": bool(obj.hide_viewport),
+                        "hide_render": bool(obj.hide_render),
                     }
                 )
 
@@ -1097,6 +1187,16 @@ class BlenderMCPServer(
                 "object_count": total,
                 "objects": objects,
                 "materials_count": len(bpy.data.materials),
+                "active_object": getattr(getattr(bpy.context, "view_layer", None), "objects", None).active.name
+                if getattr(getattr(getattr(bpy.context, "view_layer", None), "objects", None), "active", None)
+                else None,
+                "selected_objects": sorted(obj.name for obj in getattr(bpy.context, "selected_objects", ())),
+                "mode": getattr(bpy.context, "mode", "UNKNOWN"),
+                "unit_settings": {
+                    "system": bpy.context.scene.unit_settings.system,
+                    "scale_length": bpy.context.scene.unit_settings.scale_length,
+                    "length_unit": bpy.context.scene.unit_settings.length_unit,
+                },
                 "offset": start,
                 "limit": limit,
                 "returned_count": len(objects),
@@ -1192,7 +1292,17 @@ class BlenderMCPServer(
             "rotation_mode": obj.rotation_mode,
             "rotation": rotation,
             "scale": [obj.scale.x, obj.scale.y, obj.scale.z],
+            "matrix_world": [[float(value) for value in row] for row in obj.matrix_world],
+            "dimensions": [float(value) for value in obj.dimensions],
+            "parent": obj.parent.name if obj.parent else None,
+            "parent_type": obj.parent_type,
+            "parent_bone": obj.parent_bone or None,
+            "collections": sorted(collection.name for collection in obj.users_collection),
+            "data_name": obj.data.name if obj.data else None,
+            "selected": bool(obj.select_get()),
             "visible": obj.visible_get(),
+            "hide_viewport": bool(obj.hide_viewport),
+            "hide_render": bool(obj.hide_render),
             "materials": [],
             "modifiers": [
                 {

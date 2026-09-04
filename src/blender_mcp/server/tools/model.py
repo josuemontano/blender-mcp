@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from .envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING, ok
+from .envelope import STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
@@ -88,10 +88,8 @@ async def add_subdivision_surface_modifier(
         levels: Subdivision levels (viewport and render).
         apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
 
-    Note: this always calls shade_smooth on the object's base mesh, regardless of apply - so the base mesh's
-    shading changes even when apply=False and the modifier stays live. When apply=True, this also changes
-    topology - indices returned by an earlier get_mesh_data call are no longer valid afterward; call
-    get_mesh_data again before further index-based edits.
+    When apply=True, this changes topology, so indices returned by an earlier get_mesh_data call are no longer
+    valid afterward; call get_mesh_data again before further index-based edits.
 
     Returns:
         the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
@@ -111,7 +109,7 @@ async def add_subdivision_surface_modifier(
                 "apply": apply,
             },
         )
-        warnings = [SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING] if apply else [SHADE_SMOOTH_WARNING]
+        warnings = [STALE_INDEX_WARNING] if apply else None
         return ok(result, changed_objects=[object_name], warnings=warnings)
     except Exception as e:
         logger.error(f"Error refining model: {e}")
@@ -180,7 +178,7 @@ async def add_displace_modifier(
 
 
 @mcp.tool()
-async def model_mirror(
+async def add_mirror_modifier(
     ctx: Context,
     object_name: str,
     axis: Axis = "X",
@@ -214,7 +212,7 @@ async def model_mirror(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_mirror",
+            "add_mirror_modifier",
             {
                 "object_name": object_name,
                 "axis": axis,
@@ -231,7 +229,7 @@ async def model_mirror(
 
 
 @mcp.tool()
-async def model_array(
+async def add_array_modifier(
     ctx: Context,
     object_name: str,
     count: Annotated[int, Field(ge=1, le=10000)] = 2,
@@ -263,7 +261,7 @@ async def model_array(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_array",
+            "add_array_modifier",
             {
                 "object_name": object_name,
                 "count": count,
@@ -279,7 +277,7 @@ async def model_array(
 
 
 @mcp.tool()
-async def model_radial_array(
+async def add_radial_array_modifier(
     ctx: Context,
     object_name: str,
     count: Annotated[int, Field(ge=2, le=10000)] = 6,
@@ -325,7 +323,7 @@ async def model_radial_array(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_radial_array",
+            "add_radial_array_modifier",
             {
                 "object_name": object_name,
                 "count": count,

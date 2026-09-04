@@ -25,7 +25,7 @@ bl_info = {
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
 # Bumped so installations without advanced Geometry Nodes zones, cache, delivery,
 # and performance capabilities are refreshed before dispatch.
-ADDON_PROTOCOL_VERSION = 26
+ADDON_PROTOCOL_VERSION = 29
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]
@@ -51,7 +51,7 @@ def register() -> None:
     bpy.types.Scene.blendermcp_auto_start_server = bpy.props.BoolProperty(
         name="Auto-Start Server",
         description="Automatically start the MCP server when Blender loads",
-        default=True,
+        default=False,
     )
 
     bpy.types.Scene.blendermcp_use_polyhaven = bpy.props.BoolProperty(
@@ -93,7 +93,7 @@ def register() -> None:
         auto_start = scene.blendermcp_auto_start_server
     else:
         port = 9876
-        auto_start = True
+        auto_start = False
 
     if auto_start and (not hasattr(bpy.types, "blendermcp_server") or not bpy.types.blendermcp_server):
         bpy.types.blendermcp_server = BlenderMCPServer(port=port)

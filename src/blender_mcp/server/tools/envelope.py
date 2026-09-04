@@ -23,7 +23,7 @@ second content item - see their docstrings) uses `ok()` to build it:
   worlds, node groups, textures) - the counterpart to `changed_objects` for data that
   isn't a scene object.
 
-Pagination fields (`list_scene_objects`, `get_mesh_data`, `search_polyhaven_assets`) live
+Pagination fields (`list_scene_objects`, `get_mesh_data`, `list_polyhaven_assets`) live
 inside `data`, not in this envelope: a `limit`/`offset` request, a total-count field
 specific to that tool, `returned_count`, `truncated`, and `next_offset`. When `truncated`
 is true, call again with `offset=next_offset` to continue.
@@ -36,12 +36,6 @@ STALE_INDEX_WARNING = (
     "before this one are no longer reliable - call get_mesh_data again before reusing indices in further "
     "index-based edits."
 )
-
-SHADE_SMOOTH_WARNING = (
-    "This operation always calls shade_smooth() on the object's base mesh, changing its per-face shading "
-    "even when apply=False and the modifier stays live."
-)
-
 
 def ok(
     data: Any = None,

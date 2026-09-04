@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from blender_mcp.server.tools import model
-from blender_mcp.server.tools.envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING
+from blender_mcp.server.tools.envelope import STALE_INDEX_WARNING
 
 
 class _StubConnection:
@@ -25,9 +25,9 @@ class _StubConnection:
 
 APPLY_CAPABLE_TOOLS = [
     (model.add_displace_modifier, {"object_name": "Cube"}),
-    (model.model_mirror, {"object_name": "Cube"}),
-    (model.model_array, {"object_name": "Cube"}),
-    (model.model_radial_array, {"object_name": "Cube", "radius": 2.0}),
+    (model.add_mirror_modifier, {"object_name": "Cube"}),
+    (model.add_array_modifier, {"object_name": "Cube"}),
+    (model.add_radial_array_modifier, {"object_name": "Cube", "radius": 2.0}),
 ]
 
 
@@ -49,17 +49,17 @@ def test_apply_false_omits_stale_index_warning(monkeypatch, tool_fn, kwargs) -> 
     assert result["warnings"] == []
 
 
-def test_add_subdivision_surface_modifier_apply_true_includes_both_warnings(monkeypatch) -> None:
+def test_add_subdivision_surface_modifier_apply_true_warns_about_topology(monkeypatch) -> None:
     monkeypatch.setattr(model, "get_blender_connection", lambda: _StubConnection({"name": "Cube"}))
 
     result = asyncio.run(model.add_subdivision_surface_modifier(ctx=None, object_name="Cube", apply=True))
 
-    assert result["warnings"] == [SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING]
+    assert result["warnings"] == [STALE_INDEX_WARNING]
 
 
-def test_add_subdivision_surface_modifier_apply_false_includes_shade_smooth_warning_only(monkeypatch) -> None:
+def test_add_subdivision_surface_modifier_apply_false_has_no_warning(monkeypatch) -> None:
     monkeypatch.setattr(model, "get_blender_connection", lambda: _StubConnection({"name": "Cube"}))
 
     result = asyncio.run(model.add_subdivision_surface_modifier(ctx=None, object_name="Cube", apply=False))
 
-    assert result["warnings"] == [SHADE_SMOOTH_WARNING]
+    assert result["warnings"] == []

@@ -26,7 +26,7 @@ from pathlib import Path
 logger = logging.getLogger("BlenderMCPServer")
 
 # Must match ADDON_PROTOCOL_VERSION in bundled/addon/__init__.py
-EXPECTED_ADDON_PROTOCOL_VERSION = 26
+EXPECTED_ADDON_PROTOCOL_VERSION = 29
 
 _ADDON_MARKER = 'bl_info = {\n    "name": "Blender MCP"'
 _INSTALLED_DIRNAME = "blender_mcp"
@@ -488,7 +488,7 @@ def handshake_addon(blender_connection) -> AddonHandshake:
     Query a connected Blender addon for protocol version.
 
     Old addons without get_addon_info are treated as outdated (but still usable
-    via execute_code fallbacks elsewhere).
+    through validated dedicated tools elsewhere).
 
     Args:
         blender_connection: Value for blender connection.

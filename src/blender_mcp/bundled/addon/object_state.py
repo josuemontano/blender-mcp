@@ -10,7 +10,8 @@ What is captured/restored per target object (all keyed by the object's stable
 
 - object name and its data-block name;
 - local transform (`matrix_basis`, so it is rotation-mode agnostic);
-- parent and `matrix_parent_inverse`;
+- parent, parent type/bone, and `matrix_parent_inverse`;
+- collection membership;
 - material-slot material assignments;
 - the set of modifier names present before the request - restore removes any
   modifier added during a failed request. Handlers only ever *add* modifiers
@@ -19,7 +20,7 @@ What is captured/restored per target object (all keyed by the object's stable
   swapped back on failure for the mesh-editing commands.
 
 Deliberately NOT covered (documented limitations, not silent gaps): resurrecting
-deleted datablocks, applied modifiers (irreversible), arbitrary `execute_code`
+deleted datablocks and applied modifiers (irreversible)
 side effects, and object state a handler changes that is not one of the fields
 above. A mesh restored from a geometry backup gets a fresh `session_uid` - an
 accepted cost on the exceptional rollback path.
@@ -39,7 +40,10 @@ class ObjectState:
         # rotation_mode - copy it so later mutation can't alias our snapshot.
         self.matrix_basis = obj.matrix_basis.copy()
         self.parent = obj.parent
+        self.parent_type = getattr(obj, "parent_type", "OBJECT")
+        self.parent_bone = getattr(obj, "parent_bone", "")
         self.matrix_parent_inverse = obj.matrix_parent_inverse.copy()
+        self.collections = list(getattr(obj, "users_collection", ()))
         self.materials = [slot.material for slot in obj.material_slots]
         self.modifier_names = {mod.name for mod in obj.modifiers}
         # A detached copy of the mesh (no scene users) kept only as a rollback
@@ -76,7 +80,12 @@ class ObjectState:
             obj.matrix_basis = self.matrix_basis
         with contextlib.suppress(Exception):
             obj.parent = self.parent
+            if hasattr(obj, "parent_type"):
+                obj.parent_type = self.parent_type
+            if hasattr(obj, "parent_bone"):
+                obj.parent_bone = self.parent_bone
             obj.matrix_parent_inverse = self.matrix_parent_inverse
+        self._restore_collections()
         self._restore_materials()
         self._remove_added_modifiers()
 
@@ -119,6 +128,18 @@ class ObjectState:
         for slot, material in zip(slots, self.materials, strict=False):
             with contextlib.suppress(Exception):
                 slot.material = material
+
+    def _restore_collections(self) -> None:
+        """Restore exact object-to-collection links for collection batch rollback."""
+        obj = self.obj
+        for collection in list(getattr(obj, "users_collection", ())):
+            if collection not in self.collections:
+                with contextlib.suppress(Exception):
+                    collection.objects.unlink(obj)
+        for collection in self.collections:
+            with contextlib.suppress(Exception):
+                if collection.objects.get(obj.name) is None:
+                    collection.objects.link(obj)
 
     def _remove_added_modifiers(self) -> None:
         obj = self.obj

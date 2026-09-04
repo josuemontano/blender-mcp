@@ -1,7 +1,3 @@
-import io
-
-from contextlib import redirect_stdout
-
 import bpy
 
 from ..helpers import find_view3d
@@ -16,7 +12,7 @@ class ViewportHandlersMixin:
         "FACE_ORIENTATION": ("overlay", "show_face_orientation"),
     }
 
-    def viewport_overlay_toggle(self, toggle, enabled):
+    def set_viewport_overlay(self, toggle, enabled):
         """
         Set a native Blender viewport overlay to an explicit on/off state.
 
@@ -149,32 +145,3 @@ class ViewportHandlersMixin:
 
         except Exception as e:
             return {"error": str(e)}
-
-    def execute_code(self, code):
-        """
-        Execute arbitrary Blender Python code.
-
-        Args:
-            code: Value for code.
-
-        Returns:
-            Result produced by the operation.
-
-        Raises:
-            Exception: If the operation cannot be completed.
-
-        """
-        # This is powerful but potentially dangerous - use with caution
-        try:
-            # Create a local namespace for execution
-            namespace = {"bpy": bpy}
-
-            # Capture stdout during execution, and return it as result
-            capture_buffer = io.StringIO()
-            with redirect_stdout(capture_buffer):
-                exec(code, namespace)
-
-            captured_output = capture_buffer.getvalue()
-            return {"executed": True, "result": captured_output}
-        except Exception as e:
-            raise Exception(f"Code execution error: {e!s}") from e

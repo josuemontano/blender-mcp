@@ -1,3 +1,6 @@
+import asyncio
+
+from blender_mcp.server.tools import polyhaven
 from blender_mcp.server.tools.polyhaven import _polyhaven_changed
 
 
@@ -53,3 +56,34 @@ def test_asset_id_never_appears_in_changed_objects_or_resources() -> None:
         changed_objects, changed_resources = _polyhaven_changed(asset_type, result)
         assert asset_id not in changed_objects
         assert asset_id not in changed_resources
+
+
+def test_list_assets_forwards_pagination_and_returns_continuation(monkeypatch) -> None:
+    class Connection:
+        def send_command(self, command, params):
+            assert command == "list_polyhaven_assets"
+            assert params["limit"] == 2
+            assert params["offset"] == 4
+            return {
+                "assets": {"asset-e": {}},
+                "total_count": 9,
+                "returned_count": 1,
+                "offset": 4,
+                "limit": 2,
+                "truncated": True,
+                "next_offset": 5,
+            }
+
+    monkeypatch.setattr(polyhaven, "get_blender_connection", Connection)
+
+    result = asyncio.run(polyhaven.list_polyhaven_assets(ctx=None, limit=2, offset=4))
+
+    assert result["data"]["next_offset"] == 5
+    assert result["data"]["truncated"] is True
+
+
+def test_hdri_changed_resources_include_world_and_image() -> None:
+    objects, resources = _polyhaven_changed("hdris", {"image_name": "Sky.exr", "world": "Lighting World"})
+
+    assert objects == []
+    assert resources == ["Sky.exr", "Lighting World"]
