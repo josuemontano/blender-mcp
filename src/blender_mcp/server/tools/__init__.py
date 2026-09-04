@@ -14,9 +14,11 @@ from . import liquid as liquid
 from . import mesh as mesh
 from . import model as model
 from . import nd as nd
+from . import object_animation as object_animation
 from . import polyhaven as polyhaven
 from . import retopology as retopology
 from . import rigid_body as rigid_body
+from . import scene_physics as scene_physics
 from . import sketchfab as sketchfab
 from . import texture as texture
 from . import viewport as viewport

@@ -21,9 +21,11 @@ from .handlers.liquid import LiquidHandlersMixin
 from .handlers.mesh import MeshHandlersMixin
 from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
+from .handlers.object_animation import ObjectAnimationHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
 from .handlers.retopology import RetopologyHandlersMixin
 from .handlers.rigid_body import RigidBodyHandlersMixin
+from .handlers.scene_physics import ScenePhysicsHandlersMixin
 from .handlers.sketchfab import SketchfabHandlersMixin
 from .handlers.viewport import ViewportHandlersMixin
 from .helpers import get_blendermcp_addon_preferences, get_mesh_object, paginate, sync_from_editmode
@@ -79,6 +81,8 @@ class BlenderMCPServer(
     ModelHandlersMixin,
     ClothHandlersMixin,
     LiquidHandlersMixin,
+    ScenePhysicsHandlersMixin,
+    ObjectAnimationHandlersMixin,
     NDHandlersMixin,
     PolyhavenHandlersMixin,
     SketchfabHandlersMixin,
@@ -468,6 +472,9 @@ class BlenderMCPServer(
             "analyze_procedural_performance": self.analyze_procedural_performance,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
+            "get_scene_physics_info": self.get_scene_physics_info,
+            "configure_scene_physics": self.configure_scene_physics,
+            "keyframe_object_transform": self.keyframe_object_transform,
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_sketchfab_status": self.get_sketchfab_status,
             "create_primitive": self.create_primitive,
@@ -735,6 +742,7 @@ class BlenderMCPServer(
             "validate_geometry_node_graph",
             "analyze_procedural_performance",
             "get_viewport_screenshot",
+            "get_scene_physics_info",
             "get_polyhaven_status",
             "get_sketchfab_status",
             "get_nd_status",
@@ -927,6 +935,9 @@ class BlenderMCPServer(
             if isinstance(record, dict) and isinstance(record.get("object_name"), str):
                 names.append(record["object_name"])
         for record in params.get("fields", ()):
+            if isinstance(record, dict) and isinstance(record.get("object_name"), str):
+                names.append(record["object_name"])
+        for record in params.get("keyframes", ()):
             if isinstance(record, dict) and isinstance(record.get("object_name"), str):
                 names.append(record["object_name"])
         for record_key in ("sources", "mappings", "bodies"):

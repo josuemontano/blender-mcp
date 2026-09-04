@@ -77,6 +77,8 @@ def _load_server_class():
         "ModelHandlersMixin",
         "ClothHandlersMixin",
         "LiquidHandlersMixin",
+        "ScenePhysicsHandlersMixin",
+        "ObjectAnimationHandlersMixin",
         "NDHandlersMixin",
         "PolyhavenHandlersMixin",
         "SketchfabHandlersMixin",
