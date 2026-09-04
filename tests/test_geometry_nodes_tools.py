@@ -39,13 +39,21 @@ WORKFLOW_COMMANDS = {
     "publish_procedural_asset",
 }
 
+ADVANCED_COMMANDS = {
+    "create_repeat_zone",
+    "create_simulation_zone",
+    "manage_geometry_nodes_bake",
+    "realize_procedural_output",
+    "analyze_procedural_performance",
+}
+
 
 def _run(function, **kwargs):
     return asyncio.run(function(ctx=None, **kwargs))
 
 
 def test_all_planned_geometry_nodes_commands_are_registered() -> None:
-    names = FOUNDATION_COMMANDS | WORKFLOW_COMMANDS
+    names = FOUNDATION_COMMANDS | WORKFLOW_COMMANDS | ADVANCED_COMMANDS
 
     assert all(callable(getattr(geometry_nodes, name)) for name in names)
     assert set(geometry_nodes.mcp._tool_manager._tools) >= names
@@ -54,18 +62,113 @@ def test_all_planned_geometry_nodes_commands_are_registered() -> None:
 def test_geometry_nodes_dispatch_and_read_only_contract(monkeypatch) -> None:
     addon, _bpy = _load_addon(monkeypatch, data={})
     server = addon.BlenderMCPServer()
-    names = FOUNDATION_COMMANDS | WORKFLOW_COMMANDS
+    names = FOUNDATION_COMMANDS | WORKFLOW_COMMANDS | ADVANCED_COMMANDS
     read_only = {
         "list_procedural_systems",
         "get_geometry_node_graph",
         "get_geometry_node_type_info",
         "evaluate_procedural_geometry",
         "validate_geometry_node_graph",
+        "analyze_procedural_performance",
     }
 
     assert set(server._build_command_handlers()) >= names
     assert read_only <= server._READ_ONLY_COMMANDS
     assert not (names - read_only) & server._READ_ONLY_COMMANDS
+
+
+def test_bake_inspection_uses_read_only_dispatch(monkeypatch) -> None:
+    addon, _bpy = _load_addon(monkeypatch, data={})
+    server = addon.BlenderMCPServer()
+
+    result = server._run_handler(
+        "manage_geometry_nodes_bake",
+        lambda **params: {"action": params["action"]},
+        {"action": "INSPECT"},
+    )
+
+    assert result == {"action": "INSPECT"}
+
+
+def test_advanced_geometry_nodes_models_enforce_complexity_and_safety() -> None:
+    duplicate_items = [
+        geometry_nodes.ZoneStateSpec(name="Geometry", socket_type="GEOMETRY"),
+        geometry_nodes.ZoneStateSpec(name="Geometry", socket_type="FLOAT"),
+    ]
+    with pytest.raises(ValueError, match="unique"):
+        _run(
+            geometry_nodes.create_repeat_zone,
+            node_group_name="Growth",
+            state_items=duplicate_items,
+        )
+    with pytest.raises(ValueError, match="iterations"):
+        _run(geometry_nodes.create_repeat_zone, node_group_name="Growth", iterations=257)
+    with pytest.raises(ValueError, match="confirm_bake"):
+        _run(
+            geometry_nodes.manage_geometry_nodes_bake,
+            object_name="Growth Mesh",
+            modifier_name="GeometryNodes",
+            action="BAKE",
+            bake_id=1,
+        )
+    with pytest.raises(ValueError, match="confirm_delete"):
+        _run(
+            geometry_nodes.manage_geometry_nodes_bake,
+            object_name="Growth Mesh",
+            modifier_name="GeometryNodes",
+            action="DELETE",
+            bake_id=1,
+        )
+    with pytest.raises(ValueError, match="confirm_destructive"):
+        _run(
+            geometry_nodes.realize_procedural_output,
+            object_name="Growth Mesh",
+            output_name="Growth Delivery",
+            collection_name="Deliveries",
+            delivery_mode="APPLIED_MODIFIER_COPY",
+            modifier_name="GeometryNodes",
+        )
+
+
+def test_repeat_zone_serializes_state_schema_without_context(monkeypatch) -> None:
+    zones = sys.modules["blender_mcp.server.tools.geometry_nodes.zones"]
+    calls = []
+    monkeypatch.setattr(
+        zones,
+        "call_geometry_nodes",
+        lambda command, params, **kwargs: calls.append((command, params, kwargs)) or {"ok": True},
+    )
+
+    result = _run(
+        geometry_nodes.create_repeat_zone,
+        node_group_name="Growth",
+        state_items=[
+            geometry_nodes.ZoneStateSpec(name="Geometry", socket_type="GEOMETRY"),
+            geometry_nodes.ZoneStateSpec(name="Offset", socket_type="VECTOR"),
+        ],
+        iterations=12,
+    )
+
+    assert result == {"ok": True}
+    assert calls[0][0] == "create_repeat_zone"
+    assert calls[0][1]["state_items"][1] == {"name": "Offset", "socket_type": "VECTOR"}
+    assert calls[0][1]["iterations"] == 12
+    assert calls[0][2]["changed_resources"] == ["Growth"]
+
+
+def test_bake_requires_explicit_budgets_before_transport() -> None:
+    with pytest.raises(ValueError, match="explicit values"):
+        _run(
+            geometry_nodes.manage_geometry_nodes_bake,
+            object_name="Simulation",
+            modifier_name="GeometryNodes",
+            action="BAKE",
+            bake_id=7,
+            frame_start=1,
+            frame_end=10,
+            bake_target="PACKED",
+            confirm_bake=True,
+        )
 
 
 def test_interface_and_graph_models_reject_unsafe_shapes() -> None:

@@ -54,6 +54,7 @@ _FILE_TOOLS = {
     "export_cloth_simulation",
     "export_liquid_simulation",
     "export_rigid_body_animation",
+    "manage_geometry_nodes_bake",
     "render_lighting_preview",
 }
 _IMAGE_TOOLS = {"get_viewport_screenshot", "get_sketchfab_model_preview", "render_lighting_preview"}
@@ -96,6 +97,7 @@ _DESTRUCTIVE_TOOLS = {
     "manage_cloth_cache",
     "manage_bone_collections",
     "manage_liquid_cache",
+    "manage_geometry_nodes_bake",
     "manage_retopology_checkpoint",
     "manage_rigid_body_cache",
     "nd_apply_modifiers",
@@ -103,6 +105,7 @@ _DESTRUCTIVE_TOOLS = {
     "patch_armature_bones",
     "project_mesh_elements",
     "run_geometry_nodes_tool",
+    "realize_procedural_output",
     "redistribute_edge_loop",
     "relax_topology",
     "reroute_topology",

@@ -116,7 +116,7 @@ def _node_record(node) -> dict[str, Any]:
             value = getattr(node, prop.identifier)
             if prop.type != "POINTER" or value is not None:
                 properties[prop.identifier] = serialize_value(value)
-    return {
+    record = {
         "name": node.name,
         "label": node.label,
         "bl_idname": node.bl_idname,
@@ -132,6 +132,49 @@ def _node_record(node) -> dict[str, Any]:
         "outputs": [serialize_socket(socket, include_default=False) for socket in node.outputs],
         "mcp_role": node.get("blender_mcp_role"),
     }
+    if node.bl_idname in {"GeometryNodeRepeatInput", "GeometryNodeSimulationInput"}:
+        paired = node.paired_output
+        record["zone"] = {
+            "role": "INPUT",
+            "paired_node": paired.name if paired else None,
+            "paired": paired is not None,
+        }
+    elif node.bl_idname in {"GeometryNodeRepeatOutput", "GeometryNodeSimulationOutput"}:
+        items = node.repeat_items if node.bl_idname == "GeometryNodeRepeatOutput" else node.state_items
+        sockets = [socket for socket in node.outputs if socket.identifier != "__extend__"]
+        paired_input = next(
+            (
+                candidate
+                for candidate in node.id_data.nodes
+                if candidate.bl_idname in {"GeometryNodeRepeatInput", "GeometryNodeSimulationInput"}
+                and candidate.paired_output == node
+            ),
+            None,
+        )
+        state_records = []
+        for index, item in enumerate(items):
+            socket = sockets[index] if index < len(sockets) else None
+            state_records.append(
+                {
+                    "name": item.name,
+                    "socket_type": item.socket_type,
+                    "socket_identifier": socket.identifier if socket else None,
+                    **({"attribute_domain": item.attribute_domain} if hasattr(item, "attribute_domain") else {}),
+                }
+            )
+        record["zone"] = {
+            "role": "OUTPUT",
+            "paired_node": paired_input.name if paired_input else None,
+            "paired": paired_input is not None,
+            "state_items": state_records,
+            "intended_frame_range": {
+                "start": node.get("blender_mcp_frame_start"),
+                "end": node.get("blender_mcp_frame_end"),
+            }
+            if node.bl_idname == "GeometryNodeSimulationOutput"
+            else None,
+        }
+    return record
 
 
 def _modifier_record(obj, modifier) -> dict[str, Any]:
@@ -160,7 +203,18 @@ def _modifier_record(obj, modifier) -> dict[str, Any]:
         "execution_time": getattr(modifier, "execution_time", None),
         "inputs": overrides,
         "bakes": [
-            {"bake_id": bake.bake_id, "directory": bake.directory, "bake_mode": bake.bake_mode}
+            {
+                "bake_id": bake.bake_id,
+                "node": bake.node.name if bake.node else None,
+                "node_type": bake.node.bl_idname if bake.node else None,
+                "directory": bake.directory,
+                "use_custom_path": bake.use_custom_path,
+                "bake_mode": bake.bake_mode,
+                "bake_target": bake.bake_target,
+                "frame_start": bake.frame_start,
+                "frame_end": bake.frame_end,
+                "use_custom_simulation_frame_range": bake.use_custom_simulation_frame_range,
+            }
             for bake in getattr(modifier, "bakes", ())
         ],
         "warnings": warnings,

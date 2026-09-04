@@ -461,6 +461,11 @@ class BlenderMCPServer(
             "manage_procedural_instances": self.manage_procedural_instances,
             "run_geometry_nodes_tool": self.run_geometry_nodes_tool,
             "publish_procedural_asset": self.publish_procedural_asset,
+            "create_repeat_zone": self.create_repeat_zone,
+            "create_simulation_zone": self.create_simulation_zone,
+            "manage_geometry_nodes_bake": self.manage_geometry_nodes_bake,
+            "realize_procedural_output": self.realize_procedural_output,
+            "analyze_procedural_performance": self.analyze_procedural_performance,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -728,6 +733,7 @@ class BlenderMCPServer(
             "get_geometry_node_type_info",
             "evaluate_procedural_geometry",
             "validate_geometry_node_graph",
+            "analyze_procedural_performance",
             "get_viewport_screenshot",
             "get_polyhaven_status",
             "get_sketchfab_status",
@@ -990,6 +996,9 @@ class BlenderMCPServer(
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "manage_named_attributes" and str(params.get("action", "LIST")).upper() == "LIST"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_geometry_nodes_bake" and str(params.get("action", "INSPECT")).upper() == "INSPECT"
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "manage_procedural_instances"
