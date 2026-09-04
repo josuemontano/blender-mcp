@@ -5,6 +5,9 @@ import os
 
 import bpy
 
+from ...helpers import paginate
+from ..geometry_nodes._shared import serialize_socket
+from ..node_graph import apply_graph_operation
 from ._shared import (
     PRINCIPLED_INPUTS,
     active_output,
@@ -82,6 +85,91 @@ def _set_material_properties(material, patch, engine):
     if engine == "BOTH" and patch.get("transmission_weight", 0) > 0:
         warnings.append("Transmission can differ between Cycles and Eevee; validate with a dual-engine preview.")
     return warnings
+
+
+_SHADER_COLLECTIONS = {
+    "MATERIAL": "materials",
+    "WORLD": "worlds",
+    "LIGHT": "lights",
+}
+_SHADER_OUTPUT_TYPES = {
+    "MATERIAL": "ShaderNodeOutputMaterial",
+    "WORLD": "ShaderNodeOutputWorld",
+    "LIGHT": "ShaderNodeOutputLight",
+}
+_SHADER_NODE_PREFIXES = ("ShaderNode", "FunctionNode", "NodeFrame", "NodeReroute")
+
+
+def _shader_owner(target):
+    target_type = str(target.get("type", "")).upper()
+    collection_name = _SHADER_COLLECTIONS.get(target_type)
+    if collection_name is None:
+        raise ValueError("target.type must be MATERIAL, WORLD, or LIGHT")
+    name = required_name(target.get("name"), "target.name")
+    owner = getattr(bpy.data, collection_name).get(name)
+    if owner is None:
+        raise ValueError(f"{target_type.title()} not found: {name}")
+    if owner.library is not None or not owner.is_editable:
+        raise ValueError(f"{target_type.title()} '{name}' is linked or read-only")
+    return target_type, collection_name, owner
+
+
+def _shader_users(target_type, owner):
+    if target_type == "MATERIAL":
+        return sorted(
+            obj.name for obj in bpy.data.objects if any(slot.material == owner for slot in obj.material_slots)
+        )
+    if target_type == "LIGHT":
+        return sorted(obj.name for obj in bpy.data.objects if obj.type == "LIGHT" and obj.data == owner)
+    return sorted(scene.name for scene in bpy.data.scenes if scene.world == owner)
+
+
+def _validate_shader_tree(tree, target_type):
+    expected_output = _SHADER_OUTPUT_TYPES[target_type]
+    outputs = [node for node in tree.nodes if node.bl_idname == expected_output]
+    if not outputs:
+        raise ValueError(f"The resulting {target_type.lower()} graph must contain {expected_output}")
+    invalid_links = [
+        {
+            "from_node": link.from_node.name,
+            "from_socket": link.from_socket.identifier,
+            "to_node": link.to_node.name,
+            "to_socket": link.to_socket.identifier,
+        }
+        for link in tree.links
+        if not link.is_valid
+    ]
+    if invalid_links:
+        raise ValueError(f"The resulting shader graph contains invalid links: {invalid_links[:5]}")
+    active = next((node for node in outputs if getattr(node, "is_active_output", False)), outputs[0])
+    return active
+
+
+def _commit_shader_owner(collection_name, original, working):
+    original_name = original.name
+    remapped = False
+    try:
+        original.user_remap(working)
+        remapped = True
+        getattr(bpy.data, collection_name).remove(original, do_unlink=True)
+        working.name = original_name
+    except Exception:
+        if remapped and original.name in getattr(bpy.data, collection_name):
+            working.user_remap(original)
+        if working.name in getattr(bpy.data, collection_name):
+            getattr(bpy.data, collection_name).remove(working, do_unlink=True)
+        raise
+    return working
+
+
+def _temporary_shader_owner(target_type):
+    if target_type == "MATERIAL":
+        return bpy.data.materials.new("__BlenderMCP_ShaderNodeProbe__"), bpy.data.materials
+    if target_type == "WORLD":
+        return bpy.data.worlds.new("__BlenderMCP_ShaderNodeProbe__"), bpy.data.worlds
+    if target_type == "LIGHT":
+        return bpy.data.lights.new("__BlenderMCP_ShaderNodeProbe__", "POINT"), bpy.data.lights
+    raise ValueError("target_type must be MATERIAL, WORLD, or LIGHT")
 
 
 class TextureMaterialHandlers:
@@ -178,6 +266,125 @@ class TextureMaterialHandlers:
                 if int(link_offset) + len(link_page) < len(links)
                 else None,
             },
+        }
+
+    def get_shader_node_type_info(
+        self,
+        target_type="MATERIAL",
+        bl_idname=None,
+        search="",
+        limit=50,
+        offset=0,
+    ):
+        target_type = str(target_type).upper()
+        owner, collection = _temporary_shader_owner(target_type)
+        records = []
+        try:
+            owner.use_nodes = True
+            tree = owner.node_tree
+            tree.nodes.clear()
+            if bl_idname is not None:
+                candidates = [bl_idname]
+            else:
+                query = str(search or "").casefold()
+                candidates = []
+                for name in dir(bpy.types):
+                    cls = getattr(bpy.types, name)
+                    rna = getattr(cls, "bl_rna", None)
+                    identifier = getattr(rna, "identifier", "")
+                    if not identifier.startswith(_SHADER_NODE_PREFIXES):
+                        continue
+                    label = getattr(cls, "bl_label", "")
+                    if query not in f"{identifier} {label}".casefold():
+                        continue
+                    candidates.append(identifier)
+                candidates = sorted(set(candidates))
+            for identifier in candidates:
+                cls = getattr(bpy.types, identifier, None)
+                record = {
+                    "bl_idname": identifier,
+                    "available": cls is not None,
+                    "label": getattr(cls, "bl_label", "") if cls else "",
+                    "target_type": target_type,
+                    "creatable": False,
+                    "properties": [],
+                    "inputs": [],
+                    "outputs": [],
+                }
+                if cls is not None:
+                    record["properties"] = [
+                        {
+                            "identifier": prop.identifier,
+                            "type": prop.type,
+                            "readonly": prop.is_readonly,
+                            "description": prop.description,
+                        }
+                        for prop in cls.bl_rna.properties
+                        if prop.identifier != "rna_type"
+                    ]
+                    try:
+                        node = tree.nodes.new(identifier)
+                        record["creatable"] = True
+                        record["inputs"] = [serialize_socket(socket) for socket in node.inputs]
+                        record["outputs"] = [serialize_socket(socket, include_default=False) for socket in node.outputs]
+                        tree.nodes.remove(node)
+                    except RuntimeError as exc:
+                        record["creation_error"] = str(exc)
+                records.append(record)
+        finally:
+            collection.remove(owner, do_unlink=True)
+        if bl_idname is not None:
+            return records[0]
+        start, end, truncated, next_offset = paginate(len(records), int(offset), int(limit), 200)
+        return {
+            "target_type": target_type,
+            "node_types": records[start:end],
+            "total_count": len(records),
+            "returned_count": end - start,
+            "offset": start,
+            "limit": min(max(1, int(limit)), 200),
+            "truncated": truncated,
+            "next_offset": next_offset,
+        }
+
+    def patch_shader_graph(self, target, operations, enable_nodes=False):
+        target_type, collection_name, owner = _shader_owner(target)
+        if not owner.use_nodes and not enable_nodes:
+            raise ValueError(f"{target_type.title()} '{owner.name}' does not use nodes; set enable_nodes=true")
+        users = _shader_users(target_type, owner)
+        working = owner.copy()
+        working.name = f"{owner.name}.__MCP_WORKING__"
+        try:
+            if not working.use_nodes:
+                working.use_nodes = True
+            tree = working.node_tree
+            if tree is None or tree.bl_idname != "ShaderNodeTree":
+                raise ValueError(f"{target_type.title()} '{owner.name}' has no editable ShaderNodeTree")
+            name_map = {}
+            for operation in operations:
+                apply_graph_operation(
+                    tree,
+                    operation,
+                    name_map,
+                    allowed_prefixes=_SHADER_NODE_PREFIXES,
+                    graph_label="shader graph",
+                    managed_owner="blender-mcp",
+                )
+            active_output_node = _validate_shader_tree(tree, target_type)
+        except Exception:
+            getattr(bpy.data, collection_name).remove(working, do_unlink=True)
+            raise
+        replacement = _commit_shader_owner(collection_name, owner, working)
+        return {
+            "target": {"type": target_type, "name": replacement.name},
+            "operation_count": len(operations),
+            "name_map": name_map,
+            "node_count": len(replacement.node_tree.nodes),
+            "link_count": len(replacement.node_tree.links),
+            "active_output": active_output_node.name,
+            "users": users,
+            "changed_objects": users if target_type in {"MATERIAL", "LIGHT"} else [],
+            "changed_resources": [replacement.name],
         }
 
     def create_pbr_material(self, material_name, target_engine="BOTH", settings=None, reuse_existing=False):

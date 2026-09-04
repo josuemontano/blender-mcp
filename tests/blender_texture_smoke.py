@@ -99,6 +99,81 @@ def main() -> None:
     assert inventory["materials"][0]["name"] == "PBR Smoke Material"
     detailed = handler.inspect_material("PBR Smoke Material")
     assert detailed["active_output"] == "PBR Material Output"
+    node_type = handler.get_shader_node_type_info("MATERIAL", bl_idname="ShaderNodeTexNoise")
+    assert node_type["available"] and node_type["creatable"]
+    assert any(socket["identifier"] == "Scale" for socket in node_type["inputs"])
+    patched = handler.patch_shader_graph(
+        {"type": "MATERIAL", "name": "PBR Smoke Material"},
+        [
+            {
+                "operation": "ADD_NODE",
+                "bl_idname": "ShaderNodeTexNoise",
+                "new_name": "PBR Smoke Noise",
+                "managed_role": "smoke_noise",
+            },
+            {
+                "operation": "SET_INPUT",
+                "node_name": "PBR Smoke Noise",
+                "socket_identifier": "Scale",
+                "value": 3.25,
+            },
+        ],
+    )
+    assert patched["node_count"] == len(bpy.data.materials["PBR Smoke Material"].node_tree.nodes)
+    assert bpy.data.materials["PBR Smoke Material"].node_tree.nodes["PBR Smoke Noise"]["mcp_owner"] == "blender-mcp"
+    assert obj.material_slots[0].material == bpy.data.materials["PBR Smoke Material"]
+    committed_material = bpy.data.materials["PBR Smoke Material"]
+    try:
+        handler.patch_shader_graph(
+            {"type": "MATERIAL", "name": committed_material.name},
+            [
+                {
+                    "operation": "ADD_NODE",
+                    "bl_idname": "ShaderNodeTexVoronoi",
+                    "new_name": "Must Roll Back",
+                },
+                {"operation": "REMOVE_NODE", "node_name": "PBR Material Output"},
+            ],
+        )
+    except ValueError as exc:
+        assert "must contain ShaderNodeOutputMaterial" in str(exc)
+    else:
+        raise AssertionError("An incomplete material graph must be rejected")
+    assert bpy.data.materials["PBR Smoke Material"] is committed_material
+    assert committed_material.node_tree.nodes.get("Must Roll Back") is None
+
+    world = bpy.data.worlds.new("PBR Smoke World")
+    bpy.context.scene.world = world
+    patched_world = handler.patch_shader_graph(
+        {"type": "WORLD", "name": world.name},
+        [
+            {
+                "operation": "ADD_NODE",
+                "bl_idname": "ShaderNodeTexSky",
+                "new_name": "PBR Smoke Sky",
+            }
+        ],
+        enable_nodes=True,
+    )
+    assert patched_world["target"]["name"] == "PBR Smoke World"
+    assert bpy.context.scene.world.node_tree.nodes.get("PBR Smoke Sky") is not None
+
+    light_data = bpy.data.lights.new("PBR Smoke Light", "POINT")
+    light_object = bpy.data.objects.new("PBR Smoke Light", light_data)
+    bpy.context.scene.collection.objects.link(light_object)
+    patched_light = handler.patch_shader_graph(
+        {"type": "LIGHT", "name": light_data.name},
+        [
+            {
+                "operation": "ADD_NODE",
+                "bl_idname": "ShaderNodeTexNoise",
+                "new_name": "PBR Smoke Light Noise",
+            }
+        ],
+        enable_nodes=True,
+    )
+    assert patched_light["users"] == [light_object.name]
+    assert light_object.data.node_tree.nodes.get("PBR Smoke Light Noise") is not None
     validation = handler.validate_pbr_asset([obj.name], profile="BLENDER_BOTH")
     assert "findings" in validation
 

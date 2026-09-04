@@ -1,5 +1,6 @@
 """Sketchfab asset-library integration tools."""
 
+import asyncio
 import base64
 import logging
 
@@ -45,12 +46,12 @@ async def search_sketchfab_models(
     categories: str | None = None,
     count: Annotated[int, Field(ge=1, le=100)] = 20,
     downloadable: bool = True,
+    cursor: Annotated[str | None, Field(max_length=2_048)] = None,
 ) -> dict:
     """
     Search one bounded Sketchfab result page for models, optionally filtering by category and downloadability.
 
-    This compatibility surface does not expose the provider continuation cursor. Refine `query`
-    or `categories` when the bounded result is insufficient; do not assume it is the full catalog.
+    Pass the returned continuation cursor to retrieve the next provider page.
 
     Args:
         ctx: MCP request context.
@@ -58,6 +59,7 @@ async def search_sketchfab_models(
         categories: Optional comma-separated Sketchfab categories.
         count: Maximum number of results to return; defaults to 20.
         downloadable: When true (default), return only models that can be downloaded.
+        cursor: Opaque continuation URL returned by an earlier search; omit for the first page.
 
     Returns:
         matching model metadata, including UIDs for previewing or importing.
@@ -71,13 +73,15 @@ async def search_sketchfab_models(
         logger.info(
             f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}"
         )
-        result = blender.send_command(
+        result = await asyncio.to_thread(
+            blender.send_command,
             "search_sketchfab_models",
             {
                 "query": query,
                 "categories": categories,
                 "count": count,
                 "downloadable": downloadable,
+                "cursor": cursor,
             },
         )
         if result is None:
@@ -85,7 +89,15 @@ async def search_sketchfab_models(
         if "error" in result:
             raise ToolError(result["error"])
         models = result.get("results", []) or []
-        return ok({"query": query, "count": len(models), "results": models})
+        return ok(
+            {
+                "query": query,
+                "count": len(models),
+                "results": models,
+                "next_cursor": result.get("next"),
+                "previous_cursor": result.get("previous"),
+            }
+        )
     except ToolError:
         raise
     except Exception as e:
@@ -120,7 +132,7 @@ async def get_sketchfab_model_preview(ctx: Context, uid: Annotated[str, Field(mi
         blender = get_blender_connection()
         logger.info(f"Getting Sketchfab model preview for UID: {uid}")
 
-        result = blender.send_command("get_sketchfab_model_preview", {"uid": uid})
+        result = await asyncio.to_thread(blender.send_command, "get_sketchfab_model_preview", {"uid": uid})
 
         if result is None:
             raise Exception("Received no response from Blender")
@@ -143,7 +155,7 @@ async def get_sketchfab_model_preview(ctx: Context, uid: Annotated[str, Field(mi
 
 
 @mcp.tool()
-async def download_sketchfab_model(
+async def import_sketchfab_model(
     ctx: Context,
     uid: Annotated[str, Field(min_length=1)],
     target_size: Annotated[float, Field(gt=0)],
@@ -171,8 +183,9 @@ async def download_sketchfab_model(
         blender = get_blender_connection()
         logger.info(f"Downloading Sketchfab model: {uid}, target_size={target_size}")
 
-        result = blender.send_command(
-            "download_sketchfab_model",
+        result = await asyncio.to_thread(
+            blender.send_command,
+            "import_sketchfab_model",
             {
                 "uid": uid,
                 "normalize_size": True,  # Always normalize

@@ -203,7 +203,7 @@ class BlenderConnection:
 
         try:
             # Log the command being sent
-            logger.info(f"Sending command: {command_type} with params: {params}")
+            logger.info(f"Sending command: {command_type} (request {command['id']}, {len(command['params'])} params)")
 
             # Send the command. Newline-terminated - see receive_full_response
             # for why this protocol needs explicit framing.

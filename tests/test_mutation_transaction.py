@@ -333,9 +333,9 @@ def test_handler_returning_error_shape_rolls_back_and_reports_error(monkeypatch)
     assert undo_calls == []
 
 
-def test_cancelled_result_commits_and_checkpoints(monkeypatch) -> None:
+def test_cancelled_result_does_not_create_undo_checkpoint(monkeypatch) -> None:
     # {"cancelled": True} is a legitimate ok:false outcome (an ND operator the
-    # user pressed Esc on), not a failure - it must commit and checkpoint.
+    # user pressed Esc on), not a failure - it must not create a misleading undo checkpoint.
     data = {name: FakeCollection() for name in _TRACKED_COLLECTIONS}
     addon, bpy = _load_addon(monkeypatch, data=data)
     server = addon.BlenderMCPServer()
@@ -352,7 +352,7 @@ def test_cancelled_result_commits_and_checkpoints(monkeypatch) -> None:
 
     assert response == {"status": "success", "result": {"cancelled": True, "name": "IdMaterial"}}
     assert "IdMaterial" in bpy.data.materials
-    assert len(undo_calls) == 1
+    assert undo_calls == []
 
 
 def test_captured_object_state_restored_on_failure(monkeypatch) -> None:
@@ -373,10 +373,10 @@ def test_captured_object_state_restored_on_failure(monkeypatch) -> None:
         target.material_slots[0].material = FakeDatablock("Gold")
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(server, "_build_command_handlers", lambda: {"model_array": fake_handler})
+    monkeypatch.setattr(server, "_build_command_handlers", lambda: {"add_array_modifier": fake_handler})
     monkeypatch.setattr(bpy.ops.ed, "undo_push", lambda **kw: None)
 
-    response = server.execute_command_internal({"type": "model_array", "params": {"object_names": ["Widget"]}})
+    response = server.execute_command_internal({"type": "add_array_modifier", "params": {"object_names": ["Widget"]}})
 
     assert response == {"status": "error", "message": "boom"}
     assert target.name == "Widget"

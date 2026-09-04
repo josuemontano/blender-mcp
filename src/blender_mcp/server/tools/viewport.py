@@ -32,8 +32,9 @@ async def list_scene_objects(
         offset: Index of the first object to return, for paging through a scene with more objects than fit in one page.
 
     Returns:
-        "name" (scene name), "materials_count", "objects" (this page's list of {"name", "type", "location"}
-        entries - location rounded to 2 decimals, local/object-space), "object_count" (the scene's true total),
+        "name" (scene name), active object, selection, mode, unit settings, "materials_count", and "objects"
+        (stable name-sorted records with local location, parent, collections, selection and visibility),
+        "object_count" (the scene's true total),
         "offset"/"limit" (the effective page bounds used), "returned_count" (length of this page), "truncated"
         (True if more objects remain), and "next_offset" (pass as offset to fetch the next page while truncated
         is True).
@@ -55,7 +56,7 @@ ViewportOverlay = Literal["CAVITY", "WIREFRAMES", "FACE_ORIENTATION"]
 
 
 @mcp.tool()
-async def viewport_overlay_toggle(ctx: Context, toggle: ViewportOverlay, enabled: bool) -> dict:
+async def set_viewport_overlay(ctx: Context, toggle: ViewportOverlay, enabled: bool) -> dict:
     """
     Set a native Blender viewport overlay to an explicit on/off state.
 
@@ -76,7 +77,7 @@ async def viewport_overlay_toggle(ctx: Context, toggle: ViewportOverlay, enabled
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("viewport_overlay_toggle", {"toggle": toggle, "enabled": enabled})
+        result = blender.send_command("set_viewport_overlay", {"toggle": toggle, "enabled": enabled})
         return ok(result)
     except Exception as e:
         logger.error(f"Error toggling viewport overlay: {e}")
@@ -101,8 +102,9 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
             topology and invalidate prior indices.
 
     Returns:
-        "name", "type", "location"/"rotation"/"scale" (local transform - see the Note above for reading
-        "rotation" against "rotation_mode"), "visible", "materials" (assigned material names), "modifiers"
+        "name", "type", "data_name", "location"/"rotation"/"scale" (local transform - see the Note above for
+        reading "rotation" against "rotation_mode"), "matrix_world", world-aligned "dimensions", parent and
+        collection membership, selection/visibility flags, "materials" (assigned material names), "modifiers"
         (each as {"name", "type", "show_viewport", "show_render"}), and for mesh objects, "world_bounding_box"
         (world-space AABB) and "mesh" ({"vertices", "edges", "polygons"} base-mesh counts).
 
@@ -222,12 +224,12 @@ def get_viewport_screenshot(ctx: Context, max_size: Annotated[int, Field(ge=16, 
         Exception: If the operation cannot be completed.
 
     """
+    temp_path = None
     try:
         blender = get_blender_connection()
 
-        # Create temp file path
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"blender_screenshot_{os.getpid()}.png")
+        descriptor, temp_path = tempfile.mkstemp(prefix="blender_mcp_viewport_", suffix=".png")
+        os.close(descriptor)
 
         result = blender.send_command(
             "get_viewport_screenshot",
@@ -244,11 +246,14 @@ def get_viewport_screenshot(ctx: Context, max_size: Annotated[int, Field(ge=16, 
         with open(temp_path, "rb") as f:
             image_bytes = f.read()
 
-        # Delete the temp file
-        os.remove(temp_path)
-
         return [Image(data=image_bytes, format="png"), ok(_screenshot_metadata(result))]
 
     except Exception as e:
         logger.error(f"Error capturing screenshot: {e!s}")
         raise Exception(f"Screenshot failed: {e!s}") from e
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass

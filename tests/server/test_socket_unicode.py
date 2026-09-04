@@ -196,3 +196,40 @@ def test_oversized_terminated_frame_is_rejected() -> None:
     server.handle_client(ScriptedSocket([oversized_frame]))
 
     assert server.command_queue.empty(), "oversized terminated frame must never be queued as a command"
+
+
+@pytest.mark.parametrize(
+    "payload,message",
+    [
+        ([], "JSON object"),
+        ({"type": "", "params": {}}, "non-empty string"),
+        ({"id": 7, "type": "ping", "params": {}}, "id must be a string"),
+        ({"type": "ping", "params": []}, "params must be a JSON object"),
+    ],
+)
+def test_invalid_command_shapes_are_rejected_with_structured_errors(payload, message) -> None:
+    client = ScriptedSocket([json.dumps(payload).encode("utf-8") + b"\n"])
+    server = _make_server()
+    server.running = True
+
+    server.handle_client(client)
+
+    assert server.command_queue.empty()
+    response = json.loads(client.sent[0])
+    assert response["status"] == "error"
+    assert message in response["message"]
+
+
+def test_full_command_queue_returns_retryable_error() -> None:
+    server = _make_server()
+    server._MAX_QUEUED_COMMANDS = 1
+    server.command_queue = __import__("queue").Queue(maxsize=1)
+    first_client = ScriptedSocket([])
+    second_client = ScriptedSocket([])
+    assert server._decode_and_queue_frame(b'{"type":"ping"}', first_client)
+
+    assert server._decode_and_queue_frame(b'{"id":"two","type":"ping"}', second_client)
+
+    assert server.command_queue.qsize() == 1
+    response = json.loads(second_client.sent[0])
+    assert response == {"id": "two", "status": "error", "message": "Blender command queue is full; retry later"}

@@ -3,11 +3,11 @@
 # Registration order is intentional: the documentation pass must run last.
 # ruff: file-ignore[unsorted-imports]
 
+from . import animation as animation
 from . import camera as camera
 from . import character_rigging as character_rigging
 from . import cloth as cloth
 from . import core as core
-from . import execute as execute
 from . import geometry_nodes as geometry_nodes
 from . import lighting as lighting
 from . import liquid as liquid
@@ -17,7 +17,9 @@ from . import nd as nd
 from . import object_animation as object_animation
 from . import polyhaven as polyhaven
 from . import retopology as retopology
+from . import rendering as rendering
 from . import rigid_body as rigid_body
+from . import scene as scene
 from . import scene_physics as scene_physics
 from . import sketchfab as sketchfab
 from . import texture as texture

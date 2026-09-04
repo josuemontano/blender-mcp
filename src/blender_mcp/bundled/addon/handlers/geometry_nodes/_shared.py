@@ -9,6 +9,8 @@ import bpy
 import mathutils
 
 from ...helpers import paginate
+from ..node_graph import resolve_rna_value
+from ..node_graph import set_writable_property as set_writable_property
 
 OWNERSHIP_KEY = "blender_mcp_uuid"
 SCHEMA_KEY = "blender_mcp_schema_version"
@@ -120,41 +122,6 @@ def find_panel(group, name_or_identifier: str):
     return matches[0]
 
 
-def set_writable_property(target, name: str, value: Any) -> None:
-    """Assign one direct runtime-verified writable RNA property."""
-    if name.startswith("_") or "." in name:
-        raise ValueError(f"Nested or private RNA property paths are not allowed: {name}")
-    prop = target.bl_rna.properties.get(name)
-    if prop is None or prop.is_readonly or name in {"rna_type", "type", "bl_idname"}:
-        raise ValueError(f"Property '{name}' is not writable on {target.bl_rna.identifier}")
-    setattr(target, name, resolve_rna_value(prop, value))
-
-
-def resolve_rna_value(prop, value: Any) -> Any:
-    """Resolve an incoming scalar/vector or explicit Blender-ID reference for RNA assignment."""
-    if prop.type != "POINTER" or not isinstance(value, dict):
-        return value
-    id_type = str(value.get("id_type", "")).upper()
-    name = value.get("name")
-    collections = {
-        "OBJECT": bpy.data.objects,
-        "COLLECTION": bpy.data.collections,
-        "MATERIAL": bpy.data.materials,
-        "IMAGE": bpy.data.images,
-        "TEXTURE": bpy.data.textures,
-        "NODE_GROUP": bpy.data.node_groups,
-    }
-    collection = collections.get(id_type)
-    if collection is None or not isinstance(name, str):
-        raise ValueError(
-            "Pointer values require {'id_type': OBJECT|COLLECTION|MATERIAL|IMAGE|TEXTURE|NODE_GROUP, 'name': ...}"
-        )
-    resolved = collection.get(name)
-    if resolved is None:
-        raise ValueError(f"{id_type} datablock not found: {name}")
-    return resolved
-
-
 def serialize_value(value: Any) -> Any:
     """Convert an RNA value into a bounded JSON-compatible representation."""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -185,22 +152,6 @@ def serialize_socket(socket, include_default: bool = True) -> dict[str, Any]:
     if include_default and hasattr(socket, "default_value"):
         data["default_value"] = serialize_value(socket.default_value)
     return data
-
-
-def resolve_socket(sockets, identifier: str | None, index: int | None, endpoint: str):
-    """Resolve a node socket by stable identifier with explicit index fallback."""
-    if identifier is not None:
-        matches = [socket for socket in sockets if socket.identifier == identifier]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1 and index is None:
-            raise ValueError(f"{endpoint} socket identifier '{identifier}' is ambiguous; provide its index")
-    if index is not None and index < len(sockets):
-        socket = sockets[index]
-        if identifier is not None and socket.identifier != identifier:
-            raise ValueError(f"{endpoint} socket index {index} does not match identifier '{identifier}'")
-        return socket
-    raise ValueError(f"Could not resolve {endpoint} socket identifier={identifier!r} index={index!r}")
 
 
 def socket_by_name(sockets, name: str, occurrence: int = 0):

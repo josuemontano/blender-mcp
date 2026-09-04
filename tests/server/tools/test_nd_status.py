@@ -197,40 +197,40 @@ def test_enabled_nd_with_addon_installed_is_ready(monkeypatch) -> None:
     }
 
 
-def test_viewport_overlay_toggle_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
+def test_set_viewport_overlay_cavity_sets_overlay_property_idempotently(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
     shading = sys.modules["bpy"].context.screen.areas[0].spaces.active.shading
 
-    result = server.viewport_overlay_toggle(toggle="cavity", enabled=True)
+    result = server.set_viewport_overlay(toggle="cavity", enabled=True)
 
     assert result == {"toggle": "CAVITY", "enabled": True}
     assert shading.show_cavity is True
 
-    result_again = server.viewport_overlay_toggle(toggle="CAVITY", enabled=True)
+    result_again = server.set_viewport_overlay(toggle="CAVITY", enabled=True)
 
     assert result_again == {"toggle": "CAVITY", "enabled": True}
     assert shading.show_cavity is True
 
 
-def test_viewport_overlay_toggle_face_orientation_can_be_turned_off(monkeypatch) -> None:
+def test_set_viewport_overlay_face_orientation_can_be_turned_off(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
     overlay = sys.modules["bpy"].context.screen.areas[0].spaces.active.overlay
     overlay.show_face_orientation = True
 
-    result = server.viewport_overlay_toggle(toggle="FACE_ORIENTATION", enabled=False)
+    result = server.set_viewport_overlay(toggle="FACE_ORIENTATION", enabled=False)
 
     assert result == {"toggle": "FACE_ORIENTATION", "enabled": False}
     assert overlay.show_face_orientation is False
 
 
-def test_viewport_overlay_toggle_rejects_unknown_toggle(monkeypatch) -> None:
+def test_set_viewport_overlay_rejects_unknown_toggle(monkeypatch) -> None:
     addon = _load_addon(monkeypatch, _scene(nd_enabled=False), nd_installed=False)
     server = addon.BlenderMCPServer()
 
     with pytest.raises(ValueError, match="Invalid toggle"):
-        server.viewport_overlay_toggle(toggle="SILHOUETTE", enabled=True)
+        server.set_viewport_overlay(toggle="SILHOUETTE", enabled=True)
 
 
 def test_nd_pulse_viewport_toggle_clear_view_routes_through_nd_operator(monkeypatch) -> None:
