@@ -28,7 +28,17 @@ from ..app import mcp
 _SECTION_RE = re.compile(r"^([A-Z][A-Za-z ]+):(?:\s+(.*))?$")
 _ARG_RE = re.compile(r"^\s{4}([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$")
 
-_READ_ONLY_PREFIXES = ("get_", "list_", "inspect_", "validate_", "estimate_", "analyze_", "test_", "search_")
+_READ_ONLY_PREFIXES = (
+    "get_",
+    "list_",
+    "inspect_",
+    "validate_",
+    "estimate_",
+    "evaluate_",
+    "analyze_",
+    "test_",
+    "search_",
+)
 _MUTATING_READ_PREFIXES = ("sample_",)
 _EXTERNAL_TOOLS = {
     "execute_blender_code",
@@ -92,6 +102,7 @@ _DESTRUCTIVE_TOOLS = {
     "nd_clean_utils",
     "patch_armature_bones",
     "project_mesh_elements",
+    "run_geometry_nodes_tool",
     "redistribute_edge_loop",
     "relax_topology",
     "reroute_topology",

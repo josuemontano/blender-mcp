@@ -28,6 +28,8 @@ _TRACKED_COLLECTIONS = (
     "cameras",
     "lights",
     "collections",
+    "pointclouds",
+    "grease_pencils",
 )
 
 
@@ -48,7 +50,7 @@ def _snapshot_ids():
     snapshot = {}
     for coll_name in _TRACKED_COLLECTIONS:
         ids = set()
-        for db in getattr(bpy.data, coll_name):
+        for db in getattr(bpy.data, coll_name, ()):
             uid = getattr(db, "session_uid", None)
             if uid is not None:
                 ids.add(uid)
@@ -74,7 +76,7 @@ def _new_datablocks(before, exclude_ids: "frozenset[int] | set[int]" = frozenset
     created = []
     for coll_name in _TRACKED_COLLECTIONS:
         before_ids = before.get(coll_name, set())
-        for db in getattr(bpy.data, coll_name):
+        for db in getattr(bpy.data, coll_name, ()):
             uid = getattr(db, "session_uid", None)
             if uid is None or uid in before_ids or uid in exclude_ids:
                 continue

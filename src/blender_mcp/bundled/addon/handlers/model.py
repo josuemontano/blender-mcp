@@ -14,11 +14,12 @@ from ..helpers import (
     set_active,
     set_rotation_quaternion,
 )
+from .geometry_nodes import GeometryNodesHandlersMixin
 
 _SPACES = {"LOCAL", "WORLD"}
 
 
-class ModelHandlersMixin:
+class ModelHandlersMixin(GeometryNodesHandlersMixin):
     """Provide handlers for modifying existing scene models."""
 
     # region Model editing handlers

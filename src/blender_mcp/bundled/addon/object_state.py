@@ -45,6 +45,12 @@ class ObjectState:
         # A detached copy of the mesh (no scene users) kept only as a rollback
         # source. None when this command doesn't edit geometry.
         self.geometry_backup = None
+        self.geometry_collection_name = {
+            "CURVE": "curves",
+            "MESH": "meshes",
+            "POINTCLOUD": "pointclouds",
+            "GREASEPENCIL": "grease_pencils",
+        }.get(getattr(obj, "type", "MESH"), "meshes")
         if capture_geometry and obj.data is not None:
             self.geometry_backup = obj.data.copy()
 
@@ -93,7 +99,9 @@ class ObjectState:
             mutated = obj.data
             obj.data = backup
             if mutated is not None and mutated is not backup:
-                bpy.data.meshes.remove(mutated, do_unlink=True)
+                collection = getattr(bpy.data, self.geometry_collection_name, None)
+                if collection is not None:
+                    collection.remove(mutated, do_unlink=True)
             if self.data_name is not None:
                 backup.name = self.data_name
         # The backup is now the live mesh (or the swap failed); either way it
@@ -126,7 +134,9 @@ class ObjectState:
         with contextlib.suppress(Exception):
             import bpy
 
-            bpy.data.meshes.remove(self.geometry_backup, do_unlink=True)
+            collection = getattr(bpy.data, self.geometry_collection_name, None)
+            if collection is not None:
+                collection.remove(self.geometry_backup, do_unlink=True)
         self.geometry_backup = None
 
 

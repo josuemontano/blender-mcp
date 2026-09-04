@@ -23,9 +23,9 @@ bl_info = {
 }
 
 # Keep in sync with blender_mcp.addon_manager.EXPECTED_ADDON_PROTOCOL_VERSION.
-# Bumped so installations without the production PBR texturing capability package
+# Bumped so installations without the structured Geometry Nodes capability package
 # are refreshed before dispatch.
-ADDON_PROTOCOL_VERSION = 24
+ADDON_PROTOCOL_VERSION = 25
 
 from .server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 from .ui import (  # ruff: ignore[module-import-not-at-top-of-file]

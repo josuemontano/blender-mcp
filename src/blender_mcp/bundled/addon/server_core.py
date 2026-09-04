@@ -438,6 +438,29 @@ class BlenderMCPServer(
             "get_addon_info": self.get_addon_info,
             "get_object_info": self.get_object_info,
             "get_mesh_data": self.get_mesh_data,
+            "list_procedural_systems": self.list_procedural_systems,
+            "get_geometry_node_graph": self.get_geometry_node_graph,
+            "get_geometry_node_type_info": self.get_geometry_node_type_info,
+            "create_geometry_node_group": self.create_geometry_node_group,
+            "attach_geometry_nodes_modifier": self.attach_geometry_nodes_modifier,
+            "edit_node_group_interface": self.edit_node_group_interface,
+            "patch_geometry_node_graph": self.patch_geometry_node_graph,
+            "set_geometry_nodes_inputs": self.set_geometry_nodes_inputs,
+            "manage_geometry_nodes_modifier": self.manage_geometry_nodes_modifier,
+            "copy_geometry_node_group": self.copy_geometry_node_group,
+            "evaluate_procedural_geometry": self.evaluate_procedural_geometry,
+            "validate_geometry_node_graph": self.validate_geometry_node_graph,
+            "create_procedural_scatter": self.create_procedural_scatter,
+            "create_curve_generator": self.create_curve_generator,
+            "create_procedural_array": self.create_procedural_array,
+            "create_surface_paneling": self.create_surface_paneling,
+            "create_procedural_boolean": self.create_procedural_boolean,
+            "create_procedural_deformer": self.create_procedural_deformer,
+            "create_volume_generator": self.create_volume_generator,
+            "manage_named_attributes": self.manage_named_attributes,
+            "manage_procedural_instances": self.manage_procedural_instances,
+            "run_geometry_nodes_tool": self.run_geometry_nodes_tool,
+            "publish_procedural_asset": self.publish_procedural_asset,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -700,6 +723,11 @@ class BlenderMCPServer(
             "list_scene_objects",
             "get_object_info",
             "get_mesh_data",
+            "list_procedural_systems",
+            "get_geometry_node_graph",
+            "get_geometry_node_type_info",
+            "evaluate_procedural_geometry",
+            "validate_geometry_node_graph",
             "get_viewport_screenshot",
             "get_polyhaven_status",
             "get_sketchfab_status",
@@ -845,6 +873,8 @@ class BlenderMCPServer(
             "mesh_remesh",
             "mesh_solidify",
             "mesh_symmetrize",
+            "manage_named_attributes",
+            "run_geometry_nodes_tool",
             "analyze_surface_conformity",
             "manage_retopology_checkpoint",
             "configure_surface_projection",
@@ -957,6 +987,24 @@ class BlenderMCPServer(
         )
         dynamic_read_only = dynamic_read_only or (
             cmd_type == "analyze_rigid_body_performance" and not params.get("sample_frames")
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_named_attributes" and str(params.get("action", "LIST")).upper() == "LIST"
+        )
+        dynamic_read_only = dynamic_read_only or (
+            cmd_type == "manage_procedural_instances"
+            and not any(
+                params.get(key) is not None
+                for key in (
+                    "source_type",
+                    "source_name",
+                    "pick_instance",
+                    "rotation",
+                    "scale",
+                    "translation",
+                    "realize_instances",
+                )
+            )
         )
         if cmd_type in self._READ_ONLY_COMMANDS or dynamic_read_only:
             return handler(**params)
