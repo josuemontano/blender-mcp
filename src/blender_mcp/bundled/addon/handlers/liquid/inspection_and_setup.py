@@ -7,6 +7,8 @@ from __future__ import annotations
 import contextlib
 import math
 import os
+import pathlib
+import uuid
 
 from collections import Counter
 
@@ -45,8 +47,6 @@ _FLOW_FIELDS = {
     "velocity_factor",
     "velocity_normal",
     "velocity_random",
-    "use_particle_size",
-    "particle_size",
     "density_vertex_group",
 }
 _EFFECTOR_FIELDS = {
@@ -320,6 +320,21 @@ def _world_bounds(obj, evaluated=True):
     }
 
 
+def _domain_bounds(obj, settings):
+    """Return the domain container bounds and, once baked, the evaluated liquid-mesh bounds.
+
+    A liquid DOMAIN modifier replaces the object's evaluated mesh with the generated liquid surface
+    once data/mesh caching exists, so ``evaluated_get`` no longer describes the container - it
+    describes the fluid itself. Domain-shape checks (containment, cell sizing, scale) must use the
+    base (``evaluated=False``) bounds; only report the evaluated bounds when a bake actually exists.
+    """
+    baked = any(getattr(settings, name, False) for name in ("has_cache_baked_data", "has_cache_baked_mesh"))
+    return {
+        "base_domain_bounds": _world_bounds(obj, evaluated=False),
+        "evaluated_liquid_bounds": _world_bounds(obj, evaluated=True) if baked else None,
+    }
+
+
 def _bounds_overlap(first, second, tolerance=0.0):
     return all(
         first["minimum"][axis] <= second["maximum"][axis] + tolerance
@@ -382,9 +397,10 @@ def _domain_info(obj, modifier, settings):
         fields["cache_particle_format"] = _serialize(settings.cache_particle_format)
     return {
         "object": obj.name,
+        "domain_uuid": obj.get("blendermcp_liquid_uuid"),
         "modifier": _modifier_info(obj, modifier),
         "transform": _native_transform(obj),
-        "bounds": _world_bounds(obj),
+        **_domain_bounds(obj, settings),
         "animation": _animation_info(obj),
         "settings": fields,
         "scope": {
@@ -526,6 +542,16 @@ def _validate_dimensions(values, label):
         raise ValueError(f"{label} must contain three positive finite values")
 
 
+def _ensure_liquid_uuid(obj):
+    """Return the object's stable liquid UUID, assigning one the first time it's needed."""
+    existing = obj.get("blendermcp_liquid_uuid")
+    if isinstance(existing, str) and existing:
+        return existing
+    new_uuid = str(uuid.uuid4())
+    obj["blendermcp_liquid_uuid"] = new_uuid
+    return new_uuid
+
+
 def _resolved_cache_path(path):
     if not isinstance(path, str) or not path.strip():
         raise ValueError("cache_directory must be an explicit nonempty path")
@@ -546,16 +572,112 @@ def _check_unique_cache_path(settings, path):
     return wanted
 
 
-def _mesh_topology(obj):
+def _topology_from_mesh(mesh):
     edge_faces = Counter()
-    for polygon in obj.data.polygons:
+    for polygon in mesh.polygons:
         vertices = list(polygon.vertices)
         for index, first in enumerate(vertices):
             edge_faces[tuple(sorted((first, vertices[(index + 1) % len(vertices)])))] += 1
-    mesh_edges = [tuple(sorted(edge.vertices)) for edge in obj.data.edges]
+    mesh_edges = [tuple(sorted(edge.vertices)) for edge in mesh.edges]
     boundary = sum(edge_faces.get(edge, 0) == 1 for edge in mesh_edges)
     non_manifold = sum(edge_faces.get(edge, 0) != 2 for edge in mesh_edges)
     return {"boundary_edges": boundary, "non_manifold_edges": non_manifold}
+
+
+def _mesh_topology(obj):
+    return _topology_from_mesh(obj.data)
+
+
+def _evaluated_mesh_topology(obj):
+    """Return topology counts for the mesh reaching the fluid modifier, not the base mesh.
+
+    Boolean/array/mirror modifier stacks change the effective closed/open shape a flow or
+    effector actually presents to Mantaflow; the base mesh can read manifold while the
+    evaluated result does not, or vice versa.
+    """
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    try:
+        return _topology_from_mesh(mesh)
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _flow_normal_orientation(obj):
+    """Sample evaluated face normals and report the fraction pointing toward the mesh centroid.
+
+    Blender's liquid emission expects outward-facing normals; a majority-inward mesh (flipped
+    normals, or geometry built inside-out) emits incorrectly with no other visible symptom.
+    """
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    try:
+        if not mesh.polygons or not mesh.vertices:
+            return None
+        world_matrix = evaluated.matrix_world
+        normal_matrix = world_matrix.to_3x3().inverted_safe().transposed()
+        centroid = mathutils.Vector((0.0, 0.0, 0.0))
+        for vertex in mesh.vertices:
+            centroid += world_matrix @ vertex.co
+        centroid /= len(mesh.vertices)
+        sampled = 0
+        inward = 0
+        for polygon in mesh.polygons:
+            outward = (world_matrix @ polygon.center) - centroid
+            if outward.length_squared <= 1e-12:
+                continue
+            normal_world = normal_matrix @ polygon.normal
+            if normal_world.length_squared <= 1e-12:
+                continue
+            sampled += 1
+            if normal_world.dot(outward) < 0:
+                inward += 1
+        if sampled == 0:
+            return None
+        return {"faces_sampled": sampled, "inward_faces": inward, "inward_fraction": inward / sampled}
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _wall_thickness_samples(obj, cell_size, max_samples=64):
+    """Cast rays inward from sampled evaluated faces and return the measured wall thickness.
+
+    ``BVHTree.FromObject`` builds its tree in the object's local space (vertex positions are
+    used as-is, never multiplied by ``matrix_world``), so rays are cast in local space and hits
+    are mapped back through ``matrix_world`` to measure thickness in world units.
+    """
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        polygons = list(mesh.polygons)
+        if not polygons:
+            return []
+        bvh = mathutils.bvhtree.BVHTree.FromObject(obj, depsgraph, deform=True, cage=False, epsilon=0.0)
+        world_matrix = evaluated.matrix_world
+        inverse = world_matrix.inverted_safe()
+        inverse_3x3 = inverse.to_3x3()
+        normal_matrix = world_matrix.to_3x3().inverted_safe().transposed()
+        step = max(1, math.ceil(len(polygons) / max_samples))
+        epsilon = max(cell_size * 1e-3, 1e-6)
+        thicknesses = []
+        for index in range(0, len(polygons), step):
+            polygon = polygons[index]
+            normal_world = normal_matrix @ polygon.normal
+            if normal_world.length_squared <= 1e-12:
+                continue
+            normal_world.normalize()
+            origin_world = world_matrix @ polygon.center
+            start_world = origin_world - normal_world * epsilon
+            start_local = inverse @ start_world
+            direction_local = (inverse_3x3 @ -normal_world).normalized()
+            location, _hit_normal, _hit_index, _distance = bvh.ray_cast(start_local, direction_local)
+            if location is not None:
+                hit_world = world_matrix @ location
+                thicknesses.append((hit_world - start_world).length)
+        return thicknesses
+    finally:
+        evaluated.to_mesh_clear()
 
 
 def _warning_for_effector(obj):
@@ -641,6 +763,7 @@ class LiquidInspectionAndSetupHandlers:
         fluid = [modifier for modifier in obj.modifiers if modifier.type == "FLUID" and modifier.fluid_type != "NONE"]
         if not fluid:
             raise ValueError(f"Object '{object_name}' has no active fluid role")
+        is_domain = any(modifier.fluid_type == "DOMAIN" for modifier in fluid)
         result = {
             "object": obj.name,
             "object_type": obj.type,
@@ -648,7 +771,9 @@ class LiquidInspectionAndSetupHandlers:
             "collections": sorted(collection.name for collection in obj.users_collection),
             "transform": _native_transform(obj),
             "dimensions_world_aligned": list(obj.dimensions),
-            "bounds": _world_bounds(obj),
+            # A DOMAIN modifier's evaluated mesh is the generated liquid surface once baked, not the
+            # container; use the base (unevaluated) bounds here and see domains[].evaluated_liquid_bounds.
+            "bounds": _world_bounds(obj, evaluated=not is_domain),
             "animation": _animation_info(obj),
             "modifier_stack": [_modifier_info(obj, modifier) for modifier in obj.modifiers],
             "domains": [],
@@ -711,6 +836,7 @@ class LiquidInspectionAndSetupHandlers:
         linked_collections = []
         old_collection_tags = []
         old_tag = None
+        old_uuid = None
         if created_object:
             target_collection_name = collection_name or "Liquid Domains"
             target_collection, _created, linked = _ensure_collection(scene, target_collection_name)
@@ -733,6 +859,7 @@ class LiquidInspectionAndSetupHandlers:
             if any(not math.isfinite(float(value)) or float(value) == 0.0 for value in obj.scale):
                 raise ValueError(f"Domain mesh '{object_name}' has zero or non-finite scale")
             old_tag = obj.get("blendermcp_liquid_domain")
+            old_uuid = obj.get("blendermcp_liquid_uuid")
         if any(mod.type == "FLUID" and mod.fluid_type == "DOMAIN" for mod in obj.modifiers):
             raise ValueError(f"Object '{obj.name}' already has a fluid domain modifier")
         modifier = None
@@ -747,7 +874,11 @@ class LiquidInspectionAndSetupHandlers:
                 raise RuntimeError("Blender did not initialize FluidDomainSettings after dependency-graph update")
             settings.domain_type = "LIQUID"
             bpy.context.view_layer.update()
-            _check_unique_cache_path(settings, cache_directory)
+            resolved_cache_path = _check_unique_cache_path(settings, cache_directory)
+            # Directory creation is idempotent and not part of the rollback below: a
+            # bake-ready empty directory left behind after a failed domain setup is
+            # harmless, unlike partially-written cache files.
+            pathlib.Path(resolved_cache_path).mkdir(parents=True, exist_ok=True)
             flow_name = flow_collection_name or f"{obj.name} Flows"
             effector_name = effector_collection_name or f"{obj.name} Effectors"
             flow_collection, _created, flow_linked = _ensure_collection(scene, flow_name)
@@ -794,6 +925,7 @@ class LiquidInspectionAndSetupHandlers:
                 settings.cache_frame_start = cache_frame_start
                 settings.cache_frame_end = cache_frame_end
             obj["blendermcp_liquid_domain"] = 1
+            _ensure_liquid_uuid(obj)
             bpy.context.view_layer.update()
         except Exception:
             if domain_changes and modifier is not None and modifier.domain_settings is not None:
@@ -806,6 +938,11 @@ class LiquidInspectionAndSetupHandlers:
                         del obj["blendermcp_liquid_domain"]  # pyright: ignore[reportArgumentType]
                 else:
                     obj["blendermcp_liquid_domain"] = old_tag
+                if old_uuid is None:
+                    with contextlib.suppress(Exception):
+                        del obj["blendermcp_liquid_uuid"]  # pyright: ignore[reportArgumentType]
+                else:
+                    obj["blendermcp_liquid_uuid"] = old_uuid
                 with contextlib.suppress(Exception):
                     if modifier is not None:
                         obj.modifiers.remove(modifier)
@@ -1081,8 +1218,11 @@ class LiquidInspectionAndSetupHandlers:
         group = patch.get("density_vertex_group")
         if group and obj.vertex_groups.get(group) is None:
             raise ValueError(f"Vertex group not found on '{obj.name}': {group}")
-        if patch.get("flow_behavior", flow.flow_behavior) != "INFLOW" and patch.get("use_inflow") is True:
-            raise ValueError("use_inflow is only meaningful for INFLOW behavior")
+        effective_behavior = patch.get("flow_behavior", flow.flow_behavior)
+        if effective_behavior == "GEOMETRY" and "use_inflow" in patch:
+            raise ValueError(
+                "use_inflow ('Use Flow') has no effect for GEOMETRY flow behavior; it only applies to INFLOW or OUTFLOW"
+            )
         return _patch_rna(flow, patch, _FLOW_FIELDS)
 
     def configure_liquid_flow(self, object_name, modifier_name, domain_object_name, patch):
@@ -1274,7 +1414,7 @@ class LiquidInspectionAndSetupHandlers:
                 with contextlib.suppress(Exception):
                     scene.collection.children.unlink(collection)
             raise
-        domain_bounds = _world_bounds(obj)
+        domain_bounds = _world_bounds(obj, evaluated=False)
         outside = {"flows": [], "effectors": []}
         for label, collection in (("flows", settings.fluid_group), ("effectors", settings.effector_group)):
             if collection is None:
@@ -1311,7 +1451,7 @@ class LiquidInspectionAndSetupHandlers:
 
     def estimate_liquid_resources(self, domain_object_name, modifier_name):
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
-        bounds = _world_bounds(obj)
+        bounds = _world_bounds(obj, evaluated=False)
         dimensions = bounds["dimensions"]
         longest = max(dimensions)
         if longest <= 0:
@@ -1409,8 +1549,9 @@ class LiquidInspectionAndSetupHandlers:
         cache_paths = {}
         domain_bounds = {}
         for obj, modifier, settings in domains:
-            bounds = _world_bounds(obj)
+            bounds = _world_bounds(obj, evaluated=False)
             domain_bounds[obj.name] = bounds
+            cell_size = max(bounds["dimensions"]) / settings.resolution_max
             scale = [float(value) for value in obj.scale]
             if any(value <= 0 for value in scale):
                 add("ERROR", "INVALID_DOMAIN_SCALE", "Domain has zero or negative scale.", obj=obj.name, evidence=scale)
@@ -1426,6 +1567,19 @@ class LiquidInspectionAndSetupHandlers:
             if min(bounds["dimensions"]) <= 1e-6:
                 add(
                     "ERROR", "ZERO_DOMAIN_EXTENT", "Domain has a zero-size world extent.", obj=obj.name, evidence=bounds
+                )
+            if settings.mesh_concave_lower > settings.mesh_concave_upper:
+                add(
+                    "ERROR",
+                    "INVERTED_MESH_CONCAVITY",
+                    "mesh_concave_lower is greater than mesh_concave_upper.",
+                    obj=obj.name,
+                    prop="mesh_concave_lower",
+                    evidence={
+                        "mesh_concave_lower": settings.mesh_concave_lower,
+                        "mesh_concave_upper": settings.mesh_concave_upper,
+                    },
+                    remediation="Set mesh_concave_lower <= mesh_concave_upper.",
                 )
             if settings.cache_frame_start > settings.cache_frame_end:
                 add(
@@ -1545,6 +1699,40 @@ class LiquidInspectionAndSetupHandlers:
                             )
                         continue
                     member_bounds = _world_bounds(member)
+                    member_scale = [float(value) for value in member.scale]
+                    if any(value <= 0 for value in member_scale):
+                        add(
+                            "ERROR",
+                            "INVALID_MEMBER_SCALE",
+                            f"{role.title()} has zero or negative scale.",
+                            obj=member.name,
+                            evidence=member_scale,
+                        )
+                    elif max(member_scale) / min(member_scale) > 1.01:
+                        add(
+                            "WARNING",
+                            "NONUNIFORM_MEMBER_SCALE",
+                            f"{role.title()} scale is nonuniform; its mesh shape may not read as intended.",
+                            obj=member.name,
+                            evidence=member_scale,
+                        )
+                    member_world_scale = list(member.matrix_world.decompose()[2])
+                    if any(
+                        abs(float(member_world_scale[axis]) - member_scale[axis]) > max(1e-4, member_scale[axis] * 0.01)
+                        for axis in range(3)
+                    ):
+                        add(
+                            "WARNING",
+                            "UNAPPLIED_MEMBER_TRANSFORM",
+                            f"{role.title()}'s effective world scale differs from its own local scale, indicating "
+                            "an un-applied parent or delta transform.",
+                            obj=member.name,
+                            evidence={
+                                "local_scale": member_scale,
+                                "world_scale": [float(value) for value in member_world_scale],
+                            },
+                            remediation="Apply Object > Apply > Scale (or the parent's transform) before baking.",
+                        )
                     if not _bounds_overlap(bounds, member_bounds):
                         add(
                             "ERROR" if role == "FLOW" else "WARNING",
@@ -1562,19 +1750,18 @@ class LiquidInspectionAndSetupHandlers:
                             evidence={"domain": obj.name, "flow_bounds": member_bounds},
                         )
                     if role == "FLOW":
-                        cell = max(bounds["dimensions"]) / settings.resolution_max
                         minimum_feature = min(member_bounds["dimensions"])
-                        if minimum_feature < cell * 2:
+                        if minimum_feature < cell_size * 2:
                             add(
                                 "WARNING",
                                 "FLOW_BELOW_GRID_SCALE",
                                 "The flow's thinnest world extent spans fewer than two estimated cells.",
                                 obj=member.name,
-                                evidence={"minimum_feature": minimum_feature, "estimated_cell_size": cell},
+                                evidence={"minimum_feature": minimum_feature, "estimated_cell_size": cell_size},
                                 remediation="Tighten the domain, increase resolution, or use a thicker source proxy.",
                             )
                     if member.type == "MESH":
-                        topology = _mesh_topology(member)
+                        topology = _evaluated_mesh_topology(member)
                         flow_settings = role_modifiers[0].flow_settings if role == "FLOW" else None
                         plane = bool(flow_settings and flow_settings.use_plane_init)
                         effector_settings = role_modifiers[0].effector_settings if role == "EFFECTOR" else None
@@ -1583,13 +1770,40 @@ class LiquidInspectionAndSetupHandlers:
                             add(
                                 "WARNING",
                                 "NON_MANIFOLD_FLUID_GEOMETRY",
-                                f"Closed {role.lower()} geometry is non-manifold.",
+                                f"Closed {role.lower()} geometry is non-manifold once modifiers are evaluated.",
                                 obj=member.name,
                                 evidence=topology,
                                 remediation=(
                                     "Repair the mesh or explicitly enable plane initialization when appropriate."
                                 ),
                             )
+                        if role == "FLOW":
+                            orientation = _flow_normal_orientation(member)
+                            if orientation and orientation["inward_fraction"] > 0.5:
+                                add(
+                                    "WARNING",
+                                    "FLOW_NORMALS_LIKELY_INWARD",
+                                    "Most evaluated face normals point toward the flow object's own centroid.",
+                                    obj=member.name,
+                                    evidence=orientation,
+                                    remediation="Recalculate or flip normals so they face outward before emission.",
+                                )
+                        if role == "EFFECTOR":
+                            thicknesses = _wall_thickness_samples(member, cell_size)
+                            if thicknesses and min(thicknesses) < cell_size * 1.5:
+                                add(
+                                    "WARNING",
+                                    "THIN_EFFECTOR_WALL",
+                                    "Effector wall thickness is under 1.5 estimated cells at a sampled point; "
+                                    "liquid may leak through.",
+                                    obj=member.name,
+                                    evidence={
+                                        "minimum_sampled_thickness": min(thicknesses),
+                                        "estimated_cell_size": cell_size,
+                                        "samples": len(thicknesses),
+                                    },
+                                    remediation="Thicken the collider wall or increase domain resolution.",
+                                )
                     topology_modifiers = [mod.name for mod in member.modifiers if mod.type in _TOPOLOGY_MODIFIERS]
                     if topology_modifiers and _animation_info(member):
                         add(
@@ -1612,10 +1826,9 @@ class LiquidInspectionAndSetupHandlers:
                                 prop="subframes",
                             )
                         if role == "FLOW" and role_settings and role_settings.flow_behavior == "OUTFLOW":
-                            cell = max(bounds["dimensions"]) / settings.resolution_max
                             near_border = any(
-                                abs(member_bounds["minimum"][axis] - bounds["minimum"][axis]) <= cell * 2
-                                or abs(bounds["maximum"][axis] - member_bounds["maximum"][axis]) <= cell * 2
+                                abs(member_bounds["minimum"][axis] - bounds["minimum"][axis]) <= cell_size * 2
+                                or abs(bounds["maximum"][axis] - member_bounds["maximum"][axis]) <= cell_size * 2
                                 for axis in range(3)
                             )
                             if not near_border:
@@ -1628,7 +1841,7 @@ class LiquidInspectionAndSetupHandlers:
                         if role == "FLOW" and role_settings and role_settings.use_initial_velocity:
                             velocity = math.sqrt(sum(float(value) ** 2 for value in role_settings.velocity_coord))
                             max_cell_travel = settings.cfl_condition * settings.timesteps_max
-                            if cell > 0 and velocity * settings.time_scale / cell > max_cell_travel:
+                            if cell_size > 0 and velocity * settings.time_scale / cell_size > max_cell_travel:
                                 add(
                                     "WARNING",
                                     "VELOCITY_EXCEEDS_TIMESTEP_BUDGET",
@@ -1636,7 +1849,7 @@ class LiquidInspectionAndSetupHandlers:
                                     obj=member.name,
                                     evidence={
                                         "velocity": velocity,
-                                        "cell_size": cell,
+                                        "cell_size": cell_size,
                                         "cfl_condition": settings.cfl_condition,
                                         "timesteps_max": settings.timesteps_max,
                                     },

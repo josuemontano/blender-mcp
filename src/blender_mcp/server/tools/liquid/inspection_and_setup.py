@@ -81,8 +81,6 @@ class LiquidFlowPatch(_StrictModel):
     velocity_factor: float | None = None
     velocity_normal: float | None = None
     velocity_random: float | None = Field(default=None, ge=0.0)
-    use_particle_size: bool | None = None
-    particle_size: float | None = Field(default=None, gt=0.0)
     density_vertex_group: str | None = None
 
 
@@ -156,6 +154,8 @@ async def get_liquid_simulation_info(
 
     Supply a scene, one domain, or both. Domain and dependency pages have independent offsets.
     Coordinates and bounds are labelled; this call never initializes or advances a simulation.
+    Each domain reports "base_domain_bounds" (the container, always present) and
+    "evaluated_liquid_bounds" (the generated liquid surface, null until data or mesh caching exists).
     """
     return await asyncio.to_thread(
         _call,
@@ -173,7 +173,12 @@ async def get_liquid_simulation_info(
 
 @mcp.tool()
 async def get_fluid_object_info(ctx: Context, object_name: str) -> dict:
-    """Inspect one domain, liquid flow, or fluid effector, including transforms and evaluated bounds."""
+    """Inspect one domain, liquid flow, or fluid effector, including transforms and bounds.
+
+    For a domain, top-level "bounds" and domains[]["base_domain_bounds"] describe the container
+    (unaffected by any bake); domains[]["evaluated_liquid_bounds"] is the generated liquid surface
+    and is null until data or mesh caching exists. Flow/effector bounds are evaluated geometry.
+    """
     return await asyncio.to_thread(_call, "get_fluid_object_info", {"object_name": object_name})
 
 
@@ -349,8 +354,9 @@ async def configure_liquid_flow(
 ) -> dict:
     """Patch emission, subframes, and velocity on an existing domain-associated liquid flow.
 
-    patch must set at least one field. patch.use_inflow only has an effect when the flow's behavior
-    is INFLOW. patch.density_vertex_group, if set, must name an existing vertex group on object_name.
+    patch must set at least one field. patch.use_inflow ("Use Flow") toggles emission for INFLOW or
+    OUTFLOW behavior and is rejected for GEOMETRY behavior, which it does not affect.
+    patch.density_vertex_group, if set, must name an existing vertex group on object_name.
     """
     return await asyncio.to_thread(
         _call,

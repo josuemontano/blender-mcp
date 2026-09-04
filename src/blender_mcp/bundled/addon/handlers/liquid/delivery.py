@@ -967,7 +967,7 @@ class LiquidDeliveryHandlers:
                 f"exceeding max_dependency_objects={max_dependency_objects}"
             )
         resource = self.estimate_liquid_resources(obj.name, modifier.name)
-        domain_bounds = _world_bounds(obj)
+        domain_bounds = _world_bounds(obj, evaluated=False)
         domain_volume = _bounds_volume(domain_bounds)
         records = []
         total_triangles = 0

@@ -1,4 +1,4 @@
-# ruff: file-ignore[docstring-missing-returns, too-many-arguments, too-many-positional-arguments, unused-function-argument]
+# ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, unused-function-argument]
 """Typed tools for evaluating and caching liquid simulations."""
 
 import asyncio
@@ -20,6 +20,9 @@ CacheAction = Literal[
     "BAKE_MESH",
     "BAKE_PARTICLES",
     "BAKE_ALL",
+    "START_BAKE",
+    "RESUME",
+    "CANCEL",
     "PAUSE",
     "FREE_DATA",
     "FREE_GUIDES",
@@ -27,6 +30,7 @@ CacheAction = Literal[
     "FREE_PARTICLES",
     "FREE_ALL",
 ]
+BakeStage = Literal["DATA", "GUIDES", "MESH", "PARTICLES", "ALL"]
 LiquidCacheType = Literal["REPLAY", "MODULAR", "FINAL", "ALL"]
 
 
@@ -64,8 +68,18 @@ async def sample_liquid_simulation(
     frames: Annotated[list[int], Field(min_length=1, max_length=32)],
     timeout_seconds: Annotated[float, Field(gt=0.0, le=300.0)] = 30.0,
     boundary_tolerance_cells: Annotated[float, Field(ge=0.0, le=10.0)] = 1.0,
+    max_preroll_frames: Annotated[int, Field(ge=1, le=10_000)] = 250,
 ) -> dict:
-    """Evaluate up to 32 cached/replay frames and return numerical mesh, particle, and bounds evidence."""
+    """Evaluate up to 32 cached/replay frames and return numerical mesh, particle, and bounds evidence.
+
+    For a REPLAY domain, Blender only evaluates a frame correctly when every prior frame from
+    cache_frame_start was played in order, so this steps scene.frame_set one frame at a time from
+    cache_frame_start through the highest requested frame (only requested frames are sampled and
+    returned); it rejects a request whose cache_frame_start-to-max(frames) span exceeds
+    max_preroll_frames, and rejects any frame before cache_frame_start. For a MODULAR/ALL domain,
+    frames are jumped to directly but must fall within the already-baked cache range, or the call
+    fails instead of silently returning stale or empty geometry.
+    """
     return await asyncio.to_thread(
         _call,
         "sample_liquid_simulation",
@@ -75,6 +89,7 @@ async def sample_liquid_simulation(
             "frames": frames,
             "timeout_seconds": timeout_seconds,
             "boundary_tolerance_cells": boundary_tolerance_cells,
+            "max_preroll_frames": max_preroll_frames,
         },
         [domain_object_name],
     )
@@ -87,6 +102,7 @@ async def manage_liquid_cache(
     modifier_name: str,
     action: CacheAction = "STATUS",
     patch: LiquidCachePatch | None = None,
+    stage: BakeStage | None = None,
     confirm_bake: bool = False,
     confirm_free: bool = False,
     confirm_external_path: bool = False,
@@ -94,7 +110,33 @@ async def manage_liquid_cache(
     max_bake_frames: Annotated[int, Field(ge=1, le=10_000)] = 250,
     max_existing_cache_bytes: Annotated[int, Field(ge=0)] = 10_000_000_000,
 ) -> dict:
-    """Inspect, configure, bake, pause, or explicitly free exact Mantaflow cache stages."""
+    """Inspect, configure, bake, pause/resume, cancel, or explicitly free exact Mantaflow cache stages.
+
+    BAKE_DATA/BAKE_GUIDES/BAKE_MESH/BAKE_PARTICLES/BAKE_ALL always run synchronously on the calling
+    thread (Blender's default operator-calling convention), blocking until that stage finishes.
+
+    START_BAKE (requires `stage`) instead dispatches the matching bake as a non-blocking Blender job
+    (INVOKE_DEFAULT under an explicit window/area/region) whenever this Blender process has a real GUI
+    window, returning almost immediately with a `job_id` to poll via STATUS; poll until the stage's
+    has_cache_baked_* flag is true before sampling or chaining another bake action. Under `--background`
+    Blender (no window manager) START_BAKE transparently falls back to the same synchronous behavior as
+    BAKE_*, and a warning says so.
+
+    RESUME (requires `stage`) continues a paused MODULAR+cache_resumable bake from its pause frame; it
+    is only valid when that stage is actually paused (not currently baking, not already fully baked,
+    with a nonzero cache_frame_pause for that stage — Blender leaves cache_frame_pause set to the final
+    frame after a normal completed bake too, so both checks are required to detect a real pause) and
+    behaves like START_BAKE otherwise (dispatched as a job when a GUI window is available). Bake All
+    cannot be paused or resumed.
+
+    PAUSE now requires cache_type=MODULAR with cache_resumable=True in addition to a stage currently
+    baking; Blender does not support pausing a Bake All run.
+
+    CANCEL (requires `stage`) has no scripted equivalent to Blender's interactive Esc-to-abort for a
+    running bake job, so it raises a clear error while that stage is actively baking; once the stage is
+    not baking, CANCEL degrades to freeing that stage's cache (same confirm_free/confirm_external_overwrite
+    gates as FREE_*).
+    """
     return await asyncio.to_thread(
         _call,
         "manage_liquid_cache",
@@ -103,6 +145,7 @@ async def manage_liquid_cache(
             "modifier_name": modifier_name,
             "action": action,
             "patch": _dump(patch),
+            "stage": stage,
             "confirm_bake": confirm_bake,
             "confirm_free": confirm_free,
             "confirm_external_path": confirm_external_path,

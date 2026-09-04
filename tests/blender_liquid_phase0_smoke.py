@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
 import tempfile
 
@@ -56,6 +57,7 @@ def cube(name: str, size: float, location: tuple[float, float, float]):
 
 handler = Harness()
 cache_path = str(Path(tempfile.gettempdir()) / "blendermcp-liquid-phase0-smoke")
+shutil.rmtree(cache_path, ignore_errors=True)  # prove create_liquid_domain creates it, not just tolerates it existing
 domain = handler.create_liquid_domain(
     scene_name="Scene",
     cache_directory=cache_path,
@@ -63,6 +65,7 @@ domain = handler.create_liquid_domain(
     dimensions=(4.0, 4.0, 4.0),
     resolution_max=32,
 )
+assert Path(cache_path).is_dir()
 source = cube("Smoke Flow", 1.0, (0.0, 0.0, 1.0))
 flow = handler.add_liquid_flow(
     object_name=source.name,
@@ -96,6 +99,21 @@ handler.configure_liquid_effector(
     domain_object_name=domain["object"],
     patch={"subframes": 1},
 )
+nonuniform_source = cube("Smoke Flow NonUniform", 1.0, (1.5, 0.0, 1.0))
+nonuniform_source.scale = (2.0, 1.0, 1.0)  # local scale itself is nonuniform
+handler.add_liquid_flow(
+    object_name=nonuniform_source.name,
+    domain_object_name=domain["object"],
+    behavior="INFLOW",
+    settings={"use_inflow": True},
+)
+unapplied_collider = cube("Smoke Collider Unapplied", 1.0, (-1.5, 0.0, -1.0))
+unapplied_collider.delta_scale = (2.0, 2.0, 2.0)  # world scale diverges from the unchanged local .scale
+handler.add_liquid_effector(
+    object_name=unapplied_collider.name,
+    domain_object_name=domain["object"],
+)
+
 scope = handler.configure_liquid_scope_and_boundaries(
     domain_object_name=domain["object"],
     modifier_name=domain["modifier"],
@@ -120,4 +138,9 @@ assert estimate["estimated_grid"]["resolution_max"] == 40
 assert inspection["domain_page"]["total"] == 1
 assert object_inspection["flows"][0]["settings"]["flow_type"] == "LIQUID"
 assert domain["object"] in validation["domains_checked"]
+codes_by_object: dict[str, set[str]] = {}
+for finding in validation["findings"]:
+    codes_by_object.setdefault(finding["object"], set()).add(finding["code"])
+assert "NONUNIFORM_MEMBER_SCALE" in codes_by_object.get(nonuniform_source.name, set())
+assert "UNAPPLIED_MEMBER_TRANSFORM" in codes_by_object.get(unapplied_collider.name, set())
 print("BLENDER_LIQUID_PHASE0_SMOKE_OK")

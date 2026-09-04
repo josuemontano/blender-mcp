@@ -2,11 +2,14 @@
 """Bounded liquid-domain evaluation and Mantaflow cache lifecycle handling."""
 
 import contextlib
+import hashlib
 import itertools
 import json
 import math
 import os
 import time
+
+from datetime import UTC, datetime
 
 import bpy
 
@@ -14,6 +17,7 @@ from ...helpers import preserve_mode_and_selection, set_active
 from .inspection_and_setup import (
     _CACHE_FIELDS,
     _CACHE_FLAGS,
+    _ensure_liquid_uuid,
     _get_domain,
     _patch_rna,
     _read_fields,
@@ -22,6 +26,42 @@ from .inspection_and_setup import (
     _validate_rna_value,
     _world_bounds,
 )
+
+_MANIFEST_FILENAME = ".blender_mcp_liquid_manifest.json"
+_PENDING_BAKE_KEY = "blendermcp_liquid_pending_bake"
+
+_BAKE_STAGES = {
+    "DATA": {
+        "operator": "bake_data",
+        "baked_flag": "has_cache_baked_data",
+        "baking_flag": "is_cache_baking_data",
+        "pause_flag": "cache_frame_pause_data",
+    },
+    "GUIDES": {
+        "operator": "bake_guides",
+        "baked_flag": "has_cache_baked_guide",
+        "baking_flag": "is_cache_baking_guide",
+        "pause_flag": "cache_frame_pause_guide",
+    },
+    "MESH": {
+        "operator": "bake_mesh",
+        "baked_flag": "has_cache_baked_mesh",
+        "baking_flag": "is_cache_baking_mesh",
+        "pause_flag": "cache_frame_pause_mesh",
+    },
+    "PARTICLES": {
+        "operator": "bake_particles",
+        "baked_flag": "has_cache_baked_particles",
+        "baking_flag": "is_cache_baking_particles",
+        "pause_flag": "cache_frame_pause_particles",
+    },
+    "ALL": {
+        "operator": "bake_all",
+        "baked_flag": "has_cache_baked_any",
+        "baking_flag": "is_cache_baking_any",
+        "pause_flag": None,
+    },
+}
 
 _CACHE_CONFIG_FIELDS = {
     "cache_directory",
@@ -80,7 +120,7 @@ def _scene_context_for_object(obj):
     return scene, view_layer
 
 
-def _run_fluid_operator(obj, operator):
+def _run_fluid_operator(obj, operator, extra_override=None, call_arg=None, accept_running_modal=False):
     scene, view_layer = _scene_context_for_object(obj)
     with preserve_mode_and_selection():
         set_active(obj)
@@ -88,18 +128,55 @@ def _run_fluid_operator(obj, operator):
             result = bpy.ops.object.mode_set(mode="OBJECT")
             if "FINISHED" not in result:
                 raise RuntimeError(f"Could not enter Object Mode for fluid cache operation: {sorted(result)}")
-        with bpy.context.temp_override(
-            scene=scene,
-            view_layer=view_layer,
-            object=obj,
-            active_object=obj,
-            selected_objects=[obj],
-            selected_editable_objects=[obj],
-        ):
-            result = operator()
-    if "FINISHED" not in result:
+        override = {
+            "scene": scene,
+            "view_layer": view_layer,
+            "object": obj,
+            "active_object": obj,
+            "selected_objects": [obj],
+            "selected_editable_objects": [obj],
+        }
+        override.update(extra_override or {})
+        with bpy.context.temp_override(**override):
+            result = operator(call_arg) if call_arg else operator()
+    acceptable = {"FINISHED"} | ({"RUNNING_MODAL"} if accept_running_modal else set())
+    if not acceptable & set(result):
         raise RuntimeError(f"Fluid cache operator did not finish: {sorted(result)}")
     return result
+
+
+def _has_gui_window():
+    """True only when this Blender process has a real window manager (never true under --background)."""
+    try:
+        return not bpy.app.background and bool(bpy.context.window_manager.windows)
+    except AttributeError:
+        return False
+
+
+def _start_fluid_bake_job(obj, operator):
+    """Start a fluid bake as a non-blocking, pollable Blender WM job when a GUI window is available.
+
+    Blender's fluid bake operators only become non-blocking (INVOKE_DEFAULT, returning RUNNING_MODAL
+    while the job runs in the background) when invoked under a real window/area/region context; the
+    default calling convention runs the bake synchronously on the calling thread instead. `--background`
+    Blender has no window manager at all, so it transparently falls back to that synchronous behavior.
+    """
+    if not _has_gui_window():
+        return {"mode": "SYNCHRONOUS", "result": _run_fluid_operator(obj, operator)}
+    window = bpy.context.window_manager.windows[0]
+    screen = window.screen
+    area = screen.areas[0] if screen.areas else None
+    region = next((r for r in area.regions if r.type == "WINDOW"), None) if area is not None else None
+    if area is None or region is None:
+        return {"mode": "SYNCHRONOUS", "result": _run_fluid_operator(obj, operator)}
+    result = _run_fluid_operator(
+        obj,
+        operator,
+        extra_override={"window": window, "screen": screen, "area": area, "region": region},
+        call_arg="INVOKE_DEFAULT",
+        accept_running_modal=True,
+    )
+    return {"mode": "RUNNING_MODAL" if "RUNNING_MODAL" in result else "SYNCHRONOUS", "result": result}
 
 
 def _cache_directory_evidence(path, max_entries=10_000):
@@ -130,6 +207,66 @@ def _cache_directory_evidence(path, max_entries=10_000):
     }
 
 
+def _manifest_path(resolved_directory):
+    return os.path.join(resolved_directory, _MANIFEST_FILENAME)
+
+
+def _read_manifest(resolved_directory):
+    """Read this domain's bake manifest, or None if absent/unreadable/foreign."""
+    try:
+        with open(_manifest_path(resolved_directory), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("stages"), dict):
+        return None
+    return manifest
+
+
+def _write_manifest_entry(resolved_directory, domain_uuid, stage, cache_type, frame_range):
+    """Record a successful bake stage so later STATUS/overwrite checks can recognize MCP-owned files."""
+    manifest = _read_manifest(resolved_directory) or {"domain_uuid": domain_uuid, "stages": {}}
+    manifest["domain_uuid"] = domain_uuid
+    manifest["stages"][stage] = {
+        "cache_type": cache_type,
+        "frame_range": list(frame_range),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    with open(_manifest_path(resolved_directory), "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+    return manifest
+
+
+def _job_id(domain_uuid, stage, resolved_directory):
+    digest = hashlib.sha256(resolved_directory.encode("utf-8")).hexdigest()[:12]
+    return f"{domain_uuid}:{stage}:{digest}"
+
+
+def _reconcile_pending_bake_manifest(obj, settings, resolved_directory):
+    """Write the ownership manifest for a previously async-started bake once it has finished.
+
+    START_BAKE/RESUME may dispatch a real Blender WM job (INVOKE_DEFAULT) that keeps running after
+    the call returns, so nothing runs the manifest write at the moment baking actually completes.
+    Every later call into this domain's cache management re-checks the stage's baked flag and writes
+    the manifest then, since that is the earliest point script code runs again.
+    """
+    pending = obj.get(_PENDING_BAKE_KEY)
+    if not isinstance(pending, dict) or not pending:
+        return
+    baked_flag = pending.get("baked_flag")
+    if not baked_flag or not bool(getattr(settings, baked_flag, False)):
+        return
+    with contextlib.suppress(OSError):
+        _write_manifest_entry(
+            resolved_directory,
+            pending["domain_uuid"],
+            pending["stage_action"],
+            pending["cache_type"],
+            pending["frame_range"],
+        )
+    obj[_PENDING_BAKE_KEY] = ""
+
+
 def _set_cache_range(settings, start, end):
     if start > end:
         raise ValueError("cache_frame_start must be <= cache_frame_end")
@@ -141,6 +278,50 @@ def _set_cache_range(settings, start, end):
     else:
         settings.cache_frame_start = start
         settings.cache_frame_end = end
+
+
+def _baked_frame_ceiling(settings):
+    """Return the highest frame guaranteed to have baked cache data for a MODULAR/ALL domain.
+
+    A pause frame > 0 on the stage that drives the domain's visible output means baking stopped
+    there; a fully completed (or never-started) stage leaves its pause field at 0, so the ceiling
+    falls back to ``cache_frame_end``.
+    """
+    pause_fields = [
+        "cache_frame_pause_mesh" if settings.use_mesh else None,
+        "cache_frame_pause_data",
+        "cache_frame_pause_particles",
+        "cache_frame_pause_guide",
+    ]
+    pauses = [getattr(settings, name) for name in pause_fields if name and getattr(settings, name, 0) > 0]
+    return min(pauses) if pauses else settings.cache_frame_end
+
+
+def _frame_sample(obj, frame, domain_bounds, tolerance):
+    output = _evaluated_output(obj)
+    particle_counts = {system.name: len(system.particles) for system in obj.particle_systems}
+    output_bounds = output["bounds"]
+    near_faces = []
+    if output_bounds:
+        faces = (
+            ("LEFT", 0, "minimum"),
+            ("RIGHT", 0, "maximum"),
+            ("BACK", 1, "minimum"),
+            ("FRONT", 1, "maximum"),
+            ("BOTTOM", 2, "minimum"),
+            ("TOP", 2, "maximum"),
+        )
+        for label, axis, side in faces:
+            if abs(output_bounds[side][axis] - domain_bounds[side][axis]) <= tolerance:
+                near_faces.append(label)
+    return {
+        "frame": frame,
+        "evaluated_mesh": output,
+        "particle_counts": particle_counts,
+        "total_particles": sum(particle_counts.values()),
+        "empty_output": output["vertices"] == 0 and not any(particle_counts.values()),
+        "near_domain_faces": near_faces,
+    }
 
 
 def _evaluated_output(obj):
@@ -187,6 +368,7 @@ class LiquidSimulationHandlers:
         frames,
         timeout_seconds=30.0,
         boundary_tolerance_cells=1.0,
+        max_preroll_frames=250,
     ):
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
         if not frames or len(frames) > 32 or len(set(frames)) != len(frames):
@@ -197,47 +379,60 @@ class LiquidSimulationHandlers:
         scene, view_layer = _scene_context_for_object(obj)
         if any(frame < scene.frame_start or frame > scene.frame_end for frame in normalized):
             raise ValueError("All sample frames must be inside the scene frame range")
+        is_replay = settings.cache_type == "REPLAY"
+        preroll_frames = None
+        if is_replay:
+            if normalized[0] < settings.cache_frame_start:
+                raise ValueError(
+                    f"Requested frame {normalized[0]} is before cache_frame_start="
+                    f"{settings.cache_frame_start}; REPLAY caching only advances forward from the "
+                    "start of its cache range"
+                )
+            preroll_frames = normalized[-1] - settings.cache_frame_start + 1
+            if preroll_frames > max_preroll_frames:
+                raise ValueError(
+                    f"Sampling frame {normalized[-1]} in REPLAY mode requires sequentially stepping "
+                    f"through {preroll_frames} frames from cache_frame_start={settings.cache_frame_start} "
+                    "(Replay caching only evaluates correctly under sequential 'Play Every Frame' "
+                    f"playback); exceeds max_preroll_frames={max_preroll_frames}"
+                )
+        else:
+            ceiling = _baked_frame_ceiling(settings)
+            out_of_range = [f for f in normalized if f < settings.cache_frame_start or f > ceiling]
+            if out_of_range:
+                raise ValueError(
+                    f"Frames {out_of_range} are outside the baked cache range "
+                    f"[{settings.cache_frame_start}, {ceiling}] for cache_type={settings.cache_type}"
+                )
         original_frame = scene.frame_current
         original_subframe = scene.frame_subframe
         deadline = time.monotonic() + timeout_seconds
         domain_bounds = _world_bounds(obj, evaluated=False)
         cell = max(domain_bounds["dimensions"]) / settings.resolution_max
         tolerance = cell * boundary_tolerance_cells
+        requested = set(normalized)
         samples = []
         timed_out = False
         try:
-            for frame in normalized:
-                scene.frame_set(frame)
-                view_layer.update()
-                output = _evaluated_output(obj)
-                particle_counts = {system.name: len(system.particles) for system in obj.particle_systems}
-                output_bounds = output["bounds"]
-                near_faces = []
-                if output_bounds:
-                    faces = (
-                        ("LEFT", 0, "minimum"),
-                        ("RIGHT", 0, "maximum"),
-                        ("BACK", 1, "minimum"),
-                        ("FRONT", 1, "maximum"),
-                        ("BOTTOM", 2, "minimum"),
-                        ("TOP", 2, "maximum"),
-                    )
-                    for label, axis, side in faces:
-                        if abs(output_bounds[side][axis] - domain_bounds[side][axis]) <= tolerance:
-                            near_faces.append(label)
-                samples.append(
-                    {
-                        "frame": frame,
-                        "evaluated_mesh": output,
-                        "particle_counts": particle_counts,
-                        "total_particles": sum(particle_counts.values()),
-                        "empty_output": output["vertices"] == 0 and not any(particle_counts.values()),
-                        "near_domain_faces": near_faces,
-                    }
-                )
-                if time.monotonic() >= deadline and frame != normalized[-1]:
-                    timed_out = True
-                    break
+            if is_replay:
+                cursor = settings.cache_frame_start
+                while cursor <= normalized[-1]:
+                    scene.frame_set(cursor)
+                    view_layer.update()
+                    if cursor in requested:
+                        samples.append(_frame_sample(obj, cursor, domain_bounds, tolerance))
+                    if time.monotonic() >= deadline and cursor != normalized[-1]:
+                        timed_out = True
+                        break
+                    cursor += 1
+            else:
+                for frame in normalized:
+                    scene.frame_set(frame)
+                    view_layer.update()
+                    samples.append(_frame_sample(obj, frame, domain_bounds, tolerance))
+                    if time.monotonic() >= deadline and frame != normalized[-1]:
+                        timed_out = True
+                        break
         finally:
             scene.frame_set(original_frame, subframe=original_subframe)
             view_layer.update()
@@ -259,13 +454,18 @@ class LiquidSimulationHandlers:
             "evaluated_frames": [item["frame"] for item in samples],
             "timed_out": timed_out,
             "timeout_seconds": timeout_seconds,
+            "preroll_frames": preroll_frames,
+            "max_preroll_frames": max_preroll_frames if is_replay else None,
             "domain_bounds": domain_bounds,
             "estimated_cell_size": cell,
             "samples": samples,
             "large_frame_changes": discontinuities,
             "timeline_restored": {"frame": scene.frame_current, "subframe": scene.frame_subframe},
             "cache_effect": (
-                "Frame evaluation may populate the REPLAY cache. Existing modular/final cache files are not changed."
+                "REPLAY sampling steps sequentially from cache_frame_start so every intermediate frame is "
+                "evaluated in order; existing modular/final cache files are not changed."
+                if is_replay
+                else "Frame evaluation reads the existing modular/final bake; no cache files are changed."
             ),
             "claim": "Bounded numerical evidence only; this is not a final bake or visual-quality assessment.",
         }
@@ -276,6 +476,7 @@ class LiquidSimulationHandlers:
         modifier_name,
         action="STATUS",
         patch=None,
+        stage=None,
         confirm_bake=False,
         confirm_free=False,
         confirm_external_path=False,
@@ -292,6 +493,9 @@ class LiquidSimulationHandlers:
             "BAKE_MESH",
             "BAKE_PARTICLES",
             "BAKE_ALL",
+            "START_BAKE",
+            "RESUME",
+            "CANCEL",
             "PAUSE",
             "FREE_DATA",
             "FREE_GUIDES",
@@ -306,9 +510,19 @@ class LiquidSimulationHandlers:
             raise ValueError("CONFIGURE requires a nonempty cache patch")
         if action != "CONFIGURE" and patch:
             raise ValueError(f"{action} does not accept a cache patch")
+        stage_actions = {"START_BAKE", "RESUME", "CANCEL"}
+        if action in stage_actions and stage not in _BAKE_STAGES:
+            raise ValueError(f"{action} requires stage to be one of {sorted(_BAKE_STAGES)}")
+        if action not in stage_actions and stage is not None:
+            raise ValueError(f"{action} does not accept a stage")
+        if settings.cache_directory:
+            _reconcile_pending_bake_manifest(obj, settings, _resolved_cache_path(settings.cache_directory))
         before = _cache_state(settings)
         path_before = _cache_directory_evidence(settings.cache_directory)
         if action == "STATUS":
+            domain_uuid = obj.get("blendermcp_liquid_uuid")
+            manifest = _read_manifest(path_before["resolved"]) if path_before["exists"] else None
+            pending = obj.get(_PENDING_BAKE_KEY)
             return {
                 "changed_objects": [],
                 "domain": obj.name,
@@ -316,6 +530,12 @@ class LiquidSimulationHandlers:
                 "action": action,
                 "cache": before,
                 "directory": path_before,
+                "domain_uuid": domain_uuid,
+                "manifest": manifest,
+                "directory_is_manifest_owned": bool(
+                    manifest and domain_uuid and manifest.get("domain_uuid") == domain_uuid
+                ),
+                "pending_bake": pending if isinstance(pending, dict) and pending else None,
             }
         if action == "CONFIGURE":
             _reject_cache_flags(settings, _CACHE_FLAGS, "Cannot configure an active or baked cache")
@@ -371,50 +591,94 @@ class LiquidSimulationHandlers:
         frame_count = settings.cache_frame_end - settings.cache_frame_start + 1
         bake_actions = {"BAKE_DATA", "BAKE_GUIDES", "BAKE_MESH", "BAKE_PARTICLES", "BAKE_ALL"}
         free_actions = {"FREE_DATA", "FREE_GUIDES", "FREE_MESH", "FREE_PARTICLES", "FREE_ALL"}
-        if action in bake_actions:
+        requested_action = action
+        if action == "CANCEL":
+            if bool(getattr(settings, _BAKE_STAGES[stage]["baking_flag"], False)):
+                raise ValueError(
+                    f"Cannot cancel an in-progress {stage} bake from a script; Blender exposes no scripted "
+                    "abort for a running fluid bake job (press Esc in the Blender window running the bake, "
+                    "or wait for it to finish or reach a pause point). CANCEL degrades to freeing that "
+                    "stage's cache once it is no longer actively baking."
+                )
+            action = f"FREE_{stage}"
+        if action == "RESUME":
+            details = _BAKE_STAGES[stage]
+            if not (settings.cache_type == "MODULAR" and bool(settings.cache_resumable)):
+                raise ValueError(
+                    "RESUME requires cache_type=MODULAR with cache_resumable=True; Bake All cannot be paused or resumed"
+                )
+            if bool(getattr(settings, details["baking_flag"], False)):
+                raise ValueError(f"{stage} is already baking; nothing to resume")
+            if bool(getattr(settings, details["baked_flag"], False)):
+                raise ValueError(f"{stage} is already fully baked; nothing to resume")
+            pause_flag = details["pause_flag"]
+            if not pause_flag or not getattr(settings, pause_flag, 0) > 0:
+                raise ValueError(f"{stage} has no paused bake to resume (cache_frame_pause is 0)")
+        resolved_bake_action = (
+            f"BAKE_{stage}" if action in {"START_BAKE", "RESUME"} else (action if action in bake_actions else None)
+        )
+        directory = None
+        domain_uuid = None
+        if resolved_bake_action:
+            gate_action = resolved_bake_action
             if not confirm_bake:
-                raise ValueError(f"{action} requires confirm_bake=True")
+                raise ValueError(f"{requested_action} requires confirm_bake=True")
             if frame_count > max_bake_frames:
                 raise ValueError(f"Cache range has {frame_count} frames, exceeding max_bake_frames={max_bake_frames}")
             if settings.cache_type == "REPLAY":
                 raise ValueError("Explicit baking is unavailable in REPLAY mode; configure MODULAR or ALL first")
-            if action == "BAKE_ALL" and settings.cache_type != "ALL":
+            if gate_action == "BAKE_ALL" and settings.cache_type != "ALL":
                 raise ValueError("BAKE_ALL requires cache_type ALL")
-            if action != "BAKE_ALL" and settings.cache_type != "MODULAR":
-                raise ValueError(f"{action} requires cache_type MODULAR")
-            if action in {"BAKE_MESH", "BAKE_PARTICLES"} and not settings.has_cache_baked_data:
-                raise ValueError(f"{action} requires the DATA stage to be baked first")
-            if action == "BAKE_MESH" and not settings.use_mesh:
+            if gate_action != "BAKE_ALL" and settings.cache_type != "MODULAR":
+                raise ValueError(f"{gate_action} requires cache_type MODULAR")
+            if gate_action in {"BAKE_MESH", "BAKE_PARTICLES"} and not settings.has_cache_baked_data:
+                raise ValueError(f"{gate_action} requires the DATA stage to be baked first")
+            if gate_action == "BAKE_MESH" and not settings.use_mesh:
                 raise ValueError("BAKE_MESH requires use_mesh=True")
-            if action == "BAKE_PARTICLES" and not any(getattr(settings, name) for name in _SECONDARY_TOGGLES):
+            if gate_action == "BAKE_PARTICLES" and not any(getattr(settings, name) for name in _SECONDARY_TOGGLES):
                 raise ValueError("BAKE_PARTICLES requires at least one enabled secondary particle type")
             directory = _cache_directory_evidence(settings.cache_directory)
             if not directory["exists"] or not directory["writable"]:
                 raise ValueError(f"Configured cache directory must exist and be writable: {directory['resolved']}")
             if directory["scan_truncated"] or directory["bytes_scanned"] > max_existing_cache_bytes:
                 raise ValueError("Existing cache directory exceeds the configured inspection bound")
-            if directory["files_scanned"] and not confirm_external_overwrite:
+            domain_uuid = _ensure_liquid_uuid(obj)
+            existing_manifest = _read_manifest(directory["resolved"])
+            pending_marker = obj.get(_PENDING_BAKE_KEY)
+            directory_is_manifest_owned = bool(
+                existing_manifest and existing_manifest.get("domain_uuid") == domain_uuid
+            ) or bool(isinstance(pending_marker, dict) and pending_marker.get("domain_uuid") == domain_uuid)
+            if directory["files_scanned"] and not confirm_external_overwrite and not directory_is_manifest_owned:
                 raise ValueError("Cache directory is not empty; confirm_external_overwrite=True is required")
         if action in free_actions:
             if not confirm_free:
-                raise ValueError(f"{action} requires confirm_free=True")
+                raise ValueError(f"{requested_action} requires confirm_free=True")
             if path_before["files_scanned"] and not confirm_external_overwrite:
                 raise ValueError("Freeing cache data may remove files; confirm_external_overwrite=True is required")
-        operator = {
-            "BAKE_DATA": bpy.ops.fluid.bake_data,
-            "BAKE_GUIDES": bpy.ops.fluid.bake_guides,
-            "BAKE_MESH": bpy.ops.fluid.bake_mesh,
-            "BAKE_PARTICLES": bpy.ops.fluid.bake_particles,
-            "BAKE_ALL": bpy.ops.fluid.bake_all,
-            "PAUSE": bpy.ops.fluid.pause_bake,
-            "FREE_DATA": bpy.ops.fluid.free_data,
-            "FREE_GUIDES": bpy.ops.fluid.free_guides,
-            "FREE_MESH": bpy.ops.fluid.free_mesh,
-            "FREE_PARTICLES": bpy.ops.fluid.free_particles,
-            "FREE_ALL": bpy.ops.fluid.free_all,
-        }[action]
-        if action == "PAUSE" and not settings.is_cache_baking_any:
-            raise ValueError("No liquid cache stage is currently baking")
+        if requested_action in {"START_BAKE", "RESUME"}:
+            operator = getattr(bpy.ops.fluid, _BAKE_STAGES[stage]["operator"])
+        elif action == "PAUSE":
+            operator = bpy.ops.fluid.pause_bake
+        else:
+            operator = {
+                "BAKE_DATA": bpy.ops.fluid.bake_data,
+                "BAKE_GUIDES": bpy.ops.fluid.bake_guides,
+                "BAKE_MESH": bpy.ops.fluid.bake_mesh,
+                "BAKE_PARTICLES": bpy.ops.fluid.bake_particles,
+                "BAKE_ALL": bpy.ops.fluid.bake_all,
+                "FREE_DATA": bpy.ops.fluid.free_data,
+                "FREE_GUIDES": bpy.ops.fluid.free_guides,
+                "FREE_MESH": bpy.ops.fluid.free_mesh,
+                "FREE_PARTICLES": bpy.ops.fluid.free_particles,
+                "FREE_ALL": bpy.ops.fluid.free_all,
+            }[action]
+        if action == "PAUSE":
+            if not settings.is_cache_baking_any:
+                raise ValueError("No liquid cache stage is currently baking")
+            if not (settings.cache_type == "MODULAR" and bool(settings.cache_resumable)):
+                raise ValueError(
+                    "PAUSE requires cache_type=MODULAR with cache_resumable=True; Bake All cannot be paused or resumed"
+                )
         expected_before = {
             "FREE_DATA": "has_cache_baked_data",
             "FREE_GUIDES": "has_cache_baked_guide",
@@ -423,7 +687,11 @@ class LiquidSimulationHandlers:
         }.get(action)
         if expected_before and not getattr(settings, expected_before):
             raise ValueError(f"{action} has no baked stage to free")
-        _run_fluid_operator(obj, operator)
+        job = None
+        if requested_action in {"START_BAKE", "RESUME"}:
+            job = _start_fluid_bake_job(obj, operator)
+        else:
+            _run_fluid_operator(obj, operator)
         after = _cache_state(settings)
         expected_after = {
             "BAKE_DATA": ("has_cache_baked_data", True),
@@ -436,26 +704,67 @@ class LiquidSimulationHandlers:
             "FREE_MESH": ("has_cache_baked_mesh", False),
             "FREE_PARTICLES": ("has_cache_baked_particles", False),
             "FREE_ALL": ("has_cache_baked_any", False),
-        }.get(action)
-        if expected_after and bool(getattr(settings, expected_after[0])) != expected_after[1]:
+        }.get(resolved_bake_action if requested_action in {"START_BAKE", "RESUME"} else action)
+        job_still_running = bool(job) and job["mode"] == "RUNNING_MODAL"
+        if expected_after and not job_still_running and bool(getattr(settings, expected_after[0])) != expected_after[1]:
             raise RuntimeError(
                 f"{action} reported FINISHED but {expected_after[0]} is not {expected_after[1]}; "
                 f"state={json.dumps(after)}"
             )
+        warnings = [
+            "Fluid bake operators are Blender jobs; frame count is bounded but a single frame cannot be "
+            "timed out by MCP.",
+            "Free actions delete derived cache data and cannot be rolled back through Blender datablocks.",
+        ]
+        job_id = None
+        if resolved_bake_action:
+            assert directory is not None
+            job_id = _job_id(domain_uuid, stage or resolved_bake_action, directory["resolved"])
+            if job_still_running:
+                assert expected_after is not None
+                obj[_PENDING_BAKE_KEY] = {
+                    "domain_uuid": domain_uuid,
+                    "stage_action": resolved_bake_action,
+                    "baked_flag": expected_after[0],
+                    "cache_type": settings.cache_type,
+                    "frame_range": [settings.cache_frame_start, settings.cache_frame_end],
+                }
+                warnings.append(
+                    "Bake dispatched as a non-blocking Blender job (RUNNING_MODAL); poll STATUS until the "
+                    "stage's has_cache_baked_* flag is true before sampling or chaining another bake "
+                    "action. The ownership manifest is written the next time this cache is queried after "
+                    "the job finishes."
+                )
+            else:
+                if job is not None and not _has_gui_window():
+                    warnings.append(
+                        "Blender is running with no GUI window (--background), so this bake ran "
+                        "synchronously and blocked the calling thread; non-blocking/pollable bakes "
+                        "require a running Blender window."
+                    )
+                try:
+                    _write_manifest_entry(
+                        directory["resolved"],
+                        domain_uuid,
+                        resolved_bake_action,
+                        settings.cache_type,
+                        [settings.cache_frame_start, settings.cache_frame_end],
+                    )
+                except OSError as error:
+                    warnings.append(f"Cache bake succeeded but the ownership manifest could not be written: {error}")
         return {
             "changed_objects": [obj.name],
             "domain": obj.name,
             "modifier": modifier.name,
-            "action": action,
+            "action": requested_action,
+            "stage": stage,
+            "job_id": job_id,
+            "job_mode": job["mode"] if job else None,
             "frame_count": frame_count,
             "operator_scope": "EXACT_LIQUID_DOMAIN",
             "cache_before": before,
             "cache_after": after,
             "directory_before": path_before,
             "directory_after": _cache_directory_evidence(settings.cache_directory),
-            "warnings": [
-                "Fluid bake operators are Blender jobs; frame count is bounded but a single frame cannot be "
-                "timed out by MCP.",
-                "Free actions delete derived cache data and cannot be rolled back through Blender datablocks.",
-            ],
+            "warnings": warnings,
         }

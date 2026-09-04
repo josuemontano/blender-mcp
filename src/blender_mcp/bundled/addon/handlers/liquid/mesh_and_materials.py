@@ -144,7 +144,7 @@ _MATERIAL_PRESETS = {
 
 
 def _estimate_mesh_output(obj, settings):
-    bounds = _world_bounds(obj)
+    bounds = _world_bounds(obj, evaluated=False)
     longest = max(bounds["dimensions"])
     cell = longest / settings.resolution_max if longest > 0 else 0.0
     scale = int(settings.mesh_scale)
