@@ -24,6 +24,7 @@ from .inspection_and_setup import (
     _get_scene,
     _read_fields,
     _resolved_cache_path,
+    _wall_thickness_samples,
     _world_bounds,
 )
 from .simulation import _cache_directory_evidence, _cache_state, _evaluated_output
@@ -32,6 +33,16 @@ _SCHEMA_VERSION = 1
 _UNIT_METERS = {"METERS": 1.0, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001}
 _DEFORMING_MODIFIERS = {"ARMATURE", "CAST", "CURVE", "DISPLACE", "LATTICE", "MESH_DEFORM", "NODES", "WARP", "WAVE"}
 _SPEED_ATTRIBUTE_NAMES = {"velocity", "fluid_velocity", "vel"}
+_RIM_AXES = {
+    "X": (0, 1.0),
+    "Y": (1, 1.0),
+    "Z": (2, 1.0),
+    "NEGATIVE_X": (0, -1.0),
+    "NEGATIVE_Y": (1, -1.0),
+    "NEGATIVE_Z": (2, -1.0),
+}
+_HOLLOW_CONTAINER_CAP_FRACTION = 0.08
+_HOLLOW_CONTAINER_MIN_ALIGNMENT = 0.3
 
 
 def _validate_name(value, label):
@@ -116,6 +127,62 @@ def _convex_hull_mesh(source, name):
     finally:
         bm.free()
     return mesh
+
+
+def _hollow_container_geometry(source, name, rim_axis):
+    """Build an open-topped shell mesh from the source's evaluated geometry.
+
+    Removes the cap facing ``rim_axis`` (the pour opening) and returns the mesh plus the
+    vertex indices of the opposite cap, for weighting a distinct bottom thickness through a
+    Solidify vertex group. Indices are only read *after* ``index_update()`` following the cap
+    deletion, since ``bmesh.ops.delete`` does not guarantee surviving vertices keep their index.
+    """
+    axis_index, sign = _RIM_AXES[rim_axis]
+    mesh = _evaluated_mesh_copy(source, name)
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.normal_update()
+        coordinates = [vertex.co[axis_index] for vertex in bm.verts]  # pyright: ignore[reportGeneralTypeIssues]
+        if not coordinates:
+            raise ValueError(f"Object '{source.name}' has no evaluated geometry for a hollow-container proxy")
+        axis_minimum, axis_maximum = min(coordinates), max(coordinates)
+        axis_range = axis_maximum - axis_minimum
+        if axis_range <= 1e-9:
+            raise ValueError(f"Object '{source.name}' is degenerate along rim_axis={rim_axis}")
+        opening_direction = mathutils.Vector((0.0, 0.0, 0.0))
+        opening_direction[axis_index] = sign
+        # The opening (pour cap) sits at whichever extreme opening_direction points toward; the
+        # kept cap (for bottom-thickness weighting) sits at the opposite extreme.
+        opening_extreme = axis_maximum if sign > 0 else axis_minimum
+        base_extreme = axis_minimum if sign > 0 else axis_maximum
+        band = _HOLLOW_CONTAINER_CAP_FRACTION * axis_range
+
+        def cap_faces(direction, extreme):
+            faces = []
+            for face in bm.faces:  # pyright: ignore[reportGeneralTypeIssues]
+                aligned = face.normal.dot(direction) > _HOLLOW_CONTAINER_MIN_ALIGNMENT
+                in_band = all(abs(vertex.co[axis_index] - extreme) <= band for vertex in face.verts)
+                if aligned and in_band:
+                    faces.append(face)
+            return faces
+
+        top_faces = cap_faces(opening_direction, opening_extreme)
+        if not top_faces:
+            raise ValueError(
+                f"Could not detect a pour-opening cap on '{source.name}' for rim_axis={rim_axis}; "
+                "try a different rim_axis or use SUPPLIED geometry"
+            )
+        bmesh.ops.delete(bm, geom=top_faces, context="FACES")
+        bm.verts.index_update()
+        bm.faces.index_update()
+        bottom_faces = cap_faces(-opening_direction, base_extreme)
+        bottom_vertex_indices = sorted({vertex.index for face in bottom_faces for vertex in face.verts})
+        bm.to_mesh(mesh)
+        mesh.update()
+    finally:
+        bm.free()
+    return mesh, bottom_vertex_indices
 
 
 def _has_deformation(obj):
@@ -284,6 +351,9 @@ class LiquidDeliveryHandlers:
         modifier_name="Liquid Proxy",
         existing_policy="ERROR",
         decimate_ratio=0.2,
+        wall_thickness=0.05,
+        bottom_thickness=None,
+        rim_axis="Z",
         allow_deforming_proxy=False,
         flow_settings=None,
         effector_settings=None,
@@ -291,7 +361,7 @@ class LiquidDeliveryHandlers:
     ):
         scene = _get_scene(scene_name)
         source = _get_object(source_object_name, {"MESH"})
-        domain, _domain_modifier, _settings = _get_domain(domain_object_name, domain_modifier_name)
+        domain, _domain_modifier, domain_settings = _get_domain(domain_object_name, domain_modifier_name)
         if source.name not in scene.objects or domain.name not in scene.objects:
             raise ValueError("Source and domain must be linked to the explicit scene")
         if role not in {"FLOW", "EFFECTOR"} or geometry not in {
@@ -299,6 +369,7 @@ class LiquidDeliveryHandlers:
             "CAPSULE",
             "CONVEX_HULL",
             "DECIMATED",
+            "HOLLOW_CONTAINER",
             "SUPPLIED",
         }:
             raise ValueError("Unsupported proxy role or geometry")
@@ -306,6 +377,17 @@ class LiquidDeliveryHandlers:
             raise ValueError("driver must be COPY_TRANSFORMS or PARENT")
         if (flow_settings and role != "FLOW") or (effector_settings and role != "EFFECTOR"):
             raise ValueError("Flow/effector settings must match the selected proxy role")
+        if geometry == "HOLLOW_CONTAINER":
+            if rim_axis not in _RIM_AXES:
+                raise ValueError(f"rim_axis must be one of {sorted(_RIM_AXES)}")
+            if not isinstance(wall_thickness, (int, float)) or isinstance(wall_thickness, bool) or wall_thickness <= 0:
+                raise ValueError("wall_thickness must be a positive number")
+            if bottom_thickness is not None and (
+                not isinstance(bottom_thickness, (int, float))
+                or isinstance(bottom_thickness, bool)
+                or bottom_thickness <= 0
+            ):
+                raise ValueError("bottom_thickness must be a positive number")
         frames = sorted({int(frame) for frame in (validation_frames or [scene.frame_current])})
         if not frames or len(frames) > 12:
             raise ValueError("validation_frames must contain 1-12 unique frames")
@@ -329,12 +411,15 @@ class LiquidDeliveryHandlers:
             if existing is not None:
                 raise ValueError(f"Proxy object already exists: {proxy_object_name}")
             center, dimensions = _local_bounds(source)
+            bottom_vertex_indices = []
             if geometry == "BOX":
                 mesh = _box_mesh(f"{proxy_object_name} Mesh", center, dimensions)
             elif geometry == "CAPSULE":
                 mesh = _capsule_mesh(f"{proxy_object_name} Mesh", center, dimensions)
             elif geometry == "CONVEX_HULL":
                 mesh = _convex_hull_mesh(source, f"{proxy_object_name} Mesh")
+            elif geometry == "HOLLOW_CONTAINER":
+                mesh, bottom_vertex_indices = _hollow_container_geometry(source, f"{proxy_object_name} Mesh", rim_axis)
             else:
                 mesh = _evaluated_mesh_copy(source, f"{proxy_object_name} Mesh")
             proxy = bpy.data.objects.new(proxy_object_name, mesh)
@@ -352,6 +437,8 @@ class LiquidDeliveryHandlers:
         old_display_type = proxy.display_type
         created_constraint = None
         created_decimate = None
+        created_solidify = None
+        created_vertex_group = None
         tag_keys = ("blendermcp_liquid_simulation_id", "blendermcp_liquid_role", "blendermcp_liquid_source")
         old_tags = {key: (key in proxy, proxy.get(key)) for key in tag_keys}
         simulation_id = domain.get("blendermcp_liquid_simulation_id") or uuid.uuid4().hex
@@ -370,6 +457,17 @@ class LiquidDeliveryHandlers:
             if geometry == "DECIMATED":
                 created_decimate = proxy.modifiers.new(name="Liquid Proxy Decimate", type="DECIMATE")
                 created_decimate.ratio = decimate_ratio
+            elif geometry == "HOLLOW_CONTAINER":
+                created_solidify = proxy.modifiers.new(name="Liquid Proxy Shell", type="SOLIDIFY")
+                created_solidify.offset = -1.0
+                created_solidify.use_rim = True
+                resolved_bottom_thickness = wall_thickness if bottom_thickness is None else bottom_thickness
+                created_solidify.thickness = resolved_bottom_thickness
+                if bottom_vertex_indices and not math.isclose(resolved_bottom_thickness, wall_thickness, rel_tol=1e-9):
+                    created_vertex_group = proxy.vertex_groups.new(name="Liquid Proxy Bottom")
+                    created_vertex_group.add(bottom_vertex_indices, 1.0, "REPLACE")
+                    created_solidify.vertex_group = created_vertex_group.name
+                    created_solidify.thickness_vertex_group = wall_thickness / resolved_bottom_thickness
             if role == "FLOW":
                 record = self.add_liquid_flow(
                     proxy.name,
@@ -423,6 +521,10 @@ class LiquidDeliveryHandlers:
                         proxy.constraints.remove(created_constraint)
                     if created_decimate is not None:
                         proxy.modifiers.remove(created_decimate)
+                    if created_solidify is not None:
+                        proxy.modifiers.remove(created_solidify)
+                    if created_vertex_group is not None:
+                        proxy.vertex_groups.remove(created_vertex_group)
                     proxy.parent = old_parent
                     proxy.matrix_parent_inverse = old_parent_inverse
                     proxy.matrix_basis = old_basis
@@ -443,6 +545,21 @@ class LiquidDeliveryHandlers:
                 "The source deforms, but this generated proxy follows transforms only; "
                 "use a supplied deforming proxy if needed."
             )
+        if geometry == "HOLLOW_CONTAINER":
+            if bottom_thickness is not None and not bottom_vertex_indices:
+                warnings.append(
+                    "Could not detect a distinct bottom cap; bottom_thickness was ignored and "
+                    "wall_thickness was applied uniformly."
+                )
+            domain_bounds = _world_bounds(domain, evaluated=False)
+            cell_size = max(domain_bounds["dimensions"]) / domain_settings.resolution_max
+            thicknesses = _wall_thickness_samples(proxy, cell_size)
+            if thicknesses and min(thicknesses) < cell_size * 1.5:
+                warnings.append(
+                    "Hollow-container wall thickness is under 1.5 estimated domain cells at a sampled point "
+                    f"(min={min(thicknesses):.4g}, cell_size={cell_size:.4g}); liquid may leak through. "
+                    "Increase wall_thickness/bottom_thickness or domain resolution."
+                )
         return {
             "changed_objects": [proxy.name, domain.name],
             "source": source.name,

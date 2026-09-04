@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ...app import mcp
 from .inspection_and_setup import ExistingPolicy, FlowBehavior, _call, _dump
 
-ProxyGeometry = Literal["BOX", "CAPSULE", "CONVEX_HULL", "DECIMATED", "SUPPLIED"]
+ProxyGeometry = Literal["BOX", "CAPSULE", "CONVEX_HULL", "DECIMATED", "HOLLOW_CONTAINER", "SUPPLIED"]
 ProxyRole = Literal["FLOW", "EFFECTOR"]
 ProxyDriver = Literal["COPY_TRANSFORMS", "PARENT"]
 VariantDataPolicy = Literal["COPY", "LINK"]
@@ -83,6 +83,9 @@ async def create_liquid_proxy_rig(
     modifier_name: str = "Liquid Proxy",
     existing_policy: ExistingPolicy = "ERROR",
     decimate_ratio: Annotated[float, Field(ge=0.01, le=1.0)] = 0.2,
+    wall_thickness: Annotated[float, Field(gt=0.0, le=10.0)] = 0.05,
+    bottom_thickness: Annotated[float, Field(gt=0.0, le=10.0)] | None = None,
+    rim_axis: ExportAxis = "Z",
     allow_deforming_proxy: bool = False,
     flow_settings: ProxyFlowSettings | None = None,
     effector_settings: ProxyEffectorSettings | None = None,
@@ -93,6 +96,12 @@ async def create_liquid_proxy_rig(
     ``SUPPLIED`` treats ``proxy_object_name`` as an existing proxy; other geometry modes create it.
     Generated proxies follow rigid transforms only. Deforming behavior is accepted only for an explicit
     supplied proxy with ``allow_deforming_proxy=True``. Mantaflow coupling remains one-way.
+
+    ``HOLLOW_CONTAINER`` shells the source's evaluated geometry inward (a live Solidify modifier, so
+    it stays reversible) and removes the cap facing ``rim_axis`` to leave an open pour opening.
+    ``wall_thickness`` sets the side/rim thickness; ``bottom_thickness`` optionally weights a thicker
+    base via a vertex group over the detected opposite cap. Both are validated against the domain's
+    cell size, matching ``validate_liquid_setup``'s thin-wall leak check.
     """
     return await asyncio.to_thread(
         _call,
@@ -110,6 +119,9 @@ async def create_liquid_proxy_rig(
             "modifier_name": modifier_name,
             "existing_policy": existing_policy,
             "decimate_ratio": decimate_ratio,
+            "wall_thickness": wall_thickness,
+            "bottom_thickness": bottom_thickness,
+            "rim_axis": rim_axis,
             "allow_deforming_proxy": allow_deforming_proxy,
             "flow_settings": _dump(flow_settings),
             "effector_settings": _dump(effector_settings),

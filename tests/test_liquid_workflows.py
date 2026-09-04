@@ -113,6 +113,175 @@ def test_proxy_tool_serializes_explicit_typed_settings(monkeypatch) -> None:
     assert result["params"]["validation_frames"] == [1, 12]
 
 
+def test_hollow_container_proxy_tool_serializes_new_params(monkeypatch) -> None:
+    monkeypatch.setattr(
+        liquid,
+        "_call",
+        lambda command, params, changed_objects=None: {
+            "command": command,
+            "params": params,
+            "changed_objects": changed_objects,
+        },
+    )
+
+    result = _run(
+        liquid.create_liquid_proxy_rig,
+        scene_name="Scene",
+        source_object_name="Glass",
+        proxy_object_name="Glass Liquid Proxy",
+        domain_object_name="Domain",
+        domain_modifier_name="Liquid Domain",
+        role="EFFECTOR",
+        geometry="HOLLOW_CONTAINER",
+        wall_thickness=0.02,
+        bottom_thickness=0.08,
+        rim_axis="NEGATIVE_Z",
+    )
+
+    assert result["command"] == "create_liquid_proxy_rig"
+    assert result["params"]["geometry"] == "HOLLOW_CONTAINER"
+    assert result["params"]["wall_thickness"] == 0.02
+    assert result["params"]["bottom_thickness"] == 0.08
+    assert result["params"]["rim_axis"] == "NEGATIVE_Z"
+
+
+def test_hollow_container_proxy_tool_defaults(monkeypatch) -> None:
+    monkeypatch.setattr(
+        liquid,
+        "_call",
+        lambda command, params, changed_objects=None: {"params": params},
+    )
+
+    result = _run(
+        liquid.create_liquid_proxy_rig,
+        scene_name="Scene",
+        source_object_name="Character",
+        proxy_object_name="Character Liquid Proxy",
+        domain_object_name="Domain",
+        domain_modifier_name="Liquid Domain",
+        role="EFFECTOR",
+    )
+
+    assert result["params"]["wall_thickness"] == 0.05
+    assert result["params"]["bottom_thickness"] is None
+    assert result["params"]["rim_axis"] == "Z"
+
+
+def test_hollow_container_validates_rim_axis_and_thickness(monkeypatch) -> None:
+    _addon, handler = _load_liquid_handler(monkeypatch)
+    scene = types.SimpleNamespace(objects={"Source", "Domain"})
+    source = types.SimpleNamespace(name="Source")
+    domain = types.SimpleNamespace(name="Domain")
+    modifier = types.SimpleNamespace(name="Liquid Domain")
+    settings = types.SimpleNamespace(resolution_max=32)
+    monkeypatch.setattr(handler.delivery, "_get_scene", lambda _name: scene)
+    monkeypatch.setattr(handler.delivery, "_get_object", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(handler.delivery, "_get_domain", lambda *_args: (domain, modifier, settings))
+
+    def make():
+        return handler.LiquidHandlersMixin()
+
+    with pytest.raises(ValueError, match="rim_axis must be one of"):
+        make().create_liquid_proxy_rig(
+            "Scene", "Source", "Proxy", "Domain", "Liquid Domain", "EFFECTOR", geometry="HOLLOW_CONTAINER", rim_axis="UP"
+        )
+    with pytest.raises(ValueError, match="wall_thickness must be a positive number"):
+        make().create_liquid_proxy_rig(
+            "Scene", "Source", "Proxy", "Domain", "Liquid Domain", "EFFECTOR", geometry="HOLLOW_CONTAINER", wall_thickness=0
+        )
+    with pytest.raises(ValueError, match="wall_thickness must be a positive number"):
+        make().create_liquid_proxy_rig(
+            "Scene",
+            "Source",
+            "Proxy",
+            "Domain",
+            "Liquid Domain",
+            "EFFECTOR",
+            geometry="HOLLOW_CONTAINER",
+            wall_thickness=True,
+        )
+    with pytest.raises(ValueError, match="bottom_thickness must be a positive number"):
+        make().create_liquid_proxy_rig(
+            "Scene",
+            "Source",
+            "Proxy",
+            "Domain",
+            "Liquid Domain",
+            "EFFECTOR",
+            geometry="HOLLOW_CONTAINER",
+            bottom_thickness=-1.0,
+        )
+
+
+def test_hollow_container_geometry_detects_pour_opening_by_signed_rim_axis(monkeypatch) -> None:
+    """The opening must be found at the extreme the rim_axis sign points toward, not always the max."""
+    _addon, handler = _load_liquid_handler(monkeypatch)
+
+    class FakeVector(list):
+        def dot(self, other):
+            return sum(a * b for a, b in zip(self, other, strict=True))
+
+        def __neg__(self):
+            return FakeVector(-value for value in self)
+
+    class Seq(list):
+        def index_update(self):
+            pass
+
+    class Vertex:
+        def __init__(self, co, index):
+            self.co = FakeVector(co)
+            self.index = index
+
+    class Face:
+        def __init__(self, verts, normal):
+            self.verts = verts
+            self.normal = FakeVector(normal)
+
+    class FakeBMesh:
+        def __init__(self, verts, faces):
+            self.verts = Seq(verts)
+            self.faces = Seq(faces)
+            self.freed = False
+
+        def from_mesh(self, _mesh):
+            pass
+
+        def normal_update(self):
+            pass
+
+        def to_mesh(self, _mesh):
+            pass
+
+        def free(self):
+            self.freed = True
+
+    top = [Vertex((-1, -1, 1), 0), Vertex((1, 1, 1), 1)]
+    bottom = [Vertex((-1, -1, -1), 2), Vertex((1, 1, -1), 3)]
+    top_face = Face(top, (0, 0, 1))
+    bottom_face = Face(bottom, (0, 0, -1))
+    fake_bm = FakeBMesh(top + bottom, [top_face, bottom_face])
+
+    deleted = []
+    monkeypatch.setattr(handler.delivery.mathutils, "Vector", FakeVector, raising=False)
+    monkeypatch.setattr(handler.delivery.bmesh, "new", lambda: fake_bm, raising=False)
+    monkeypatch.setattr(
+        handler.delivery.bmesh,
+        "ops",
+        types.SimpleNamespace(delete=lambda bm, geom, context: deleted.append((geom, context))),
+        raising=False,
+    )
+    fake_mesh = types.SimpleNamespace(update=lambda: None)
+    monkeypatch.setattr(handler.delivery, "_evaluated_mesh_copy", lambda _source, _name: fake_mesh)
+
+    source = types.SimpleNamespace(name="Source")
+
+    _mesh, bottom_indices = handler.delivery._hollow_container_geometry(source, "Proxy Mesh", "NEGATIVE_Z")
+
+    assert deleted[0][0] == [bottom_face]
+    assert bottom_indices == [0, 1]
+
+
 def test_dynamic_viscosity_conversion_is_explicit(monkeypatch) -> None:
     _addon, handler = _load_liquid_handler(monkeypatch)
 
