@@ -56,6 +56,7 @@ _FILE_TOOLS = {
     "export_rigid_body_animation",
     "manage_geometry_nodes_bake",
     "render_lighting_preview",
+    "setup_liquid_shot",
 }
 _IMAGE_TOOLS = {"get_viewport_screenshot", "get_sketchfab_model_preview", "render_lighting_preview"}
 _DESTRUCTIVE_PREFIXES = (
@@ -106,6 +107,7 @@ _DESTRUCTIVE_TOOLS = {
     "patch_armature_bones",
     "project_mesh_elements",
     "run_geometry_nodes_tool",
+    "setup_liquid_shot",
     "realize_procedural_output",
     "redistribute_edge_loop",
     "relax_topology",
