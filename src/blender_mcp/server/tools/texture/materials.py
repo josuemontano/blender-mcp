@@ -2,14 +2,26 @@
 
 import asyncio
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field, model_validator
 
 from ...app import mcp
+from .._node_graph import NodeGraphEdit
 from ._shared import StrictTextureInput, TargetEngine, absolute_path, call_blender, explicit_fields
+
+
+class ShaderGraphTarget(StrictTextureInput):
+    """Exact Blender datablock that owns the shader graph."""
+
+    type: Literal["MATERIAL", "WORLD", "LIGHT"]
+    name: str = Field(min_length=1, max_length=255)
+
+
+class ShaderGraphEdit(NodeGraphEdit):
+    """One ordered shader-graph edit using stable node and socket identities."""
 
 
 class PBRMaterialSettings(StrictTextureInput):
@@ -135,6 +147,62 @@ async def inspect_material(
     """
     params = {k: v for k, v in locals().items() if k != "ctx"}
     return await asyncio.to_thread(call_blender, "inspect_material", params)
+
+
+@mcp.tool()
+async def get_shader_node_type_info(
+    ctx: Context,
+    target_type: Literal["MATERIAL", "WORLD", "LIGHT"] = "MATERIAL",
+    bl_idname: str | None = None,
+    search: str | None = None,
+    limit: int = Field(default=50, ge=1, le=200),
+    offset: int = Field(default=0, ge=0),
+) -> dict:
+    """Discover shader node types and concrete sockets supported by the connected Blender runtime.
+
+    Supply ``bl_idname`` for one exact schema or ``search`` to browse. Each candidate is instantiated
+    in a disposable Material, World, or Light graph so dynamic sockets and target compatibility are
+    measured rather than inferred from another Blender version.
+    """
+    return await asyncio.to_thread(
+        call_blender,
+        "get_shader_node_type_info",
+        {
+            "target_type": target_type,
+            "bl_idname": bl_idname,
+            "search": search or "",
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+@mcp.tool()
+async def patch_shader_graph(
+    ctx: Context,
+    target: ShaderGraphTarget,
+    operations: Annotated[list[ShaderGraphEdit], Field(min_length=1, max_length=500)],
+    enable_nodes: bool = False,
+) -> dict:
+    """Atomically patch a Material, World, or Light shader graph without exposing raw node CRUD tools.
+
+    The full ordered patch is applied to a private datablock copy and validated before all users are
+    remapped in one commit. Node types and writable properties are checked against the connected
+    Blender runtime; sockets use identifiers with an optional index fallback. Added nodes receive
+    MCP ownership and role tags. Existing unrelated branches remain intact.
+
+    Set ``enable_nodes=True`` only when the target does not already use nodes. The resulting graph
+    must retain the target's appropriate Material, World, or Light output node.
+    """
+    return await asyncio.to_thread(
+        call_blender,
+        "patch_shader_graph",
+        {
+            "target": target.model_dump(),
+            "operations": [operation.model_dump(exclude_none=True) for operation in operations],
+            "enable_nodes": enable_nodes,
+        },
+    )
 
 
 @mcp.tool()

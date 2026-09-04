@@ -8,6 +8,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field, model_validator
 
 from ...app import mcp
+from .._node_graph import NodeGraphEdit
 from ._shared import GeometryNodesRequest, call_geometry_nodes, model_records
 
 SocketDirection = Literal["INPUT", "OUTPUT"]
@@ -59,33 +60,8 @@ class InterfaceEdit(GeometryNodesRequest):
     parent_identifier: str | None = None
 
 
-class GraphEdit(GeometryNodesRequest):
-    """Describe one ordered node-graph mutation in an atomic patch."""
-
-    operation: Literal[
-        "ADD_NODE",
-        "UPDATE_NODE",
-        "SET_INPUT",
-        "ADD_LINK",
-        "REMOVE_LINK",
-        "MOVE_TO_FRAME",
-        "REMOVE_NODE",
-        "SET_ACTIVE_OUTPUT",
-    ]
-    node_name: str | None = None
-    bl_idname: str | None = None
-    new_name: str | None = None
-    properties: dict[str, Any] = Field(default_factory=dict)
-    socket_identifier: str | None = None
-    socket_index: int | None = Field(default=None, ge=0)
-    value: Any = None
-    from_node: str | None = None
-    from_socket_identifier: str | None = None
-    from_socket_index: int | None = Field(default=None, ge=0)
-    to_node: str | None = None
-    to_socket_identifier: str | None = None
-    to_socket_index: int | None = Field(default=None, ge=0)
-    frame_name: str | None = None
+class GraphEdit(NodeGraphEdit):
+    """Describe one ordered Geometry Nodes graph mutation in an atomic patch."""
 
 
 @mcp.tool()
