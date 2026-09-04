@@ -9,6 +9,7 @@ from . import character_rigging as character_rigging
 from . import cloth as cloth
 from . import core as core
 from . import geometry_nodes as geometry_nodes
+from . import fluid as fluid
 from . import lighting as lighting
 from . import liquid as liquid
 from . import mesh as mesh

@@ -87,6 +87,39 @@ def test_configure_render_settings_serializes_patch(monkeypatch) -> None:
     assert result["changed_resources"] == ["Scene"]
 
 
+def test_render_settings_nested_engine_and_output_patches_serialize(monkeypatch) -> None:
+    connection = _Connection()
+    monkeypatch.setattr(rendering, "get_blender_connection", lambda: connection)
+    patch = rendering.RenderSettingsPatch(
+        engine="CYCLES",
+        cycles=rendering.CyclesPatch(samples=128, use_adaptive_sampling=True),
+        output=rendering.OutputPatch(image_format="OPEN_EXR_MULTILAYER", color_depth="32"),
+        motion_blur=rendering.MotionBlurPatch(enabled=True, shutter=0.5),
+    )
+
+    asyncio.run(rendering.configure_render_settings(ctx=None, scene_name="Scene", patch=patch))
+
+    payload = connection.calls[0][1]["patch"]
+    assert payload["cycles"] == {"samples": 128, "use_adaptive_sampling": True}
+    assert payload["output"]["image_format"] == "OPEN_EXR_MULTILAYER"
+
+
+def test_render_inspection_serializes_bounded_graph_request(monkeypatch) -> None:
+    connection = _Connection()
+    monkeypatch.setattr(rendering, "get_blender_connection", lambda: connection)
+
+    asyncio.run(
+        rendering.inspect_render_setup(
+            ctx=None, scene_name="Scene", graph_sections=["NODES", "DEPENDENCIES"], limit=25, offset=50
+        )
+    )
+
+    assert connection.calls[0] == (
+        "inspect_render_setup",
+        {"scene_name": "Scene", "graph_sections": ["NODES", "DEPENDENCIES"], "limit": 25, "offset": 50},
+    )
+
+
 def test_view_layer_and_render_confirmation_rules(monkeypatch) -> None:
     connection = _Connection()
     monkeypatch.setattr(rendering, "get_blender_connection", lambda: connection)

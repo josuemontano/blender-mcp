@@ -87,16 +87,42 @@ def _create_spline_data(name, spec):
         points = record["points"]
         if spline_type == "BEZIER":
             spline.bezier_points.add(len(points) - 1)
-            for point, coordinate in zip(spline.bezier_points, points, strict=True):
-                point.co = coordinate
-                point.handle_left_type = "AUTO"
-                point.handle_right_type = "AUTO"
+            for point, raw in zip(spline.bezier_points, points, strict=True):
+                record_point = raw if isinstance(raw, dict) else {"co": raw}
+                point.co = record_point["co"]
+                point.radius = record_point.get("radius", 1.0)
+                point.tilt = record_point.get("tilt", 0.0)
+                point.weight_softbody = record_point.get("weight", 1.0)
+                point.handle_left_type = record_point.get("handle_left_type", "AUTO")
+                point.handle_right_type = record_point.get("handle_right_type", "AUTO")
+                if record_point.get("handle_left") is not None:
+                    point.handle_left = record_point["handle_left"]
+                if record_point.get("handle_right") is not None:
+                    point.handle_right = record_point["handle_right"]
         else:
             spline.points.add(len(points) - 1)
-            for point, coordinate in zip(spline.points, points, strict=True):
-                point.co = (*coordinate, 1.0)
+            for point, raw in zip(spline.points, points, strict=True):
+                record_point = raw if isinstance(raw, dict) else {"co": raw}
+                point.co = (*record_point["co"], record_point.get("weight", 1.0))
+                point.radius = record_point.get("radius", 1.0)
+                point.tilt = record_point.get("tilt", 0.0)
+                point.weight_softbody = record_point.get("weight", 1.0)
             if spline_type == "NURBS":
-                spline.order_u = min(record.get("order_u", 4), len(points))
+                count_u = record.get("point_count_u") or len(points)
+                count_v = record.get("point_count_v", 1)
+                if geometry_type == "SURFACE" and count_v > 1:
+                    for property_name, value in (("point_count_u", count_u), ("point_count_v", count_v)):
+                        prop = spline.bl_rna.properties.get(property_name)
+                        if prop is None or prop.is_readonly:
+                            raise ValueError(
+                                "This Blender runtime cannot author arbitrary Surface U/V topology through "
+                                f"Curve RNA ({property_name} is unavailable or read-only)"
+                            )
+                        setattr(spline, property_name, value)
+                    spline.order_v = min(record.get("order_v", 4), count_v)
+                    spline.use_endpoint_v = record.get("endpoint_v", True)
+                    spline.use_cyclic_v = record.get("cyclic_v", False)
+                spline.order_u = min(record.get("order_u", 4), count_u)
                 spline.use_endpoint_u = record.get("endpoint", True)
         spline.use_cyclic_u = record.get("cyclic", False)
     return data
@@ -148,6 +174,103 @@ def _create_pointcloud(name, spec):
     return data
 
 
+_ATTRIBUTE_VALUE_PROPERTIES = {
+    "FLOAT": "value",
+    "INT": "value",
+    "BOOLEAN": "value",
+    "FLOAT_VECTOR": "vector",
+    "FLOAT_COLOR": "color",
+    "BYTE_COLOR": "color",
+}
+
+
+def _write_geometry_attributes(container, records):
+    schema = []
+    for record in records:
+        domain = "CURVE" if record["domain"] == "STROKE" else record["domain"]
+        if domain == "LAYER":
+            raise ValueError("LAYER attributes are not drawing-local; store them as layer custom properties")
+        attribute = container.get(record["name"])
+        if attribute is not None:
+            if attribute.data_type != record["data_type"] or attribute.domain != domain:
+                raise ValueError(f"Attribute already exists with incompatible schema: {record['name']}")
+        else:
+            attribute = container.new(record["name"], record["data_type"], domain)
+        property_name = _ATTRIBUTE_VALUE_PROPERTIES[record["data_type"]]
+        for element, value in zip(attribute.data, record["values"], strict=True):
+            setattr(element, property_name, value)
+        schema.append(
+            {
+                "name": attribute.name,
+                "data_type": attribute.data_type,
+                "domain": attribute.domain,
+                "count": len(attribute.data),
+            }
+        )
+    return schema
+
+
+def _create_curves(name, spec):
+    collection = getattr(bpy.data, "hair_curves", None)
+    if collection is None:
+        raise ValueError("Modern Curves geometry is unavailable in this Blender runtime")
+    data = collection.new(name)
+    data.add_curves(spec["curve_sizes"])
+    positions = data.attributes.get("position")
+    positions.data.foreach_set("vector", [value for point in spec["points"] for value in point])
+    if spec.get("cyclic") is not None:
+        cyclic = data.attributes.get("cyclic") or data.attributes.new("cyclic", "BOOLEAN", "CURVE")
+        cyclic.data.foreach_set("value", spec["cyclic"])
+    surface_name = spec.get("surface_object_name")
+    if surface_name:
+        surface = _object(surface_name)
+        if surface.type != "MESH":
+            raise ValueError("surface_object_name must identify a mesh object")
+        data.surface = surface
+    _write_geometry_attributes(data.attributes, spec.get("attributes", []))
+    return data
+
+
+def _create_grease_pencil(name, spec):
+    collection = getattr(bpy.data, "grease_pencils", None)
+    if collection is None:
+        raise ValueError("Blender 5.x Grease Pencil geometry is unavailable in this runtime")
+    data = collection.new(name)
+    seen_layers = set()
+    for layer_record in spec["layers"]:
+        layer_name = layer_record["name"]
+        if layer_name in seen_layers:
+            raise ValueError(f"Duplicate Grease Pencil layer: {layer_name}")
+        is_first_layer = not seen_layers
+        seen_layers.add(layer_name)
+        layer = data.layers.new(layer_name, set_active=is_first_layer)
+        seen_frames = set()
+        for frame_record in layer_record.get("frames", []):
+            frame_number = frame_record["frame_number"]
+            if frame_number in seen_frames:
+                raise ValueError(f"Duplicate frame {frame_number} in layer '{layer_name}'")
+            seen_frames.add(frame_number)
+            drawing = layer.frames.new(frame_number).drawing
+            strokes = frame_record.get("strokes", [])
+            if not strokes:
+                continue
+            drawing.add_strokes([len(stroke["points"]) for stroke in strokes])
+            points = [point for stroke in strokes for point in stroke["points"]]
+            drawing.attributes["position"].data.foreach_set("vector", [value for point in points for value in point])
+            cyclic = drawing.attributes.get("cyclic") or drawing.attributes.new("cyclic", "BOOLEAN", "CURVE")
+            cyclic.data.foreach_set("value", [stroke.get("cyclic", False) for stroke in strokes])
+            radii = [value for stroke in strokes for value in (stroke.get("radii") or [1.0] * len(stroke["points"]))]
+            radius = drawing.attributes.get("radius") or drawing.attributes.new("radius", "FLOAT", "POINT")
+            radius.data.foreach_set("value", radii)
+            opacities = [
+                value for stroke in strokes for value in (stroke.get("opacities") or [1.0] * len(stroke["points"]))
+            ]
+            opacity = drawing.attributes.get("opacity") or drawing.attributes.new("opacity", "FLOAT", "POINT")
+            opacity.data.foreach_set("value", opacities)
+            _write_geometry_attributes(drawing.attributes, frame_record.get("attributes", []))
+    return data
+
+
 def _create_volume(name, spec):
     path = os.path.abspath(spec["filepath"])
     if not os.path.isfile(path):
@@ -170,8 +293,40 @@ _GEOMETRY_BUILDERS = {
     "META": _create_meta,
     "LATTICE": _create_lattice,
     "POINTCLOUD": _create_pointcloud,
+    "CURVES": _create_curves,
+    "GREASEPENCIL": _create_grease_pencil,
     "VOLUME": _create_volume,
 }
+
+
+def _attribute_schema(data):
+    return [
+        {"name": item.name, "data_type": item.data_type, "domain": item.domain, "count": len(item.data)}
+        for item in getattr(data, "attributes", ())
+    ]
+
+
+def _geometry_counts(data, kind):
+    if kind == "MESH":
+        return {"points": len(data.vertices), "edges": len(data.edges), "faces": len(data.polygons)}
+    if kind in {"CURVE", "SURFACE"}:
+        return {
+            "splines": len(data.splines),
+            "points": sum(len(spline.points) + len(spline.bezier_points) for spline in data.splines),
+        }
+    if kind == "POINTCLOUD":
+        return {"points": len(data.points)}
+    if kind == "CURVES":
+        return {"curves": len(data.curves), "points": len(data.points)}
+    if kind == "GREASEPENCIL":
+        frames = [frame for layer in data.layers for frame in layer.frames]
+        return {
+            "layers": len(data.layers),
+            "frames": len(frames),
+            "strokes": sum(len(frame.drawing.strokes) for frame in frames),
+            "points": sum(len(frame.drawing.attributes["position"].data) for frame in frames),
+        }
+    return {}
 
 
 _CONSTRAINT_SETTINGS = {
@@ -529,8 +684,24 @@ class SceneHandlersMixin:
             raise ValueError(f"Unsupported geometry kind: {kind}")
         if any(value == 0 for value in scale):
             raise ValueError("scale components must be non-zero")
-        data = builder(name, geometry)
+        collection_name_by_kind = {
+            "MESH": "meshes",
+            "CURVE": "curves",
+            "SURFACE": "curves",
+            "TEXT": "curves",
+            "META": "metaballs",
+            "LATTICE": "lattices",
+            "POINTCLOUD": "pointclouds",
+            "CURVES": "hair_curves",
+            "GREASEPENCIL": "grease_pencils",
+            "VOLUME": "volumes",
+        }
+        data_collection = getattr(bpy.data, collection_name_by_kind[kind])
+        existing_data = {item.as_pointer() for item in data_collection}
+        data = None
+        obj = None
         try:
+            data = builder(name, geometry)
             obj = bpy.data.objects.new(name, data)
             _scene_collection(collection_name).objects.link(obj)
             obj.location = location
@@ -539,25 +710,17 @@ class SceneHandlersMixin:
         except Exception:
             if (obj := bpy.data.objects.get(name)) is not None:
                 bpy.data.objects.remove(obj, do_unlink=True)
-            data_collection = {
-                "MESH": bpy.data.meshes,
-                "CURVE": bpy.data.curves,
-                "SURFACE": bpy.data.curves,
-                "TEXT": bpy.data.curves,
-                "META": bpy.data.metaballs,
-                "LATTICE": bpy.data.lattices,
-                "POINTCLOUD": bpy.data.pointclouds,
-                "VOLUME": bpy.data.volumes,
-            }[kind]
-            if data_collection.get(data.name) is not None:
-                data_collection.remove(data)
+            for created_data in [item for item in data_collection if item.as_pointer() not in existing_data]:
+                data_collection.remove(created_data)
             raise
+        counts = _geometry_counts(data, kind)
         return {
             "name": obj.name,
             "type": obj.type,
             "data_name": data.name,
             "collection": next(iter(obj.users_collection)).name,
             "transform": _transform_snapshot(obj),
+            "geometry": {"kind": kind, "counts": counts, "attributes": _attribute_schema(data)},
             "changed_objects": [obj.name],
             "changed_resources": [data.name],
         }
@@ -852,9 +1015,27 @@ class SceneHandlersMixin:
             raise ValueError(f"Unsupported modifier action: {action}")
         return {"name": obj.name, **modifier_result(obj, item, False)}
 
-    def remove_scene_objects(self, object_names, confirm_remove=False):
+    def remove_scene_objects(self, object_names=None, managed_rig=None, confirm_remove=False):
         if not confirm_remove:
             raise ValueError("confirm_remove=True is required")
+        if (object_names is None) == (managed_rig is None):
+            raise ValueError("Provide exactly one of object_names or managed_rig")
+        selector = None
+        if managed_rig is not None:
+            property_names = {
+                "CAMERA": "mcp_camera_rig_id",
+                "RIGID_BODY": "blendermcp_rigid_body_rig_id",
+            }
+            system = str(managed_rig.get("system", "")).upper()
+            property_name = property_names.get(system)
+            rig_id = managed_rig.get("rig_id")
+            if property_name is None or not isinstance(rig_id, str) or not rig_id:
+                raise ValueError("managed_rig requires a supported system and non-empty rig_id")
+            object_names = sorted(obj.name for obj in bpy.data.objects if obj.get(property_name) == rig_id)
+            if not object_names:
+                raise ValueError(f"No {system} objects found for managed rig ID: {rig_id}")
+            selector = {"system": system, "rig_id": rig_id, "ownership_property": property_name}
+        object_names = list(object_names or [])
         if len(object_names) != len(set(object_names)):
             raise ValueError("object_names must be unique")
         objects = [_object(name) for name in object_names]
@@ -863,12 +1044,33 @@ class SceneHandlersMixin:
                 "children": [child.name for child in obj.children],
                 "collections": [collection.name for collection in obj.users_collection],
                 "data": getattr(obj.data, "name", None),
+                "data_users_before": getattr(obj.data, "users", None),
+                "materials": [
+                    {"name": slot.material.name, "users_before": slot.material.users}
+                    for slot in obj.material_slots
+                    if slot.material
+                ],
             }
             for obj in objects
         }
         for obj in objects:
             bpy.data.objects.remove(obj, do_unlink=True)
-        return {"removed": object_names, "dependencies": dependencies, "changed_objects": object_names}
+        retained = []
+        for dependency in dependencies.values():
+            data_name = dependency["data"]
+            if data_name and dependency["data_users_before"] and dependency["data_users_before"] > 1:
+                retained.append({"kind": "OBJECT_DATA", "name": data_name, "reason": "shared users remain"})
+            for material in dependency["materials"]:
+                if material["users_before"] > 1:
+                    retained.append({"kind": "MATERIAL", "name": material["name"], "reason": "shared users remain"})
+        return {
+            "removed": object_names,
+            "selector": selector,
+            "dependencies": dependencies,
+            "retained_shared_datablocks": retained,
+            "purged_datablocks": [],
+            "changed_objects": object_names,
+        }
 
 
 def _base_counts(obj):

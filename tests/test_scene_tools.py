@@ -9,7 +9,6 @@ from test_mutation_transaction import _load_addon
 
 from blender_mcp.server.tools import scene
 
-
 SCENE_COMMANDS = {
     "create_geometry_object",
     "set_object_transform",
@@ -68,6 +67,47 @@ def test_scene_models_reject_ambiguous_or_degenerate_transforms() -> None:
 def test_point_cloud_requires_one_radius_per_point() -> None:
     with pytest.raises(ValidationError, match="one value per point"):
         scene.PointCloudGeometry(points=[(0, 0, 0), (1, 0, 0)], radii=[0.5])
+
+
+def test_modern_curves_validate_offsets_and_attribute_domains() -> None:
+    geometry = scene.CurvesGeometry(
+        points=[(0, 0, 0), (0, 0, 1), (1, 0, 0)],
+        curve_sizes=[2, 1],
+        cyclic=[False, True],
+        attributes=[scene.GeometryAttribute(name="density", data_type="FLOAT", domain="CURVE", values=[0.5, 1.0])],
+    )
+    assert geometry.curve_sizes == [2, 1]
+    with pytest.raises(ValidationError, match="sum to the number of points"):
+        scene.CurvesGeometry(points=[(0, 0, 0)], curve_sizes=[2])
+
+
+def test_legacy_curve_points_and_surface_dimensions_are_typed() -> None:
+    point = scene.CurvePoint(
+        co=(1, 2, 3),
+        radius=0.5,
+        tilt=0.25,
+        handle_left=(0, 2, 3),
+        handle_right=(2, 2, 3),
+    )
+    spline = scene.SplineRecord(type="BEZIER", points=[point])
+    assert spline.points[0].radius == 0.5
+    with pytest.raises(ValidationError, match="point_count_u"):
+        scene.SplineRecord(type="NURBS", points=[(0, 0, 0), (1, 0, 0)], point_count_u=2, point_count_v=2)
+
+
+def test_modifier_schema_is_discriminated_and_rejects_wrong_settings() -> None:
+    from pydantic import TypeAdapter
+
+    schema = TypeAdapter(scene.ModifierSpecInput).json_schema()
+    assert len(schema["oneOf"]) == 30
+    screw = TypeAdapter(scene.ModifierSpecInput).validate_python(
+        {"name": "Thread", "type": "SCREW", "settings": {"steps": 16, "angle": 6.28}}
+    )
+    assert screw.settings.steps == 16
+    with pytest.raises(ValidationError):
+        TypeAdapter(scene.ModifierSpecInput).validate_python(
+            {"name": "Thread", "type": "SCREW", "settings": {"unknown": 1}}
+        )
 
 
 def test_breaking_tool_names_are_absent() -> None:

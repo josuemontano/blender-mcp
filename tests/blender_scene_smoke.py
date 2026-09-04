@@ -21,6 +21,7 @@ sys.modules[package_name] = addon
 spec.loader.exec_module(addon)
 
 from blender_mcp_scene_smoke.handlers.scene import SceneHandlersMixin  # ruff: ignore[module-import-not-at-top-of-file]
+from blender_mcp_scene_smoke.server_core import BlenderMCPServer  # ruff: ignore[module-import-not-at-top-of-file]
 
 
 def main() -> None:
@@ -41,11 +42,106 @@ def main() -> None:
         "Scene Smoke Curve",
         {
             "kind": "CURVE",
-            "splines": [{"type": "BEZIER", "points": [(0, 0, 0), (1, 1, 0)]}],
+            "splines": [
+                {
+                    "type": "BEZIER",
+                    "points": [
+                        {
+                            "co": (0, 0, 0),
+                            "radius": 0.5,
+                            "tilt": 0.25,
+                            "weight": 0.75,
+                            "handle_left_type": "VECTOR",
+                            "handle_right_type": "ALIGNED",
+                        },
+                        {"co": (1, 1, 0), "radius": 1.5, "tilt": -0.25},
+                    ],
+                }
+            ],
             "bevel_depth": 0.05,
         },
     )
     assert curve["type"] == "CURVE"
+    curve_data = bpy.data.objects[curve["name"]].data
+    assert curve_data.splines[0].bezier_points[0].radius == 0.5
+    assert curve_data.splines[0].bezier_points[0].handle_left_type == "VECTOR"
+
+    try:
+        handler.create_geometry_object(
+            "Unsupported Surface Grid",
+            {
+                "kind": "SURFACE",
+                "splines": [
+                    {
+                        "type": "NURBS",
+                        "points": [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)],
+                        "point_count_u": 2,
+                        "point_count_v": 2,
+                    }
+                ],
+            },
+        )
+    except ValueError as exc:
+        assert "cannot author arbitrary Surface U/V topology" in str(exc)
+    else:
+        raise AssertionError("Read-only Surface U/V topology was silently flattened")
+    assert bpy.data.curves.get("Unsupported Surface Grid") is None
+
+    hair = handler.create_geometry_object(
+        "Scene Smoke Hair",
+        {
+            "kind": "CURVES",
+            "points": [(0, 0, 0), (0, 0, 1), (1, 0, 0), (1, 0, 1), (1, 0, 2)],
+            "curve_sizes": [2, 3],
+            "cyclic": [False, True],
+            "attributes": [{"name": "guide_weight", "data_type": "FLOAT", "domain": "CURVE", "values": [0.25, 0.75]}],
+        },
+    )
+    assert hair["type"] == "CURVES"
+    assert hair["geometry"]["counts"] == {"curves": 2, "points": 5}
+    assert bpy.data.objects[hair["name"]].data.attributes["guide_weight"].domain == "CURVE"
+
+    grease_pencil = handler.create_geometry_object(
+        "Scene Smoke Grease Pencil",
+        {
+            "kind": "GREASEPENCIL",
+            "layers": [
+                {
+                    "name": "Annotations",
+                    "frames": [
+                        {
+                            "frame_number": 1,
+                            "strokes": [
+                                {
+                                    "points": [(0, 0, 0), (1, 0, 0), (1, 1, 0)],
+                                    "cyclic": True,
+                                    "radii": [0.5, 0.75, 1.0],
+                                    "opacities": [1.0, 0.75, 0.5],
+                                }
+                            ],
+                            "attributes": [
+                                {
+                                    "name": "stroke_id",
+                                    "data_type": "INT",
+                                    "domain": "STROKE",
+                                    "values": [7],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert grease_pencil["type"] == "GREASEPENCIL"
+    assert grease_pencil["geometry"]["counts"] == {"layers": 1, "frames": 1, "strokes": 1, "points": 3}
+
+    inspector = object.__new__(BlenderMCPServer)
+    hair_info = inspector.get_object_info(hair["name"], sections=["GEOMETRY", "ATTRIBUTES"], limit=1)
+    assert hair_info["type_data"]["curves"] == {"point_count": 5, "curve_count": 2, "surface": None}
+    assert hair_info["type_data"]["attributes"]["limit"] == 1
+    grease_info = inspector.get_object_info(grease_pencil["name"], sections=["GREASE_PENCIL"], limit=1)
+    assert grease_info["type_data"]["grease_pencil"]["layers"]["returned_count"] == 1
 
     points = handler.create_geometry_object(
         "Scene Smoke Points",
@@ -112,8 +208,16 @@ def main() -> None:
     )
     assert modifier["modifier"] == "Smoke Bevel"
 
-    removed = handler.remove_scene_objects(["Scene Smoke Curve", "Scene Smoke Points"], confirm_remove=True)
-    assert set(removed["removed"]) == {"Scene Smoke Curve", "Scene Smoke Points"}
+    removed = handler.remove_scene_objects(
+        ["Scene Smoke Curve", "Scene Smoke Points", "Scene Smoke Hair", "Scene Smoke Grease Pencil"],
+        confirm_remove=True,
+    )
+    assert set(removed["removed"]) == {
+        "Scene Smoke Curve",
+        "Scene Smoke Points",
+        "Scene Smoke Hair",
+        "Scene Smoke Grease Pencil",
+    }
     print("SCENE_SMOKE_OK")
 
 

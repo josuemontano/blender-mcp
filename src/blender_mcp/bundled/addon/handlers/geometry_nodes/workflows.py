@@ -3,6 +3,8 @@
 # ruff: file-ignore[line-too-long]
 
 import math
+import os
+import tempfile
 
 from typing import Any
 
@@ -150,7 +152,7 @@ def _attach_builder(obj, group, modifier_name: str | None = None):
     return modifier
 
 
-def _instance_transform_chain(group, instance, location=(180, 100)):
+def _instance_transform_chain(group, instance, location=(180, 100), rotation=(0.0, 0.0, 0.0)):
     """Add reusable post-instance rotation, scale, and translation controls."""
     rotate = _new_node(group, "GeometryNodeRotateInstances", "rotate_instances", location)
     scale = _new_node(group, "GeometryNodeScaleInstances", "scale_instances", (location[0] + 200, location[1]))
@@ -166,7 +168,7 @@ def _instance_transform_chain(group, instance, location=(180, 100)):
         "Rotation",
         "Instance Rotation",
         "NodeSocketRotation",
-        (0.0, 0.0, 0.0),
+        rotation,
         "Additional local rotation applied to every generated instance",
     )
     _expose(
@@ -217,6 +219,135 @@ def _remove_builder_on_error(group) -> None:
         bpy.data.node_groups.remove(group, do_unlink=True)
 
 
+def _mesh_level_set_grid(obj, voxel_size):
+    """Create an OpenVDB level set from the object's evaluated local-space mesh."""
+    try:
+        import numpy
+        import openvdb
+    except ImportError as exc:
+        raise ValueError("OPENVDB delivery requires Blender's bundled openvdb and numpy modules") from exc
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        if not mesh.vertices or not mesh.polygons:
+            raise ValueError("MESH OpenVDB delivery requires evaluated vertices and faces")
+        mesh.calc_loop_triangles()
+        points = numpy.asarray([tuple(vertex.co) for vertex in mesh.vertices], dtype=numpy.float32)
+        triangles = numpy.asarray([tuple(triangle.vertices) for triangle in mesh.loop_triangles], dtype=numpy.uint32)
+        return openvdb.FloatGrid.createLevelSetFromPolygons(
+            points,
+            triangles=triangles,
+            transform=openvdb.createLinearTransform(voxel_size),
+        )
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _points_level_set_grid(obj, voxel_size, radius):
+    """Create a union of OpenVDB level-set spheres from object-local points."""
+    try:
+        import openvdb
+    except ImportError as exc:
+        raise ValueError("OPENVDB delivery requires Blender's bundled openvdb module") from exc
+    if obj.type == "POINTCLOUD":
+        positions = [tuple(point.co) for point in obj.data.points]
+    elif obj.type == "MESH":
+        positions = [tuple(vertex.co) for vertex in obj.data.vertices]
+    else:
+        raise ValueError("POINTS OpenVDB delivery requires a MESH or POINTCLOUD object")
+    if not positions:
+        raise ValueError("POINTS OpenVDB delivery requires at least one point")
+    if len(positions) > 100_000:
+        raise ValueError("POINTS OpenVDB delivery is limited to 100000 source points")
+    grid = openvdb.createLevelSetSphere(radius, positions[0], voxel_size)
+    for position in positions[1:]:
+        sphere = openvdb.createLevelSetSphere(radius, position, voxel_size)
+        grid.combine(sphere, min)
+    return grid
+
+
+def _cube_fog_grid(voxel_size, radius, density):
+    """Create a constant-density OpenVDB cube matching the live Volume Cube graph."""
+    try:
+        import openvdb
+    except ImportError as exc:
+        raise ValueError("OPENVDB delivery requires Blender's bundled openvdb module") from exc
+    extent = max(1, math.ceil(radius / voxel_size))
+    grid = openvdb.FloatGrid(0.0)
+    grid.transform = openvdb.createLinearTransform(voxel_size)
+    grid.fill((-extent, -extent, -extent), (extent, extent, extent), density, active=True)
+    grid.gridClass = openvdb.GridClass.FOG_VOLUME
+    return grid
+
+
+def _level_set_to_fog(grid, density):
+    """Convert a signed-distance grid to constant density inside its surface."""
+    import openvdb
+
+    grid.signedFloodFill()
+    for value in grid.iterAllValues():
+        inside = value.value < 0.0
+        value.value = density if inside else 0.0
+        value.active = inside
+    grid.gridClass = openvdb.GridClass.FOG_VOLUME
+    return grid
+
+
+def _write_openvdb_delivery(obj, source, path, grid_name, density, voxel_size, radius):
+    """Write one named grid atomically through OpenVDB, never Blender's Volume RNA."""
+    try:
+        import openvdb
+    except ImportError as exc:
+        raise ValueError("OPENVDB delivery requires Blender's bundled openvdb module") from exc
+    if source == "MESH":
+        grid = _level_set_to_fog(_mesh_level_set_grid(obj, voxel_size), density)
+    elif source == "POINTS":
+        grid = _level_set_to_fog(_points_level_set_grid(obj, voxel_size, radius), density)
+    else:
+        grid = _cube_fog_grid(voxel_size, radius, density)
+    grid.name = grid_name
+    grid_evidence = {
+        "grid": grid.name,
+        "grid_class": "FOG_VOLUME",
+        "active_voxels": grid.activeVoxelCount(),
+    }
+    handle = tempfile.NamedTemporaryFile(dir=os.path.dirname(path), suffix=".vdb", delete=False)
+    temporary_path = handle.name
+    handle.close()
+    try:
+        openvdb.write(temporary_path, grid)
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+    return grid_evidence
+
+
+def _create_vdb_backed_object(source_obj, group_name, path, material):
+    """Create a native Volume object backed by an already-written VDB file."""
+    name = f"{group_name} Volume"
+    if bpy.data.objects.get(name) is not None:
+        raise ValueError(f"OpenVDB delivery object already exists: {name}")
+    data = bpy.data.volumes.new(name)
+    delivery_obj = None
+    try:
+        data.filepath = path
+        if material is not None:
+            data.materials.append(material)
+        delivery_obj = bpy.data.objects.new(name, data)
+        collection = source_obj.users_collection[0] if source_obj.users_collection else bpy.context.collection
+        collection.objects.link(delivery_obj)
+        delivery_obj.matrix_world = source_obj.matrix_world.copy()
+        return delivery_obj, data
+    except Exception:
+        if delivery_obj is not None:
+            bpy.data.objects.remove(delivery_obj, do_unlink=True)
+        if bpy.data.volumes.get(data.name) is not None:
+            bpy.data.volumes.remove(data)
+        raise
+
+
 class GeometryNodesWorkflowHandlersMixin:
     """Build inspectable Geometry Nodes systems for common production workflows."""
 
@@ -235,12 +366,21 @@ class GeometryNodesWorkflowHandlersMixin:
         mask_attribute=None,
         include_original=True,
         realize_instances=False,
+        output_type="INSTANCES",
+        density_attribute="mcp_scatter_density",
+        selection_attribute="mcp_scatter_selection",
+        orientation="NORMAL",
+        orientation_offset=(0.0, 0.0, 0.0),
+        guide_length=1.0,
+        source_collection_policy="PICK_INSTANCE",
         **_unused,
     ):
         obj = require_object(object_name)
-        source_object = bpy.data.objects.get(source_name) if source_type == "OBJECT" else None
-        source_collection = bpy.data.collections.get(source_name) if source_type == "COLLECTION" else None
-        if source_object is None and source_collection is None:
+        source_object = bpy.data.objects.get(source_name) if source_type == "OBJECT" and source_name else None
+        source_collection = (
+            bpy.data.collections.get(source_name) if source_type == "COLLECTION" and source_name else None
+        )
+        if output_type == "INSTANCES" and source_object is None and source_collection is None:
             raise ValueError(f"Scatter source not found: {source_name}")
         group = None
         try:
@@ -297,18 +437,57 @@ class GeometryNodesWorkflowHandlersMixin:
                     target_name = "Density" if distribution == "SURFACE_RANDOM" else "Density Factor"
                     link(group, mask, "Attribute", distribute, target_name)
                     nodes["density_mask"] = mask
-            source = _source_node(group, source_type, source_name)
-            source_value = source_object if source_type == "OBJECT" else source_collection
-            _expose(
-                group,
-                source,
-                "Object" if source_type == "OBJECT" else "Collection",
-                "Source",
-                "NodeSocketObject" if source_type == "OBJECT" else "NodeSocketCollection",
-                source_value,
-                "Object or collection instanced at each generated point",
-            )
-            instance = _new_node(group, "GeometryNodeInstanceOnPoints", "instance_on_points", (50, 100))
+            point_geometry = distribute
+            point_output = "Points"
+            if density_attribute:
+                store_density = _new_node(group, "GeometryNodeStoreNamedAttribute", "store_density", (-20, 40))
+                store_density.data_type = "FLOAT"
+                store_density.domain = "POINT"
+                set_input(store_density, "Name", density_attribute)
+                set_input(store_density, "Value", density)
+                link(group, point_geometry, point_output, store_density, "Geometry")
+                point_geometry, point_output = store_density, "Geometry"
+                nodes["store_density"] = store_density
+            if selection_attribute:
+                store_selection = _new_node(group, "GeometryNodeStoreNamedAttribute", "store_selection", (20, 0))
+                store_selection.data_type = "BOOLEAN"
+                store_selection.domain = "POINT"
+                set_input(store_selection, "Name", selection_attribute)
+                set_input(store_selection, "Value", True)
+                link(group, point_geometry, point_output, store_selection, "Geometry")
+                point_geometry, point_output = store_selection, "Geometry"
+                nodes["store_selection"] = store_selection
+
+            if output_type == "POINTS":
+                terminal, terminal_output = point_geometry, point_output
+                source = instance = random_scale = None
+            else:
+                instance = _new_node(group, "GeometryNodeInstanceOnPoints", "instance_on_points", (180, 100))
+                link(group, point_geometry, point_output, instance, "Points")
+                if output_type == "HAIR_CURVES":
+                    source = _new_node(group, "GeometryNodeCurvePrimitiveLine", "guide_curve", (-40, -220))
+                    set_input(source, "Start", (0.0, 0.0, 0.0))
+                    set_input(source, "End", (0.0, 0.0, guide_length))
+                    source_value = None
+                    link(group, source, "Curve", instance, "Instance")
+                else:
+                    source = _source_node(group, source_type, source_name)
+                    source_value = source_object if source_type == "OBJECT" else source_collection
+                    _expose(
+                        group,
+                        source,
+                        "Object" if source_type == "OBJECT" else "Collection",
+                        "Source",
+                        "NodeSocketObject" if source_type == "OBJECT" else "NodeSocketCollection",
+                        source_value,
+                        "Object or collection instanced at each generated point",
+                    )
+                    if source_type == "COLLECTION":
+                        separate = source_collection_policy in {"PICK_INSTANCE", "SEPARATE_CHILDREN"}
+                        set_input(source, "Separate Children", separate)
+                        set_input(source, "Reset Children", source_collection_policy == "SEPARATE_CHILDREN")
+                        set_input(instance, "Pick Instance", separate)
+                    link(group, source, "Geometry" if source_type == "OBJECT" else "Instances", instance, "Instance")
             random_scale = _new_node(group, "FunctionNodeRandomValue", "random_scale", (-180, -180))
             random_scale.data_type = "FLOAT"
             _expose(
@@ -340,31 +519,49 @@ class GeometryNodesWorkflowHandlersMixin:
                 seed,
                 "Deterministic scale-randomization seed",
             )
-            link(group, distribute, "Points", instance, "Points")
-            link(group, source, "Geometry" if source_type == "OBJECT" else "Instances", instance, "Instance")
-            link(group, random_scale, "Value", instance, "Scale")
-            transformed, transform_nodes = _instance_transform_chain(group, instance, (180, 100))
-            realize = _new_node(group, "GeometryNodeRealizeInstances", "realize_instances", (220, 30))
-            link(group, transformed, "Instances", realize, "Geometry")
-            realization_switch = _new_node(group, "GeometryNodeSwitch", "realization_policy", (420, 30))
-            realization_switch.input_type = "GEOMETRY"
-            link(group, transformed, "Instances", realization_switch, "False")
-            link(group, realize, "Geometry", realization_switch, "True")
-            _expose(
-                group,
-                realization_switch,
-                "Switch",
-                "Realize Instances",
-                "NodeSocketBool",
-                realize_instances,
-                "Convert instances to unique geometry before graph output",
-            )
+            if output_type != "POINTS":
+                link(group, random_scale, "Value", instance, "Scale")
+                if orientation == "NORMAL":
+                    link(group, distribute, "Rotation", instance, "Rotation")
+                elif orientation == "RANDOM":
+                    random_rotation = _new_node(group, "FunctionNodeRandomValue", "random_rotation", (-20, -120))
+                    random_rotation.data_type = "FLOAT_VECTOR"
+                    set_input(random_rotation, "Min", (-math.pi, -math.pi, -math.pi))
+                    set_input(random_rotation, "Max", (math.pi, math.pi, math.pi))
+                    link(group, random_rotation, "Value", instance, "Rotation")
+                    nodes["random_rotation"] = random_rotation
+                transformed, transform_nodes = _instance_transform_chain(
+                    group, instance, (300, 100), rotation=orientation_offset
+                )
+                realize = _new_node(group, "GeometryNodeRealizeInstances", "realize_instances", (500, 30))
+                link(group, transformed, "Instances", realize, "Geometry")
+                if output_type == "HAIR_CURVES":
+                    realization_switch = realize
+                    terminal, terminal_output = realize, "Geometry"
+                else:
+                    realization_switch = _new_node(group, "GeometryNodeSwitch", "realization_policy", (680, 30))
+                    realization_switch.input_type = "GEOMETRY"
+                    link(group, transformed, "Instances", realization_switch, "False")
+                    link(group, realize, "Geometry", realization_switch, "True")
+                    _expose(
+                        group,
+                        realization_switch,
+                        "Switch",
+                        "Realize Instances",
+                        "NodeSocketBool",
+                        realize_instances,
+                        "Convert instances to unique geometry before graph output",
+                    )
+                    terminal, terminal_output = realization_switch, "Output"
+                nodes.update({**transform_nodes, "realize_instances": realize})
+                if output_type == "INSTANCES":
+                    nodes["realization_policy"] = realization_switch
             join = _new_node(group, "GeometryNodeJoinGeometry", "join_original", (620, 30))
             link(group, group_input, "Geometry", join, "Geometry")
-            link(group, realization_switch, "Output", join, "Geometry")
+            link(group, terminal, terminal_output, join, "Geometry")
             passthrough_switch = _new_node(group, "GeometryNodeSwitch", "original_geometry_policy", (820, 30))
             passthrough_switch.input_type = "GEOMETRY"
-            link(group, realization_switch, "Output", passthrough_switch, "False")
+            link(group, terminal, terminal_output, passthrough_switch, "False")
             link(group, join, "Geometry", passthrough_switch, "True")
             _expose(
                 group,
@@ -378,27 +575,31 @@ class GeometryNodesWorkflowHandlersMixin:
             link(group, passthrough_switch, "Output", group_output, "Geometry")
             nodes.update(
                 {
-                    **transform_nodes,
-                    "realize_instances": realize,
-                    "realization_policy": realization_switch,
                     "join_original": join,
                     "original_geometry_policy": passthrough_switch,
                 }
             )
-            nodes.update(
-                {
-                    "point_distribution": distribute,
-                    "instance_source": source,
-                    "instance_on_points": instance,
-                    "random_scale": random_scale,
-                }
-            )
+            nodes["point_distribution"] = distribute
+            if source is not None:
+                nodes["instance_source"] = source
+            if instance is not None:
+                nodes["instance_on_points"] = instance
+                nodes["random_scale"] = random_scale
+            group["blender_mcp_scatter_output"] = output_type
+            group["blender_mcp_density_attribute"] = density_attribute or ""
+            group["blender_mcp_selection_attribute"] = selection_attribute or ""
+            group["blender_mcp_orientation"] = orientation
+            group["blender_mcp_source_collection_policy"] = source_collection_policy
             modifier = _attach_builder(obj, group)
             estimate = None
             if obj.type == "MESH" and distribution != "VOLUME":
                 area = sum(polygon.area for polygon in obj.data.polygons)
                 estimate = int(area * density) if distribution == "SURFACE_RANDOM" else None
-            return _finish_builder(obj, group, modifier, nodes, estimated_instances=estimate)
+            result = _finish_builder(obj, group, modifier, nodes, estimated_instances=estimate)
+            result["output_type"] = output_type
+            result["attributes"] = [name for name in (density_attribute, selection_attribute) if name]
+            result["estimated_curve_count"] = estimate if output_type == "HAIR_CURVES" else None
+            return result
         except Exception:
             _remove_builder_on_error(group)
             raise
@@ -1268,11 +1469,49 @@ class GeometryNodesWorkflowHandlersMixin:
         radius=0.5,
         threshold=0.1,
         material_name=None,
+        density_grid_name="density",
+        delivery="LIVE_GRAPH",
+        output_path=None,
+        confirm_write=False,
+        confirm_overwrite=False,
         **_unused,
     ):
         group = None
+        modifier = None
+        delivery_obj = None
+        delivery_data = None
+        grid_evidence = None
         try:
+            if source not in {"MESH", "POINTS", "CUBE"}:
+                raise ValueError("source must be MESH, POINTS, or CUBE")
+            if output_type not in {"VOLUME", "MESH"}:
+                raise ValueError("output_type must be VOLUME or MESH")
+            if delivery not in {"LIVE_GRAPH", "OPENVDB"}:
+                raise ValueError("delivery must be LIVE_GRAPH or OPENVDB")
+            if density < 0 or voxel_size <= 0 or radius <= 0:
+                raise ValueError("Require density >= 0, voxel_size > 0, and radius > 0")
+            if not isinstance(density_grid_name, str) or not density_grid_name.strip():
+                raise ValueError("density_grid_name must be a non-empty string")
+            if delivery == "OPENVDB":
+                if output_type != "VOLUME":
+                    raise ValueError("OPENVDB delivery requires output_type=VOLUME")
+                if not confirm_write or not output_path:
+                    raise ValueError("OPENVDB delivery requires output_path and confirm_write=True")
+                path = os.path.abspath(bpy.path.abspath(output_path))
+                if os.path.splitext(path)[1].lower() != ".vdb":
+                    raise ValueError("OpenVDB output_path must use the .vdb extension")
+                directory = os.path.dirname(path)
+                if not os.path.isdir(directory):
+                    raise ValueError(f"OpenVDB output directory does not exist: {directory}")
+                if os.path.exists(path) and not confirm_overwrite:
+                    raise ValueError("OpenVDB output already exists; set confirm_overwrite=True to replace it")
+            else:
+                path = None
             obj, group = _prepare_builder(object_name, group_name, "VOLUME", "static procedural volume generator")
+            if obj.modifiers.get(group.name) is not None:
+                raise ValueError(f"Modifier already exists on '{obj.name}': {group.name}")
+            if delivery == "OPENVDB" and bpy.data.objects.get(f"{group.name} Volume") is not None:
+                raise ValueError(f"OpenVDB delivery object already exists: {group.name} Volume")
             group_input, group_output = _group_io(group)
             if source == "MESH":
                 volume = _new_node(group, "GeometryNodeMeshToVolume", "volume_generator", (0, 100))
@@ -1329,11 +1568,26 @@ class GeometryNodesWorkflowHandlersMixin:
                     min_value=0.0,
                 )
                 resolution = max(1, min(512, math.ceil(2 * radius / voxel_size)))
+                set_input(volume, "Min", (-radius, -radius, -radius))
+                set_input(volume, "Max", (radius, radius, radius))
                 for axis_name in ("Resolution X", "Resolution Y", "Resolution Z"):
                     set_input(volume, axis_name, resolution)
             terminal = volume
             terminal_output = "Volume"
             nodes = {"volume_generator": volume}
+            if density_grid_name != "density":
+                get_grid = _new_node(group, "GeometryNodeGetNamedGrid", "get_density_grid", (180, -120))
+                get_grid.data_type = "FLOAT"
+                set_input(get_grid, "Name", "density")
+                link(group, volume, "Volume", get_grid, "Volume")
+                store_grid = _new_node(group, "GeometryNodeStoreNamedGrid", "store_density_grid", (300, 100))
+                store_grid.data_type = "FLOAT"
+                set_input(store_grid, "Name", density_grid_name)
+                link(group, volume, "Volume", store_grid, "Volume")
+                link(group, get_grid, "Grid", store_grid, "Grid")
+                terminal = store_grid
+                terminal_output = "Volume"
+                nodes.update({"get_density_grid": get_grid, "store_density_grid": store_grid})
             if output_type == "MESH":
                 convert = _new_node(group, "GeometryNodeVolumeToMesh", "volume_to_mesh", (230, 100))
                 _expose(
@@ -1356,7 +1610,7 @@ class GeometryNodesWorkflowHandlersMixin:
                     "Output mesh voxel edge length",
                     min_value=0.000001,
                 )
-                link(group, volume, "Volume", convert, "Volume")
+                link(group, terminal, terminal_output, convert, "Volume")
                 terminal = convert
                 terminal_output = "Mesh"
                 nodes["volume_to_mesh"] = convert
@@ -1379,6 +1633,10 @@ class GeometryNodesWorkflowHandlersMixin:
                 terminal_output = "Geometry"
                 nodes["set_material"] = set_material
             link(group, terminal, terminal_output, group_output, "Geometry")
+            if delivery == "OPENVDB":
+                grid_evidence = _write_openvdb_delivery(
+                    obj, source, path, density_grid_name, density, voxel_size, radius
+                )
             modifier = _attach_builder(obj, group)
             bounds = evaluated_summary(obj).get("world_bounds", {})
             minimum, maximum = bounds.get("min"), bounds.get("max")
@@ -1392,7 +1650,29 @@ class GeometryNodesWorkflowHandlersMixin:
             result["estimated_voxel_cells"] = estimate
             result["simulation"] = False
             result["output_type"] = output_type
+            result["grids"] = [{"name": density_grid_name, "data_type": "FLOAT"}]
+            result["delivery"] = delivery
+            if delivery == "OPENVDB":
+                material = bpy.data.materials.get(material_name) if material_name else None
+                delivery_obj, delivery_data = _create_vdb_backed_object(obj, group.name, path, material)
+                result["openvdb"] = {
+                    "path": path,
+                    "bytes": os.path.getsize(path),
+                    "grid": density_grid_name,
+                    "object": delivery_obj.name,
+                    "data": delivery_data.name,
+                    "writer": "OPENVDB_PYTHON",
+                    **grid_evidence,
+                }
+                result["changed_objects"].append(delivery_obj.name)
+                result["changed_resources"].append(delivery_data.name)
             return result
         except Exception:
+            if delivery_obj is not None:
+                bpy.data.objects.remove(delivery_obj, do_unlink=True)
+            if delivery_data is not None and bpy.data.volumes.get(delivery_data.name) is not None:
+                bpy.data.volumes.remove(delivery_data)
+            if modifier is not None and modifier.name in obj.modifiers:
+                obj.modifiers.remove(modifier)
             _remove_builder_on_error(group)
             raise

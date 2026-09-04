@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 
 from pathlib import Path
 
@@ -133,6 +134,84 @@ def main() -> None:
     assert delivery["source_retained"]
     assert bpy.data.objects[delivery["output_object"]].type == "MESH"
     assert bpy.data.objects.get(source.name) is source
+
+    scatter_source = source.copy()
+    scatter_source.data = source.data.copy()
+    scatter_source.name = "Hair Scatter Surface"
+    bpy.context.scene.collection.objects.link(scatter_source)
+    scatter = handler.create_procedural_scatter(
+        scatter_source.name,
+        "Hair Scatter Geometry",
+        source_type="OBJECT",
+        source_name="",
+        density=2.0,
+        output_type="HAIR_CURVES",
+        density_attribute="guide_density",
+        selection_attribute="guide_selection",
+        orientation="NORMAL",
+        orientation_offset=(0.1, 0.2, 0.3),
+        guide_length=0.5,
+    )
+    assert scatter["output_type"] == "HAIR_CURVES"
+    assert scatter["attributes"] == ["guide_density", "guide_selection"]
+    assert bpy.data.node_groups["Hair Scatter Geometry"].get("blender_mcp_scatter_output") == "HAIR_CURVES"
+
+    volume_source = source.copy()
+    volume_source.data = source.data.copy()
+    volume_source.name = "Named Grid Volume Source"
+    bpy.context.scene.collection.objects.link(volume_source)
+    volume = handler.create_volume_generator(
+        volume_source.name,
+        "Named Grid Volume Geometry",
+        source="MESH",
+        density=0.5,
+        voxel_size=0.5,
+        density_grid_name="fog_density",
+    )
+    assert volume["grids"] == [{"name": "fog_density", "data_type": "FLOAT"}]
+    volume_group = bpy.data.node_groups["Named Grid Volume Geometry"]
+    assert volume_group.nodes.get("get_density_grid") is not None
+    assert volume_group.nodes.get("store_density_grid") is not None
+
+    delivery_source = source.copy()
+    delivery_source.data = source.data.copy()
+    delivery_source.name = "OpenVDB Delivery Source"
+    bpy.context.scene.collection.objects.link(delivery_source)
+    with tempfile.TemporaryDirectory() as directory:
+        output_path = str(Path(directory) / "volume.vdb")
+        delivered_volume = handler.create_volume_generator(
+            delivery_source.name,
+            "OpenVDB Delivery Geometry",
+            source="MESH",
+            density=0.5,
+            voxel_size=0.5,
+            delivery="OPENVDB",
+            output_path=output_path,
+            confirm_write=True,
+        )
+        assert Path(delivered_volume["openvdb"]["path"]).is_file()
+        delivery_object = bpy.data.objects[delivered_volume["openvdb"]["object"]]
+        assert delivery_object.type == "VOLUME"
+        assert Path(bpy.path.abspath(delivery_object.data.filepath)) == Path(output_path)
+        assert delivered_volume["openvdb"]["grid"] == "density"
+        assert delivered_volume["openvdb"]["active_voxels"] > 0
+        assert delivered_volume["openvdb"]["grid_class"] == "FOG_VOLUME"
+        try:
+            handler.create_volume_generator(
+                delivery_source.name,
+                "OpenVDB Overwrite Rejected",
+                source="MESH",
+                delivery="OPENVDB",
+                output_path=output_path,
+                confirm_write=True,
+            )
+        except ValueError as exc:
+            assert "confirm_overwrite" in str(exc)
+        else:
+            raise AssertionError("Existing OpenVDB output was overwritten without confirmation")
+        delivery_data = delivery_object.data
+        bpy.data.objects.remove(delivery_object, do_unlink=True)
+        bpy.data.volumes.remove(delivery_data)
 
     deleted = handler.manage_geometry_nodes_bake(
         source.name,

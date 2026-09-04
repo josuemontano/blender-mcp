@@ -143,4 +143,41 @@ for finding in validation["findings"]:
     codes_by_object.setdefault(finding["object"], set()).add(finding["code"])
 assert "NONUNIFORM_MEMBER_SCALE" in codes_by_object.get(nonuniform_source.name, set())
 assert "UNAPPLIED_MEMBER_TRANSFORM" in codes_by_object.get(unapplied_collider.name, set())
+
+gas_cache_path = str(Path(tempfile.gettempdir()) / "blendermcp-gas-phase0-smoke")
+shutil.rmtree(gas_cache_path, ignore_errors=True)
+gas_domain = handler.create_fluid_domain(
+    "GAS",
+    scene_name="Scene",
+    cache_directory=gas_cache_path,
+    new_object_name="Smoke Gas Domain",
+    dimensions=(3.0, 3.0, 3.0),
+    resolution_max=32,
+)
+gas_source = cube("Smoke Gas Flow", 0.5, (0.0, 0.0, 0.0))
+gas_flow = handler.add_fluid_flow(
+    "GAS",
+    gas_source.name,
+    gas_domain["object"],
+    gas_flow_type="BOTH",
+    behavior="INFLOW",
+    settings={"fuel_amount": 0.75, "surface_distance": 1.5},
+)
+gas_solver = handler.configure_fluid_solver(
+    "GAS",
+    gas_domain["object"],
+    gas_domain["modifier"],
+    {"use_noise": True, "noise_scale": 2},
+)
+gas_inspection = handler.inspect_fluid_simulation(
+    "GAS", scene_name="Scene", domain_object_name=gas_domain["object"], limit=1
+)
+gas_cache = handler.manage_fluid_cache(
+    "GAS", domain_object_name=gas_domain["object"], modifier_name=gas_domain["modifier"], action="STATUS"
+)
+assert gas_domain["domain_type"] == "GAS"
+assert gas_flow["flow_type"] == "BOTH"
+assert gas_solver["changes"]["use_noise"]["new"] is True
+assert gas_inspection["returned_count"] == 1
+assert gas_cache["cache"]["configuration"]["cache_type"] == "REPLAY"
 print("BLENDER_LIQUID_PHASE0_SMOKE_OK")

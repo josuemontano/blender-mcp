@@ -92,6 +92,28 @@ def main() -> None:
     )
     assert duplicated["action"] == "Camera Procedural Motion"
     assert camera.animation_data.action.name == "Camera Procedural Motion"
+
+    cube.location = (0.0, 0.0, 0.0)
+    cube.keyframe_insert("location", frame=1)
+    cube.location = (2.0, 1.0, -1.0)
+    cube.keyframe_insert("location", frame=3)
+    baked = handler.bake_evaluated_animation(
+        {
+            "object_name": cube.name,
+            "space": "LOCAL",
+            "transforms": ["LOCATION"],
+            "bone_names": [],
+            "properties": [],
+        },
+        1,
+        3,
+        action_name="Cube Evaluated Bake",
+        confirm_bake=True,
+    )
+    assert baked["action"] == "Cube Evaluated Bake"
+    assert baked["new_non_shared_action"] is True
+    assert baked["sampled_key_count"] == 9
+    assert baked["key_count"] == 9
     print("ANIMATION_SMOKE_OK")
 
 

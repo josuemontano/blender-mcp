@@ -79,6 +79,37 @@ class KeyframeEdit(BaseModel):
         return self
 
 
+class BakePropertyChannel(BaseModel):
+    """One scalar or array RNA property sampled from the evaluated target."""
+
+    model_config = ConfigDict(extra="forbid")
+    data_path: Annotated[str, Field(min_length=1, max_length=512)]
+    array_indices: Annotated[list[int] | None, Field(min_length=1, max_length=64)] = None
+    tolerance: Annotated[float, Field(ge=0)] = 0.0
+
+
+class EvaluatedBakeTarget(BaseModel):
+    """One object or armature and the evaluated channels to bake."""
+
+    model_config = ConfigDict(extra="forbid")
+    object_name: Annotated[str, Field(min_length=1)]
+    transforms: Annotated[list[Literal["LOCATION", "ROTATION", "SCALE"]], Field(max_length=3)] = Field(
+        default_factory=list
+    )
+    bone_names: Annotated[list[str], Field(max_length=10_000)] = Field(default_factory=list)
+    properties: Annotated[list[BakePropertyChannel], Field(max_length=1_000)] = Field(default_factory=list)
+    space: Literal["LOCAL", "WORLD", "POSE"] = "LOCAL"
+
+    @model_validator(mode="after")
+    def require_channels(self) -> "EvaluatedBakeTarget":
+        """Require transforms, bones, or explicitly selected properties."""
+        if not self.transforms and not self.bone_names and not self.properties:
+            raise ValueError("bake target must request transforms, bone_names, or properties")
+        if self.bone_names and not self.transforms:
+            raise ValueError("bone_names require at least one transform channel")
+        return self
+
+
 class NlaTrackPatch(BaseModel):
     """Validated NLA track-state patch."""
 
@@ -138,19 +169,22 @@ class DriverVariable(BaseModel):
     target: AnimationTarget
     data_path: Annotated[str | None, Field(min_length=1, max_length=512)] = None
     bone_target: str | None = None
-    transform_type: Literal[
-        "LOC_X",
-        "LOC_Y",
-        "LOC_Z",
-        "ROT_X",
-        "ROT_Y",
-        "ROT_Z",
-        "ROT_W",
-        "SCALE_X",
-        "SCALE_Y",
-        "SCALE_Z",
-        "SCALE_AVG",
-    ] | None = None
+    transform_type: (
+        Literal[
+            "LOC_X",
+            "LOC_Y",
+            "LOC_Z",
+            "ROT_X",
+            "ROT_Y",
+            "ROT_Z",
+            "ROT_W",
+            "SCALE_X",
+            "SCALE_Y",
+            "SCALE_Z",
+            "SCALE_AVG",
+        ]
+        | None
+    ) = None
     transform_space: Literal["WORLD_SPACE", "TRANSFORM_SPACE", "LOCAL_SPACE"] = "WORLD_SPACE"
 
     @model_validator(mode="after")
@@ -178,7 +212,9 @@ def _validate_safe_expression(expression: str, variable_names: set[str]) -> None
             raise ValueError("expression may contain only arithmetic, numeric constants, variables, and frame")
         if isinstance(node, ast.Name) and node.id not in variable_names | {"frame"}:
             raise ValueError(f"expression references undeclared variable: {node.id}")
-        if isinstance(node, ast.Constant) and (isinstance(node.value, bool) or not isinstance(node.value, (int, float))):
+        if isinstance(node, ast.Constant) and (
+            isinstance(node.value, bool) or not isinstance(node.value, (int, float))
+        ):
             raise ValueError("expression constants must be numeric")
 
 
@@ -254,6 +290,41 @@ async def edit_keyframes(
             "allow_shared_action": allow_shared_action,
         },
         changed_resources=[target.name, action_name] if action_name else [target.name],
+    )
+
+
+@mcp.tool()
+async def bake_evaluated_animation(
+    ctx: Context,
+    target: EvaluatedBakeTarget,
+    frame_start: int,
+    frame_end: int,
+    frame_step: Annotated[int, Field(ge=1, le=10_000)] = 1,
+    action_name: Annotated[str, Field(min_length=1, max_length=128)] = "Evaluated Bake",
+    interpolation: Literal["CONSTANT", "LINEAR", "BEZIER"] = "LINEAR",
+    transform_tolerance: Annotated[float, Field(ge=0)] = 0.0,
+    confirm_bake: bool = False,
+) -> dict:
+    """Bake dependency-graph object/bone transforms and selected properties into a new Action."""
+    if frame_end < frame_start:
+        raise ToolError("frame_end must be greater than or equal to frame_start")
+    if ((frame_end - frame_start) // frame_step) + 1 > 100_000:
+        raise ToolError("Bake range exceeds the 100000-sample safety limit")
+    if not confirm_bake:
+        raise ToolError("confirm_bake=True is required")
+    return await _call(
+        "bake_evaluated_animation",
+        {
+            "target": target.model_dump(),
+            "frame_start": frame_start,
+            "frame_end": frame_end,
+            "frame_step": frame_step,
+            "action_name": action_name,
+            "interpolation": interpolation,
+            "transform_tolerance": transform_tolerance,
+            "confirm_bake": confirm_bake,
+        },
+        changed_resources=[target.object_name, action_name],
     )
 
 

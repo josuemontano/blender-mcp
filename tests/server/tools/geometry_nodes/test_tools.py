@@ -156,6 +156,54 @@ def test_repeat_zone_serializes_state_schema_without_context(monkeypatch) -> Non
     assert calls[0][2]["changed_resources"] == ["Growth"]
 
 
+def test_scatter_and_volume_extensions_serialize_explicit_output_contracts(monkeypatch) -> None:
+    workflows = sys.modules["blender_mcp.server.tools.geometry_nodes.workflows"]
+    calls = []
+    monkeypatch.setattr(
+        workflows,
+        "call_geometry_nodes",
+        lambda command, params, **kwargs: calls.append((command, params, kwargs)) or {"ok": True},
+    )
+
+    _run(
+        geometry_nodes.create_procedural_scatter,
+        object_name="Ground",
+        group_name="Guides",
+        source_type="OBJECT",
+        output_type="HAIR_CURVES",
+        density_attribute="density",
+        selection_attribute="selection",
+        orientation="NORMAL",
+        guide_length=2.0,
+    )
+    _run(
+        geometry_nodes.create_volume_generator,
+        object_name="Fog Source",
+        group_name="Fog",
+        density_grid_name="fog_density",
+        delivery="OPENVDB",
+        output_path="/tmp/fog.vdb",
+        confirm_write=True,
+    )
+
+    assert calls[0][1]["output_type"] == "HAIR_CURVES"
+    assert calls[0][1]["source_name"] is None
+    assert calls[1][1]["density_grid_name"] == "fog_density"
+    assert calls[1][1]["delivery"] == "OPENVDB"
+    assert calls[1][1]["confirm_overwrite"] is False
+
+    with pytest.raises(ValueError, match="output_type=VOLUME"):
+        _run(
+            geometry_nodes.create_volume_generator,
+            object_name="Fog Source",
+            group_name="Invalid Fog",
+            output_type="MESH",
+            delivery="OPENVDB",
+            output_path="/tmp/fog.vdb",
+            confirm_write=True,
+        )
+
+
 def test_bake_requires_explicit_budgets_before_transport() -> None:
     with pytest.raises(ValueError, match="explicit values"):
         _run(

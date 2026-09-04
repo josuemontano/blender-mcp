@@ -24,8 +24,8 @@ from .handlers.model import ModelHandlersMixin
 from .handlers.nd import NDHandlersMixin
 from .handlers.object_animation import ObjectAnimationHandlersMixin
 from .handlers.polyhaven import PolyhavenHandlersMixin
-from .handlers.retopology import RetopologyHandlersMixin
 from .handlers.rendering import RenderingHandlersMixin
+from .handlers.retopology import RetopologyHandlersMixin
 from .handlers.rigid_body import RigidBodyHandlersMixin
 from .handlers.scene import SceneHandlersMixin
 from .handlers.scene_physics import ScenePhysicsHandlersMixin
@@ -497,6 +497,7 @@ class BlenderMCPServer(
             "inspect_animation": self.inspect_animation,
             "manage_animation_action": self.manage_animation_action,
             "edit_keyframes": self.edit_keyframes,
+            "bake_evaluated_animation": self.bake_evaluated_animation,
             "manage_nla_tracks": self.manage_nla_tracks,
             "manage_animation_driver": self.manage_animation_driver,
             "list_procedural_systems": self.list_procedural_systems,
@@ -648,6 +649,12 @@ class BlenderMCPServer(
             "get_cloth_object_info": self.get_cloth_object_info,
             "get_liquid_simulation_info": self.get_liquid_simulation_info,
             "get_fluid_object_info": self.get_fluid_object_info,
+            "inspect_fluid_simulation": self.inspect_fluid_simulation,
+            "create_fluid_domain": self.create_fluid_domain,
+            "configure_fluid_solver": self.configure_fluid_solver,
+            "add_fluid_flow": self.add_fluid_flow,
+            "add_fluid_effector": self.add_fluid_effector,
+            "manage_fluid_cache": self.manage_fluid_cache,
             "get_camera_rig_info": self.get_camera_rig_info,
             "create_camera": self.create_camera,
             "configure_camera": self.configure_camera,
@@ -846,6 +853,7 @@ class BlenderMCPServer(
             "validate_cloth_setup",
             "get_liquid_simulation_info",
             "get_fluid_object_info",
+            "inspect_fluid_simulation",
             "estimate_liquid_resources",
             "validate_liquid_setup",
             "inspect_retopology",
@@ -1244,7 +1252,7 @@ class BlenderMCPServer(
 
         return [[*min_corner], [*max_corner]]
 
-    def get_object_info(self, name):
+    def get_object_info(self, name, sections=None, limit=100, offset=0):
         """
         Get detailed information about a specific object.
 
@@ -1273,6 +1281,31 @@ class BlenderMCPServer(
             ValueError: If the operation cannot be completed.
 
         """
+        if sections is not None:
+            allowed_sections = {
+                "GEOMETRY",
+                "ATTRIBUTES",
+                "VOLUME_GRIDS",
+                "GREASE_PENCIL",
+                "PARTICLES",
+                "SOFT_BODY",
+                "DYNAMIC_PAINT",
+            }
+            sections = {str(section).upper() for section in sections}
+            unknown = sorted(sections - allowed_sections)
+            if unknown:
+                raise ValueError(f"Unsupported object-info sections: {unknown}")
+        else:
+            sections = {
+                "GEOMETRY",
+                "ATTRIBUTES",
+                "VOLUME_GRIDS",
+                "GREASE_PENCIL",
+                "PARTICLES",
+                "SOFT_BODY",
+                "DYNAMIC_PAINT",
+            }
+        start, _end, _truncated, _next = paginate(0, offset, limit, 1000)
         obj = bpy.data.objects.get(name)
         if not obj:
             raise ValueError(f"Object not found: {name}")
@@ -1336,7 +1369,157 @@ class BlenderMCPServer(
                 "polygons": len(mesh.polygons),
             }
 
+        type_data = self._object_type_data(obj, sections, limit, start)
+        if type_data:
+            obj_info["type_data"] = type_data
+
         return obj_info
+
+    @staticmethod
+    def _page_records(records, offset, limit):
+        total = len(records)
+        start, end, truncated, next_offset = paginate(total, offset, limit, 1000)
+        return {
+            "total": total,
+            "offset": start,
+            "limit": limit,
+            "returned_count": end - start,
+            "truncated": truncated,
+            "next_offset": next_offset,
+            "records": records[start:end],
+        }
+
+    @staticmethod
+    def _attribute_records(data):
+        return [
+            {
+                "name": attribute.name,
+                "data_type": attribute.data_type,
+                "domain": attribute.domain,
+                "count": len(attribute.data),
+            }
+            for attribute in getattr(data, "attributes", ())
+        ]
+
+    def _object_type_data(self, obj, sections, limit, offset):
+        """Return bounded, explicitly local-space native data and simulation state."""
+        result = {"coordinate_space": "OBJECT_LOCAL", "evaluated": False}
+        data = obj.data
+        if data is not None and "ATTRIBUTES" in sections and hasattr(data, "attributes"):
+            result["attributes"] = self._page_records(self._attribute_records(data), offset, limit)
+
+        if obj.type in {"CURVE", "SURFACE"} and "GEOMETRY" in sections:
+            splines = []
+            for index, spline in enumerate(data.splines):
+                splines.append(
+                    {
+                        "index": index,
+                        "type": spline.type,
+                        "point_count_u": spline.point_count_u,
+                        "point_count_v": spline.point_count_v,
+                        "cyclic_u": spline.use_cyclic_u,
+                        "cyclic_v": getattr(spline, "use_cyclic_v", False),
+                        "order_u": getattr(spline, "order_u", None),
+                        "order_v": getattr(spline, "order_v", None),
+                        "resolution_u": spline.resolution_u,
+                        "resolution_v": getattr(spline, "resolution_v", None),
+                    }
+                )
+            result["curve"] = {
+                "dimensions": data.dimensions,
+                "resolution_u": data.resolution_u,
+                "resolution_v": data.resolution_v,
+                "bevel_depth": data.bevel_depth,
+                "splines": self._page_records(splines, offset, limit),
+            }
+        elif obj.type == "CURVES" and "GEOMETRY" in sections:
+            result["curves"] = {
+                "point_count": len(data.points),
+                "curve_count": len(data.curves),
+                "surface": data.surface.name if getattr(data, "surface", None) else None,
+            }
+        elif obj.type == "POINTCLOUD" and "GEOMETRY" in sections:
+            result["pointcloud"] = {"point_count": len(data.points)}
+        elif obj.type == "VOLUME" and "VOLUME_GRIDS" in sections:
+            grids = [
+                {
+                    "name": grid.name,
+                    "data_type": grid.data_type,
+                    "channels": grid.channels,
+                    "voxel_size": list(grid.voxel_size),
+                    "is_loaded": grid.is_loaded,
+                }
+                for grid in data.grids
+            ]
+            result["volume"] = {
+                "filepath": data.filepath,
+                "is_sequence": data.is_sequence,
+                "frame_start": data.frame_start,
+                "frame_duration": data.frame_duration,
+                "grids": self._page_records(grids, offset, limit),
+            }
+        elif obj.type == "GREASEPENCIL" and "GREASE_PENCIL" in sections:
+            layers = []
+            for layer in data.layers:
+                frames = list(layer.frames)
+                layers.append(
+                    {
+                        "name": layer.name,
+                        "frame_count": len(frames),
+                        "frames": [
+                            {
+                                "frame_number": frame.frame_number,
+                                "stroke_count": len(frame.drawing.strokes),
+                                "point_count": len(frame.drawing.attributes["position"].data),
+                            }
+                            for frame in frames[:limit]
+                        ],
+                        "frames_truncated": len(frames) > limit,
+                    }
+                )
+            result["grease_pencil"] = {"layers": self._page_records(layers, offset, limit)}
+
+        if "PARTICLES" in sections:
+            systems = [
+                {
+                    "name": system.name,
+                    "settings": system.settings.name if system.settings else None,
+                    "particle_count": len(system.particles),
+                    "seed": system.seed,
+                }
+                for system in getattr(obj, "particle_systems", ())
+            ]
+            if systems:
+                result["particle_systems"] = self._page_records(systems, offset, limit)
+        if "SOFT_BODY" in sections and getattr(obj, "soft_body", None) is not None:
+            soft_body = obj.soft_body
+            point_cache = soft_body.point_cache
+            result["soft_body"] = {
+                "goal": soft_body.settings.use_goal,
+                "self_collision": soft_body.settings.use_self_collision,
+                "cache": {
+                    "frame_start": point_cache.frame_start,
+                    "frame_end": point_cache.frame_end,
+                    "is_baked": point_cache.is_baked,
+                    "is_baking": point_cache.is_baking,
+                },
+            }
+        if "DYNAMIC_PAINT" in sections:
+            states = []
+            for modifier in obj.modifiers:
+                if modifier.type != "DYNAMIC_PAINT":
+                    continue
+                states.append(
+                    {
+                        "modifier": modifier.name,
+                        "ui_type": modifier.ui_type,
+                        "canvas_active": modifier.canvas_settings is not None,
+                        "brush_active": modifier.brush_settings is not None,
+                    }
+                )
+            if states:
+                result["dynamic_paint"] = self._page_records(states, offset, limit)
+        return result if len(result) > 2 else {}
 
     _MESH_DATA_ELEMENT_TYPES = ("vertices", "edges", "faces", "loops")
     _MESH_DATA_MAX_LIMIT = 1000

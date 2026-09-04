@@ -16,6 +16,7 @@ import bpy
 import mathutils
 
 from ...helpers import paginate, preserve_mode_and_selection, set_active, sync_from_editmode
+from ..simulation_cache import point_cache_info
 
 _BODY_FIELDS = {
     "type",
@@ -208,23 +209,7 @@ def _ensure_world(scene):
 
 
 def _cache_info(cache):
-    fields = (
-        "name",
-        "index",
-        "filepath",
-        "frame_start",
-        "frame_end",
-        "frame_step",
-        "use_disk_cache",
-        "use_external",
-        "use_library_path",
-        "is_baked",
-        "is_baking",
-        "is_outdated",
-        "is_frame_skip",
-        "info",
-    )
-    return _read_fields(cache, fields)
+    return point_cache_info(cache)
 
 
 def _free_world_bake(scene, world):

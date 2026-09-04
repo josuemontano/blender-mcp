@@ -11,8 +11,13 @@ from test_mutation_transaction import _load_addon
 
 from blender_mcp.server.tools import animation
 
-
-ANIMATION_COMMANDS = {"inspect_animation", "manage_animation_action", "edit_keyframes", "manage_nla_tracks"}
+ANIMATION_COMMANDS = {
+    "inspect_animation",
+    "manage_animation_action",
+    "edit_keyframes",
+    "bake_evaluated_animation",
+    "manage_nla_tracks",
+}
 
 
 class _Connection:
@@ -21,7 +26,8 @@ class _Connection:
 
     def send_command(self, command, params):
         self.calls.append((command, params))
-        return {"changed_resources": [params["target"]["name"]]}
+        target = params["target"]
+        return {"changed_resources": [target.get("name", target.get("object_name"))]}
 
 
 def test_animation_tools_are_registered_and_dispatched(monkeypatch) -> None:
@@ -84,6 +90,29 @@ def test_edit_keyframes_serializes_batch(monkeypatch) -> None:
     assert params["target"] == {"type": "OBJECT", "name": "Cube"}
     assert len(params["edits"]) == 2
     assert result["changed_resources"] == ["Cube"]
+
+
+def test_bake_evaluated_animation_requires_confirmation_and_serializes(monkeypatch) -> None:
+    connection = _Connection()
+    monkeypatch.setattr(animation, "get_blender_connection", lambda: connection)
+    target = animation.EvaluatedBakeTarget(object_name="Camera", transforms=["LOCATION", "ROTATION"])
+
+    with pytest.raises(ToolError, match="confirm_bake"):
+        asyncio.run(
+            animation.bake_evaluated_animation(ctx=None, target=target, frame_start=1, frame_end=10, confirm_bake=False)
+        )
+    asyncio.run(
+        animation.bake_evaluated_animation(
+            ctx=None,
+            target=target,
+            frame_start=1,
+            frame_end=10,
+            action_name="Camera Bake",
+            confirm_bake=True,
+        )
+    )
+    assert connection.calls[-1][0] == "bake_evaluated_animation"
+    assert connection.calls[-1][1]["target"]["object_name"] == "Camera"
 
 
 def test_nla_tool_requires_operation_specific_inputs(monkeypatch) -> None:

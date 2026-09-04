@@ -42,10 +42,17 @@ def main() -> None:
             "quality": 80,
             "frame_start": 1,
             "frame_end": 2,
+            "film": {"transparent": True},
+            "output": {
+                "filepath": "//unused-smoke-output",
+                "use_file_extension": True,
+            },
+            "metadata": {"use_stamp": True, "use_stamp_frame": True},
         },
     )
     assert configured["settings"]["resolution"] == [32, 24, 100]
     assert configured["settings"]["output"]["compression"] == 25
+    assert configured["settings"]["film"]["transparent"] is True
 
     original_start = scene.frame_start
     try:
@@ -79,14 +86,25 @@ def main() -> None:
             view_layer_name="Smoke Passes",
             frame=1,
             confirm_render=True,
+            render_slot_policy="NEW_SLOT",
         )
         assert rendered["operator_result"] == ["FINISHED"]
         assert output.is_file()
+        assert rendered["passes"]
+        assert rendered["pass_verification"] in {"RENDER_RESULT", "VIEW_LAYER_CONFIGURATION"}
 
     removed = handler.manage_view_layers(scene.name, "REMOVE", "Smoke Passes", confirm_remove=True)
     assert removed["removed"] == "Smoke Passes"
-    inspected = handler.inspect_render_setup(scene.name)
+    node_tree = bpy.data.node_groups.new("Smoke Compositor", "CompositorNodeTree")
+    scene.compositing_node_group = node_tree
+    node_tree.nodes.clear()
+    render_layers = node_tree.nodes.new("CompositorNodeRLayers")
+    viewer = node_tree.nodes.new("CompositorNodeViewer")
+    node_tree.links.new(render_layers.outputs["Image"], viewer.inputs["Image"])
+    inspected = handler.inspect_render_setup(scene.name, graph_sections=["NODES", "LINKS"], limit=10)
     assert inspected["engine"] == "BLENDER_WORKBENCH"
+    assert inspected["compositor"]["nodes"]["returned_count"] == 2
+    assert inspected["compositor"]["links"]["returned_count"] == 1
     print("RENDERING_SMOKE_OK")
 
 

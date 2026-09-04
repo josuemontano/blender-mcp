@@ -7,7 +7,6 @@ import re
 
 import bpy
 
-
 _TARGET_COLLECTIONS = {
     "OBJECT": "objects",
     "SCENE": "scenes",
@@ -241,6 +240,74 @@ def _nla_info(data):
     ]
 
 
+def _reduce_samples(samples, tolerance):
+    """Ramer-Douglas-Peucker reduction for one scalar F-Curve."""
+    if tolerance <= 0 or len(samples) <= 2:
+        return samples, 0.0
+
+    kept = {0, len(samples) - 1}
+
+    def visit(start, end):
+        frame_a, value_a = samples[start]
+        frame_b, value_b = samples[end]
+        worst_error = -1.0
+        worst_index = None
+        span = frame_b - frame_a
+        for index in range(start + 1, end):
+            frame, value = samples[index]
+            factor = (frame - frame_a) / span if span else 0.0
+            error = abs(value - (value_a + (value_b - value_a) * factor))
+            if error > worst_error:
+                worst_error = error
+                worst_index = index
+        if worst_index is not None and worst_error > tolerance:
+            kept.add(worst_index)
+            visit(start, worst_index)
+            visit(worst_index, end)
+
+    visit(0, len(samples) - 1)
+    reduced = [samples[index] for index in sorted(kept)]
+    maximum_error = 0.0
+    for (frame_a, value_a), (frame_b, value_b) in zip(reduced, reduced[1:], strict=False):
+        span = frame_b - frame_a
+        for frame, value in samples:
+            if frame_a < frame < frame_b:
+                factor = (frame - frame_a) / span if span else 0.0
+                maximum_error = max(maximum_error, abs(value - (value_a + (value_b - value_a) * factor)))
+    return reduced, maximum_error
+
+
+def _matrix_channels(matrix, rotation_mode):
+    location, quaternion, scale = matrix.decompose()
+    if rotation_mode == "QUATERNION":
+        rotation_path = "rotation_quaternion"
+        rotation = tuple(quaternion)
+    elif rotation_mode == "AXIS_ANGLE":
+        axis, angle = quaternion.to_axis_angle()
+        rotation_path = "rotation_axis_angle"
+        rotation = (angle, *axis)
+    else:
+        rotation_path = "rotation_euler"
+        rotation = tuple(quaternion.to_euler(rotation_mode))
+    return {"location": tuple(location), rotation_path: rotation, "scale": tuple(scale)}
+
+
+def _append_transform_samples(channels, owner, matrix, transforms, frame, prefix=""):
+    values = _matrix_channels(matrix, owner.rotation_mode)
+    selected = set(transforms)
+    paths = []
+    if "LOCATION" in selected:
+        paths.append("location")
+    if "ROTATION" in selected:
+        paths.append(next(name for name in values if name.startswith("rotation_")))
+    if "SCALE" in selected:
+        paths.append("scale")
+    for path in paths:
+        data_path = f"{prefix}{path}"
+        for index, value in enumerate(values[path]):
+            channels.setdefault((data_path, index), []).append((frame, float(value)))
+
+
 def _resolve_property(owner, data_path):
     data_path = _required_name(data_path, "data_path")
     owner_path, separator, property_name = data_path.rpartition(".")
@@ -345,7 +412,9 @@ def _safe_expression(expression, variable_names):
             raise ValueError("expression may contain only arithmetic, numeric constants, variables, and frame")
         if isinstance(node, ast.Name) and node.id not in variable_names | {"frame"}:
             raise ValueError(f"expression references undeclared variable: {node.id}")
-        if isinstance(node, ast.Constant) and (isinstance(node.value, bool) or not isinstance(node.value, (int, float))):
+        if isinstance(node, ast.Constant) and (
+            isinstance(node.value, bool) or not isinstance(node.value, (int, float))
+        ):
             raise ValueError("expression constants must be numeric")
     return expression
 
@@ -642,6 +711,135 @@ class AnimationHandlersMixin:
             "changed_resources": [owner.name, selected.name],
         }
 
+    def bake_evaluated_animation(
+        self,
+        target,
+        frame_start,
+        frame_end,
+        frame_step=1,
+        action_name="Evaluated Bake",
+        interpolation="LINEAR",
+        transform_tolerance=0.0,
+        confirm_bake=False,
+    ):
+        if not confirm_bake:
+            raise ValueError("confirm_bake=True is required")
+        object_name = _required_name(target.get("object_name"), "target.object_name")
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            raise ValueError(f"Object not found: {object_name}")
+        if bpy.data.actions.get(action_name) is not None:
+            raise ValueError(f"Action already exists: {action_name}")
+        if frame_end < frame_start or frame_step < 1:
+            raise ValueError("Require frame_end >= frame_start and frame_step >= 1")
+        frames = list(range(frame_start, frame_end + 1, frame_step))
+        if len(frames) > 100_000:
+            raise ValueError("Bake range exceeds the 100000-sample safety limit")
+        transforms = target.get("transforms", [])
+        bone_names = target.get("bone_names", [])
+        if bone_names and obj.type != "ARMATURE":
+            raise ValueError("bone_names require an ARMATURE object")
+        missing_bones = [name for name in bone_names if obj.pose.bones.get(name) is None]
+        if missing_bones:
+            raise ValueError(f"Pose bones not found: {missing_bones}")
+        for channel in target.get("properties", []):
+            _resolve_property(obj, channel["data_path"])
+
+        scene = bpy.context.scene
+        original_frame = scene.frame_current
+        channels = {}
+        channel_tolerances = {}
+        try:
+            for frame in frames:
+                scene.frame_set(frame)
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                evaluated = obj.evaluated_get(depsgraph)
+                if transforms and not bone_names:
+                    matrix = evaluated.matrix_world if target.get("space") == "WORLD" else evaluated.matrix_basis
+                    _append_transform_samples(channels, obj, matrix, transforms, frame)
+                for bone_name in bone_names:
+                    evaluated_bone = evaluated.pose.bones[bone_name]
+                    matrix = (
+                        evaluated_bone.matrix
+                        if target.get("space") in {"WORLD", "POSE"}
+                        else evaluated_bone.matrix_basis
+                    )
+                    prefix = f"{obj.pose.bones[bone_name].path_from_id()}."
+                    _append_transform_samples(
+                        channels,
+                        obj.pose.bones[bone_name],
+                        matrix,
+                        transforms,
+                        frame,
+                        prefix,
+                    )
+                for channel in target.get("properties", []):
+                    array_length, value = _resolve_property(evaluated, channel["data_path"])
+                    indices = channel.get("array_indices")
+                    if array_length:
+                        indices = indices or list(range(array_length))
+                        invalid = [index for index in indices if index < 0 or index >= array_length]
+                        if invalid:
+                            raise ValueError(f"Invalid array indices for {channel['data_path']}: {invalid}")
+                        for index in indices:
+                            channels.setdefault((channel["data_path"], index), []).append((frame, float(value[index])))
+                            channel_tolerances[(channel["data_path"], index)] = channel.get("tolerance", 0.0)
+                    else:
+                        channels.setdefault((channel["data_path"], 0), []).append((frame, float(value)))
+                        channel_tolerances[(channel["data_path"], 0)] = channel.get("tolerance", 0.0)
+        finally:
+            scene.frame_set(original_frame)
+
+        action = bpy.data.actions.new(_required_name(action_name, "action_name"))
+        try:
+            slot = _assign_action(obj, action, replace_active=True)
+            bag = _channelbag(action, slot, create=True)
+            key_count = 0
+            sampled_key_count = sum(len(samples) for samples in channels.values())
+            maximum_error = 0.0
+            curve_records = []
+            for (data_path, index), samples in channels.items():
+                tolerance = channel_tolerances.get((data_path, index), transform_tolerance)
+                reduced, error = _reduce_samples(samples, tolerance)
+                maximum_error = max(maximum_error, error)
+                fcurve = bag.fcurves.new(data_path, index=index)
+                for key_frame, value in reduced:
+                    key = fcurve.keyframe_points.insert(key_frame, value, options={"FAST"})
+                    key.interpolation = interpolation
+                fcurve.update()
+                key_count += len(reduced)
+                curve_records.append(
+                    {
+                        "data_path": data_path,
+                        "array_index": index,
+                        "sample_count": len(samples),
+                        "key_count": len(reduced),
+                        "max_reconstruction_error": error,
+                    }
+                )
+        except Exception:
+            bpy.data.actions.remove(action)
+            raise
+        return {
+            "object": obj.name,
+            "action": action.name,
+            "slot": slot.identifier,
+            "frame_range": [frame_start, frame_end, frame_step],
+            "sampled_key_count": sampled_key_count,
+            "key_count": key_count,
+            "curves": curve_records,
+            "max_reconstruction_error": maximum_error,
+            "sample_space": target.get("space", "LOCAL"),
+            "new_non_shared_action": action.users <= 1,
+            "warnings": [
+                "Constraints remain live; mute or remove them before using baked transforms as final unconstrained motion."
+            ]
+            if transforms
+            else [],
+            "changed_objects": [obj.name],
+            "changed_resources": [action.name],
+        }
+
     def manage_nla_tracks(
         self,
         target,
@@ -688,7 +886,11 @@ class AnimationHandlersMixin:
                 raise ValueError(f"Action not found: {action_name}")
             if not action_data.is_action_layered:
                 raise ValueError(f"Action {action_name} is legacy and cannot be added by this tool")
-            if isinstance(frame_start, bool) or not isinstance(frame_start, (int, float)) or not math.isfinite(frame_start):
+            if (
+                isinstance(frame_start, bool)
+                or not isinstance(frame_start, (int, float))
+                or not math.isfinite(frame_start)
+            ):
                 raise ValueError("frame_start must be a finite number")
             slot = _action_slot(action_data, owner, create=True)
             strip = track.strips.new(strip_name, math.floor(frame_start), action_data)
@@ -735,7 +937,12 @@ class AnimationHandlersMixin:
             if strip is None:
                 raise ValueError(f"NLA strip not found in {track_name}: {strip_name}")
             track.strips.remove(strip)
-            return {"target": owner.name, "track": track.name, "removed_strip": strip_name, "changed_resources": [owner.name]}
+            return {
+                "target": owner.name,
+                "track": track.name,
+                "removed_strip": strip_name,
+                "changed_resources": [owner.name],
+            }
         else:
             if not confirm_remove:
                 raise ValueError("confirm_remove=True is required")

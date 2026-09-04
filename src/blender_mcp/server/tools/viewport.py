@@ -85,7 +85,24 @@ async def set_viewport_overlay(ctx: Context, toggle: ViewportOverlay, enabled: b
 
 
 @mcp.tool()
-async def get_object_info(ctx: Context, object_name: str) -> dict:
+async def get_object_info(
+    ctx: Context,
+    object_name: str,
+    sections: list[
+        Literal[
+            "GEOMETRY",
+            "ATTRIBUTES",
+            "VOLUME_GRIDS",
+            "GREASE_PENCIL",
+            "PARTICLES",
+            "SOFT_BODY",
+            "DYNAMIC_PAINT",
+        ]
+    ]
+    | None = None,
+    limit: Annotated[int, Field(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
     """
     Inspect an object's transform, type, materials, modifiers, and summary geometry data.
 
@@ -114,7 +131,9 @@ async def get_object_info(ctx: Context, object_name: str) -> dict:
     """
     try:
         blender = get_blender_connection()
-        result = blender.send_command("get_object_info", {"name": object_name})
+        result = blender.send_command(
+            "get_object_info", {"name": object_name, "sections": sections, "limit": limit, "offset": offset}
+        )
         return ok(result)
     except Exception as e:
         logger.error(f"Error getting object info from Blender: {e}")

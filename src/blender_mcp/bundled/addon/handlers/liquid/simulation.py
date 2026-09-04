@@ -14,13 +14,13 @@ from datetime import UTC, datetime
 import bpy
 
 from ...helpers import preserve_mode_and_selection, set_active
+from ..simulation_cache import mantaflow_cache_info, require_cache_confirmation
 from .inspection_and_setup import (
     _CACHE_FIELDS,
     _CACHE_FLAGS,
     _ensure_liquid_uuid,
     _get_domain,
     _patch_rna,
-    _read_fields,
     _resolved_cache_path,
     _restore_rna,
     _validate_rna_value,
@@ -55,6 +55,12 @@ _BAKE_STAGES = {
         "baking_flag": "is_cache_baking_particles",
         "pause_flag": "cache_frame_pause_particles",
     },
+    "NOISE": {
+        "operator": "bake_noise",
+        "baked_flag": "has_cache_baked_noise",
+        "baking_flag": "is_cache_baking_noise",
+        "pause_flag": "cache_frame_pause_noise",
+    },
     "ALL": {
         "operator": "bake_all",
         "baked_flag": "has_cache_baked_any",
@@ -83,10 +89,7 @@ _SECONDARY_TOGGLES = (
 
 
 def _cache_state(settings):
-    return {
-        "configuration": _read_fields(settings, _CACHE_FIELDS),
-        "stages": {name: bool(getattr(settings, name, False)) for name in _CACHE_FLAGS},
-    }
+    return mantaflow_cache_info(settings, _CACHE_FLAGS, _CACHE_FIELDS)
 
 
 def _active_cache_flags(settings, names=None):
@@ -483,8 +486,10 @@ class LiquidSimulationHandlers:
         confirm_external_overwrite=False,
         max_bake_frames=250,
         max_existing_cache_bytes=10_000_000_000,
+        domain_type="LIQUID",
     ):
-        obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
+        domain_type = str(domain_type).upper()
+        obj, modifier, settings = _get_domain(domain_object_name, modifier_name, domain_type)
         actions = {
             "STATUS",
             "CONFIGURE",
@@ -492,6 +497,7 @@ class LiquidSimulationHandlers:
             "BAKE_GUIDES",
             "BAKE_MESH",
             "BAKE_PARTICLES",
+            "BAKE_NOISE",
             "BAKE_ALL",
             "START_BAKE",
             "RESUME",
@@ -501,10 +507,22 @@ class LiquidSimulationHandlers:
             "FREE_GUIDES",
             "FREE_MESH",
             "FREE_PARTICLES",
+            "FREE_NOISE",
             "FREE_ALL",
         }
         if action not in actions:
-            raise ValueError(f"Unsupported liquid cache action: {action}")
+            raise ValueError(f"Unsupported fluid cache action: {action}")
+        require_cache_confirmation(action, confirm_bake=confirm_bake, confirm_free=confirm_free)
+        gas_only = {"BAKE_NOISE", "FREE_NOISE"}
+        liquid_only = {"BAKE_GUIDES", "FREE_GUIDES", "BAKE_MESH", "FREE_MESH", "BAKE_PARTICLES", "FREE_PARTICLES"}
+        if domain_type == "LIQUID" and action in gas_only:
+            raise ValueError(f"{action} is only valid for GAS domains")
+        if domain_type == "GAS" and action in liquid_only:
+            raise ValueError(f"{action} is only valid for LIQUID domains")
+        if domain_type == "GAS" and stage in {"GUIDES", "MESH", "PARTICLES"}:
+            raise ValueError(f"Stage {stage} is only valid for LIQUID domains")
+        if domain_type == "LIQUID" and stage == "NOISE":
+            raise ValueError("Stage NOISE is only valid for GAS domains")
         patch = dict(patch or {})
         if action == "CONFIGURE" and not patch:
             raise ValueError("CONFIGURE requires a nonempty cache patch")
@@ -589,8 +607,8 @@ class LiquidSimulationHandlers:
                 "warnings": ["Cache configuration changed; any in-memory replay state is stale."],
             }
         frame_count = settings.cache_frame_end - settings.cache_frame_start + 1
-        bake_actions = {"BAKE_DATA", "BAKE_GUIDES", "BAKE_MESH", "BAKE_PARTICLES", "BAKE_ALL"}
-        free_actions = {"FREE_DATA", "FREE_GUIDES", "FREE_MESH", "FREE_PARTICLES", "FREE_ALL"}
+        bake_actions = {"BAKE_DATA", "BAKE_GUIDES", "BAKE_MESH", "BAKE_PARTICLES", "BAKE_NOISE", "BAKE_ALL"}
+        free_actions = {"FREE_DATA", "FREE_GUIDES", "FREE_MESH", "FREE_PARTICLES", "FREE_NOISE", "FREE_ALL"}
         requested_action = action
         if action == "CANCEL":
             if bool(getattr(settings, _BAKE_STAGES[stage]["baking_flag"], False)):
@@ -660,18 +678,21 @@ class LiquidSimulationHandlers:
         elif action == "PAUSE":
             operator = bpy.ops.fluid.pause_bake
         else:
-            operator = {
-                "BAKE_DATA": bpy.ops.fluid.bake_data,
-                "BAKE_GUIDES": bpy.ops.fluid.bake_guides,
-                "BAKE_MESH": bpy.ops.fluid.bake_mesh,
-                "BAKE_PARTICLES": bpy.ops.fluid.bake_particles,
-                "BAKE_ALL": bpy.ops.fluid.bake_all,
-                "FREE_DATA": bpy.ops.fluid.free_data,
-                "FREE_GUIDES": bpy.ops.fluid.free_guides,
-                "FREE_MESH": bpy.ops.fluid.free_mesh,
-                "FREE_PARTICLES": bpy.ops.fluid.free_particles,
-                "FREE_ALL": bpy.ops.fluid.free_all,
+            operator_name = {
+                "BAKE_DATA": "bake_data",
+                "BAKE_GUIDES": "bake_guides",
+                "BAKE_MESH": "bake_mesh",
+                "BAKE_PARTICLES": "bake_particles",
+                "BAKE_NOISE": "bake_noise",
+                "BAKE_ALL": "bake_all",
+                "FREE_DATA": "free_data",
+                "FREE_GUIDES": "free_guides",
+                "FREE_MESH": "free_mesh",
+                "FREE_PARTICLES": "free_particles",
+                "FREE_NOISE": "free_noise",
+                "FREE_ALL": "free_all",
             }[action]
+            operator = getattr(bpy.ops.fluid, operator_name)
         if action == "PAUSE":
             if not settings.is_cache_baking_any:
                 raise ValueError("No liquid cache stage is currently baking")
@@ -684,6 +705,7 @@ class LiquidSimulationHandlers:
             "FREE_GUIDES": "has_cache_baked_guide",
             "FREE_MESH": "has_cache_baked_mesh",
             "FREE_PARTICLES": "has_cache_baked_particles",
+            "FREE_NOISE": "has_cache_baked_noise",
         }.get(action)
         if expected_before and not getattr(settings, expected_before):
             raise ValueError(f"{action} has no baked stage to free")
@@ -698,11 +720,13 @@ class LiquidSimulationHandlers:
             "BAKE_GUIDES": ("has_cache_baked_guide", True),
             "BAKE_MESH": ("has_cache_baked_mesh", True),
             "BAKE_PARTICLES": ("has_cache_baked_particles", True),
+            "BAKE_NOISE": ("has_cache_baked_noise", True),
             "BAKE_ALL": ("has_cache_baked_any", True),
             "FREE_DATA": ("has_cache_baked_data", False),
             "FREE_GUIDES": ("has_cache_baked_guide", False),
             "FREE_MESH": ("has_cache_baked_mesh", False),
             "FREE_PARTICLES": ("has_cache_baked_particles", False),
+            "FREE_NOISE": ("has_cache_baked_noise", False),
             "FREE_ALL": ("has_cache_baked_any", False),
         }.get(resolved_bake_action if requested_action in {"START_BAKE", "RESUME"} else action)
         job_still_running = bool(job) and job["mode"] == "RUNNING_MODAL"
@@ -761,10 +785,14 @@ class LiquidSimulationHandlers:
             "job_id": job_id,
             "job_mode": job["mode"] if job else None,
             "frame_count": frame_count,
-            "operator_scope": "EXACT_LIQUID_DOMAIN",
+            "operator_scope": f"EXACT_{domain_type}_DOMAIN",
             "cache_before": before,
             "cache_after": after,
             "directory_before": path_before,
             "directory_after": _cache_directory_evidence(settings.cache_directory),
             "warnings": warnings,
         }
+
+    def manage_fluid_cache(self, domain_type, **kwargs):
+        """Canonical LIQUID/GAS wrapper over the shared Mantaflow cache lifecycle."""
+        return self.manage_liquid_cache(domain_type=domain_type, **kwargs)

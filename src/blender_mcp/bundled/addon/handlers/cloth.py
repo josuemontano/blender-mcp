@@ -22,6 +22,7 @@ import bpy
 import mathutils
 
 from ..helpers import paginate, preserve_mode_and_selection, set_active, sync_from_editmode
+from .simulation_cache import point_cache_identity, point_cache_info, set_cache_frame_range
 
 _MAX_WEIGHT_ASSIGNMENTS = 10_000
 _MCP_SCHEMA_VERSION = 1
@@ -364,35 +365,12 @@ def _get_cloth(object_name, modifier_name):
 
 
 def _cache_info(cache):
-    fields = (
-        "name",
-        "index",
-        "filepath",
-        "frame_start",
-        "frame_end",
-        "frame_step",
-        "use_disk_cache",
-        "use_external",
-        "use_library_path",
-        "is_baked",
-        "is_baking",
-        "is_outdated",
-        "is_frame_skip",
-        "info",
-    )
-    return {name: _serialize(getattr(cache, name)) for name in fields if hasattr(cache, name)}
+    return point_cache_info(cache)
 
 
 def _shared_cache_identity(cache):
     """Return only an explicit cache identity that can collide across modifiers."""
-    if not cache.use_external or not cache.filepath:
-        return None
-    return (
-        "EXTERNAL",
-        os.path.normcase(os.path.normpath(bpy.path.abspath(cache.filepath))),
-        str(cache.name),
-        int(cache.index),
-    )
+    return point_cache_identity(cache)
 
 
 def _external_cache_path_status(cache):
@@ -406,17 +384,7 @@ def _external_cache_path_status(cache):
 
 def _set_cache_frame_range(cache, frame_start, frame_end):
     """Set an already-validated cache range without transiently inverting it."""
-    if frame_start > cache.frame_end:
-        cache.frame_end = frame_end
-        cache.frame_start = frame_start
-    else:
-        cache.frame_start = frame_start
-        cache.frame_end = frame_end
-    if cache.frame_start != frame_start or cache.frame_end != frame_end:
-        raise ValueError(
-            "Blender did not retain the requested cache frame range "
-            f"[{frame_start}, {frame_end}] (got [{cache.frame_start}, {cache.frame_end}])"
-        )
+    set_cache_frame_range(cache, frame_start, frame_end)
 
 
 def _reject_baked(modifiers):
