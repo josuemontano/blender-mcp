@@ -337,3 +337,119 @@ def test_handler_binary_solver_finds_smallest_fitting_value(monkeypatch) -> None
     solved = handler._binary_smallest_fit(lambda value: value >= 7.5, 0.0, 1.0)
 
     assert solved == pytest.approx(7.5)
+
+
+def test_camera_keyframe_requires_exactly_one_timing_source() -> None:
+    with pytest.raises(ValidationError, match="exactly one of frame or at_seconds"):
+        camera.CameraKeyframe(
+            object_name="Hero",
+            owner="CAMERA_DATA",
+            data_path="lens",
+            value=85,
+        )
+    with pytest.raises(ValidationError, match="exactly one of frame or at_seconds"):
+        camera.CameraKeyframe(
+            object_name="Hero",
+            owner="CAMERA_DATA",
+            data_path="lens",
+            value=85,
+            frame=12,
+            at_seconds=0.5,
+        )
+
+
+def test_focus_pull_requires_exactly_one_timing_source(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ToolError, match="supply exactly one of start_frame or start_at_seconds"):
+        _run(
+            camera.create_focus_pull,
+            scene_name="Scene",
+            camera_name="Hero",
+            start_frame=None,
+            start_at_seconds=None,
+            end_frame=20,
+            start_subject_name="Target",
+        )
+    with pytest.raises(ToolError, match="supply exactly one of end_frame or end_at_seconds"):
+        _run(
+            camera.create_focus_pull,
+            scene_name="Scene",
+            camera_name="Hero",
+            start_frame=1,
+            end_frame=None,
+            end_at_seconds=None,
+            start_subject_name="Target",
+            end_subject_name="Target2",
+        )
+
+
+def test_dolly_zoom_requires_exactly_one_timing_source(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ToolError, match="supply exactly one of start_frame or start_at_seconds"):
+        _run(
+            camera.create_dolly_zoom,
+            scene_name="Scene",
+            camera_name="Hero",
+            movement_object_name="Dolly",
+            start_frame=None,
+            start_at_seconds=None,
+            end_frame=20,
+            start_distance=5,
+            end_distance=10,
+            subject_object_name="Target",
+        )
+    with pytest.raises(ToolError, match="supply exactly one of end_frame or end_at_seconds"):
+        _run(
+            camera.create_dolly_zoom,
+            scene_name="Scene",
+            camera_name="Hero",
+            movement_object_name="Dolly",
+            start_frame=1,
+            end_frame=None,
+            end_at_seconds=None,
+            start_distance=5,
+            end_distance=10,
+            subject_object_name="Target",
+        )
+    with pytest.raises(ToolError, match="start_distance and end_distance must be provided"):
+        _run(
+            camera.create_dolly_zoom,
+            scene_name="Scene",
+            camera_name="Hero",
+            movement_object_name="Dolly",
+            start_frame=1,
+            end_frame=20,
+            subject_object_name="Target",
+        )
+
+
+def test_add_camera_shake_requires_exactly_one_timing_source(monkeypatch) -> None:
+    connection = _StubConnection()
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ToolError, match="supply exactly one of frame_start or frame_start_at_seconds"):
+        _run(
+            camera.add_camera_shake,
+            scene_name="Scene",
+            camera_name="Hero",
+            collection_name="Rigs",
+            control_name="Shake",
+            frame_start=None,
+            frame_start_at_seconds=None,
+            frame_end=20,
+        )
+    with pytest.raises(ToolError, match="supply exactly one of frame_end or frame_end_at_seconds"):
+        _run(
+            camera.add_camera_shake,
+            scene_name="Scene",
+            camera_name="Hero",
+            collection_name="Rigs",
+            control_name="Shake",
+            frame_start=1,
+            frame_end=None,
+            frame_end_at_seconds=None,
+        )

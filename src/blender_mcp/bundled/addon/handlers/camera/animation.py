@@ -15,6 +15,7 @@ from ._shared import (
     _matrix_close,
     _object,
     _required_name,
+    _resolve_frame_from_time,
     _scene,
     _tag,
     _update_view_layer,
@@ -226,9 +227,17 @@ class _AnimationMixin:
         _validate_key_style(interpolation, handle_left, handle_right)
         prepared = []
         seen = set()
+        scene_cache = {}
         for index, source in enumerate(keyframes):
             record = dict(source)
-            record["frame"] = _frame(record.get("frame"), f"keyframes[{index}].frame")
+            scene_name = record.get("scene_name")
+            scene = scene_cache.get(scene_name)
+            if scene is None:
+                scene = _scene(scene_name) if scene_name else bpy.context.scene
+                scene_cache[scene_name] = scene
+            record["frame"] = _resolve_frame_from_time(
+                record.get("frame"), record.get("at_seconds"), f"keyframes[{index}]", scene
+            )
             record["_policy"] = policy
             resolved = _animation_owner(record)
             record["_value"] = _normalized_key_value(
@@ -339,8 +348,10 @@ class _AnimationMixin:
         self,
         scene_name,
         camera_name,
-        start_frame,
-        end_frame,
+        start_frame=None,
+        end_frame=None,
+        start_at_seconds=None,
+        end_at_seconds=None,
         start_subject_name=None,
         start_point=None,
         end_subject_name=None,
@@ -352,10 +363,10 @@ class _AnimationMixin:
     ):
         scene = _scene(scene_name)
         camera = _camera(camera_name, scene=scene)
-        start = _frame(start_frame, "start_frame")
-        end = _frame(end_frame, "end_frame")
+        start = _resolve_frame_from_time(start_frame, start_at_seconds, "start", scene)
+        end = _resolve_frame_from_time(end_frame, end_at_seconds, "end", scene)
         if start >= end:
-            raise ValueError("start_frame must be less than end_frame")
+            raise ValueError("start must be less than end")
         if mode not in {"DISTANCE", "FOCUS_CONTROL"}:
             raise ValueError("mode must be DISTANCE or FOCUS_CONTROL")
         if interpolation not in _INTERPOLATIONS:
@@ -438,10 +449,12 @@ class _AnimationMixin:
         scene_name,
         camera_name,
         movement_object_name,
-        start_frame,
-        end_frame,
-        start_distance,
-        end_distance,
+        start_frame=None,
+        end_frame=None,
+        start_at_seconds=None,
+        end_at_seconds=None,
+        start_distance=None,
+        end_distance=None,
         subject_object_name=None,
         subject_point=None,
         subject_reference_size=1.0,
@@ -456,10 +469,10 @@ class _AnimationMixin:
             raise ValueError("Dolly zoom requires a perspective camera")
         if framing_axis not in {"HORIZONTAL", "VERTICAL"}:
             raise ValueError("framing_axis must be HORIZONTAL or VERTICAL")
-        start = _frame(start_frame, "start_frame")
-        end = _frame(end_frame, "end_frame")
+        start = _resolve_frame_from_time(start_frame, start_at_seconds, "start", scene)
+        end = _resolve_frame_from_time(end_frame, end_at_seconds, "end", scene)
         if start >= end:
-            raise ValueError("start_frame must be less than end_frame")
+            raise ValueError("start must be less than end")
         start_distance = _finite_number(start_distance, "start_distance")
         end_distance = _finite_number(end_distance, "end_distance")
         if start_distance <= 0 or end_distance <= 0:
@@ -554,8 +567,10 @@ class _AnimationMixin:
         camera_name,
         collection_name,
         control_name,
-        frame_start,
-        frame_end,
+        frame_start=None,
+        frame_end=None,
+        frame_start_at_seconds=None,
+        frame_end_at_seconds=None,
         translation_strength=(0.02, 0.02, 0.01),
         rotation_strength=(0.01, 0.01, 0.02),
         noise_scale=12.0,
@@ -567,8 +582,8 @@ class _AnimationMixin:
         camera = _camera(camera_name, scene=scene)
         collection = _ensure_collection(scene, collection_name)
         _required_name(control_name, "control_name")
-        start = _frame(frame_start, "frame_start")
-        end = _frame(frame_end, "frame_end")
+        start = _resolve_frame_from_time(frame_start, frame_start_at_seconds, "frame_start", scene)
+        end = _resolve_frame_from_time(frame_end, frame_end_at_seconds, "frame_end", scene)
         if start >= end:
             raise ValueError("frame_start must be less than frame_end")
         translation = _vector(translation_strength, "translation_strength")

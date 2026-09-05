@@ -20,20 +20,24 @@ FramingAxis = Literal["HORIZONTAL", "VERTICAL"]
 
 
 class CameraKeyframe(_StrictModel):
-    """One allowlisted camera-rig channel value at one frame."""
+    """One allowlisted camera-rig channel value at one frame or seconds offset."""
 
     object_name: str = Field(min_length=1)
+    scene_name: str | None = None
     owner: AnimationOwner = "OBJECT"
     constraint_name: str | None = None
     data_path: str = Field(min_length=1)
     value: float | tuple[float, float, float] | tuple[float, float, float, float]
-    frame: int = Field(ge=-1_048_574, le=1_048_574)
+    frame: int | None = Field(default=None, ge=-1_048_574, le=1_048_574)
+    at_seconds: float | None = None
     array_index: int | None = Field(default=None, ge=0, le=3)
 
     @model_validator(mode="after")
     def validate_constraint_owner(self) -> "CameraKeyframe":
         if (self.owner == "CONSTRAINT") != (self.constraint_name is not None):
             raise ValueError("constraint_name is required only for CONSTRAINT keyframes")
+        if (self.frame is None) == (self.at_seconds is None):
+            raise ValueError("supply exactly one of frame or at_seconds")
         allowed = {
             "OBJECT": {"location", "rotation_euler", "rotation_quaternion", "scale"},
             "CAMERA_DATA": {"lens", "ortho_scale", "shift_x", "shift_y", "clip_start", "clip_end"},
@@ -101,8 +105,10 @@ async def create_focus_pull(
     ctx: Context,
     scene_name: str,
     camera_name: str,
-    start_frame: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
-    end_frame: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
+    start_frame: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    end_frame: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    start_at_seconds: float | None = None,
+    end_at_seconds: float | None = None,
     start_subject_name: str | None = None,
     start_point: tuple[float, float, float] | None = None,
     end_subject_name: str | None = None,
@@ -113,8 +119,10 @@ async def create_focus_pull(
     collection_name: str = "MCP Camera Controls",
 ) -> dict:
     """Animate camera-space focus distance or a dedicated live focus control between two subjects."""
-    if start_frame >= end_frame:
-        raise ToolError("start_frame must be less than end_frame")
+    if (start_frame is None) == (start_at_seconds is None):
+        raise ToolError("supply exactly one of start_frame or start_at_seconds")
+    if (end_frame is None) == (end_at_seconds is None):
+        raise ToolError("supply exactly one of end_frame or end_at_seconds")
     if (start_subject_name is None) == (start_point is None):
         raise ToolError("Supply exactly one start subject or start point")
     if (end_subject_name is None) == (end_point is None):
@@ -128,10 +136,12 @@ async def create_dolly_zoom(
     scene_name: str,
     camera_name: str,
     movement_object_name: str,
-    start_frame: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
-    end_frame: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
-    start_distance: Annotated[float, Field(gt=0)],
-    end_distance: Annotated[float, Field(gt=0)],
+    start_frame: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    end_frame: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    start_at_seconds: float | None = None,
+    end_at_seconds: float | None = None,
+    start_distance: Annotated[float, Field(gt=0)] = 0,
+    end_distance: Annotated[float, Field(gt=0)] = 0,
     subject_object_name: str | None = None,
     subject_point: tuple[float, float, float] | None = None,
     subject_reference_size: Annotated[float, Field(gt=0)] = 1.0,
@@ -140,8 +150,12 @@ async def create_dolly_zoom(
     interpolation: Interpolation = "LINEAR",
 ) -> dict:
     """Animate a lens/distance pair that approximately preserves an explicit subject reference size."""
-    if start_frame >= end_frame:
-        raise ToolError("start_frame must be less than end_frame")
+    if (start_frame is None) == (start_at_seconds is None):
+        raise ToolError("supply exactly one of start_frame or start_at_seconds")
+    if (end_frame is None) == (end_at_seconds is None):
+        raise ToolError("supply exactly one of end_frame or end_at_seconds")
+    if start_distance == 0 or end_distance == 0:
+        raise ToolError("start_distance and end_distance must be provided and positive")
     if (subject_object_name is None) == (subject_point is None):
         raise ToolError("Supply exactly one subject_object_name or subject_point")
     return await asyncio.to_thread(
@@ -159,8 +173,10 @@ async def add_camera_shake(
     camera_name: str,
     collection_name: str,
     control_name: str,
-    frame_start: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
-    frame_end: Annotated[int, Field(ge=-1_048_574, le=1_048_574)],
+    frame_start: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    frame_end: Annotated[int | None, Field(ge=-1_048_574, le=1_048_574)] = None,
+    frame_start_at_seconds: float | None = None,
+    frame_end_at_seconds: float | None = None,
     translation_strength: tuple[float, float, float] = (0.02, 0.02, 0.01),
     rotation_strength: tuple[float, float, float] = (0.01, 0.01, 0.02),
     noise_scale: Annotated[float, Field(gt=0)] = 12.0,
@@ -169,8 +185,10 @@ async def add_camera_shake(
     influence: Annotated[float, Field(ge=0, le=1)] = 1.0,
 ) -> dict:
     """Add deterministic procedural shake on a new parent control, preserving authored camera curves."""
-    if frame_start >= frame_end:
-        raise ToolError("frame_start must be less than frame_end")
+    if (frame_start is None) == (frame_start_at_seconds is None):
+        raise ToolError("supply exactly one of frame_start or frame_start_at_seconds")
+    if (frame_end is None) == (frame_end_at_seconds is None):
+        raise ToolError("supply exactly one of frame_end or frame_end_at_seconds")
     if not any(translation_strength) and not any(rotation_strength):
         raise ToolError("At least one shake strength component must be non-zero")
     return await asyncio.to_thread(_call, "add_camera_shake", _tool_params(locals()), [camera_name])

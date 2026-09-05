@@ -101,6 +101,21 @@ def _frame(value, label):
     return int(value)
 
 
+def _scene_fps(scene):
+    return scene.render.fps / scene.render.fps_base if scene.render.fps_base else float(scene.render.fps)
+
+
+def _resolve_frame_from_time(frame, at_seconds, label, scene):
+    if (frame is None) == (at_seconds is None):
+        raise ValueError(f"{label} must supply exactly one of frame or at_seconds")
+    if frame is not None:
+        return _frame(frame, f"{label}")
+    seconds = _finite_number(at_seconds, f"{label}.at_seconds")
+    fps = _scene_fps(scene)
+    resolved = _frame(scene.frame_start + seconds * fps, f"{label}.at_seconds")
+    return resolved
+
+
 def _scene(name):
     scene = bpy.data.scenes.get(name)
     if scene is None:
