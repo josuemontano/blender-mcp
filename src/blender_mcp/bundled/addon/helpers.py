@@ -6,6 +6,30 @@ import mathutils
 
 from . import ADDON_ID
 
+_RENDER_ENGINE_CANDIDATES = ("CYCLES", "BLENDER_EEVEE_NEXT", "BLENDER_EEVEE")
+
+
+def runtime_render_engine_identifiers() -> dict[str, str]:
+    """
+    Return supported render engines from Blender's dynamic enum callback.
+
+    Returns:
+        A mapping from each supported engine identifier to its display name.
+
+    """
+    render_settings = bpy.context.scene.render
+    return {
+        identifier: name
+        for identifier in _RENDER_ENGINE_CANDIDATES
+        if (
+            name := bpy.types.UILayout.enum_item_name(
+                render_settings,  # pyright: ignore[reportArgumentType]
+                "engine",
+                identifier,
+            )
+        )
+    }
+
 
 def get_blendermcp_addon_preferences(context=None):
     """

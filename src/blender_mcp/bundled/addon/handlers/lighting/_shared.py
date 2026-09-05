@@ -7,7 +7,7 @@ import os
 import bpy
 import mathutils
 
-from ...helpers import paginate, rotation_as_native_list
+from ...helpers import paginate, rotation_as_native_list, runtime_render_engine_identifiers
 
 COMMON_LIGHT_FIELDS = {
     "energy",
@@ -314,8 +314,7 @@ def light_snapshot(obj, *, include_nodes=False):
 
 def engine_identifiers():
     """Read currently registered render-engine identifiers from runtime RNA."""
-    prop = bpy.types.RenderSettings.bl_rna.properties["engine"]
-    return {item.identifier: item.name for item in prop.enum_items}
+    return runtime_render_engine_identifiers()
 
 
 def resolve_engine(target):

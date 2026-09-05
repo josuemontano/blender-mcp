@@ -5,6 +5,8 @@ import os
 
 import bpy
 
+from ...helpers import runtime_render_engine_identifiers
+
 MANAGED_OWNER = "blender-mcp"
 SUPPORTED_IMAGE_EXTENSIONS = {
     ".bmp",
@@ -73,7 +75,7 @@ def validate_engine(value):
 
 def runtime_engine(value):
     """Resolve a stable Cycles/Eevee name against the running Blender RNA."""
-    identifiers = {item.identifier for item in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items}
+    identifiers = runtime_render_engine_identifiers()
     if value == "CYCLES" and value in identifiers:
         return value
     if value in {"EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"}:
