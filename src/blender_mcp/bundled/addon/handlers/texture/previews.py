@@ -7,6 +7,7 @@ import bmesh
 import bpy
 import mathutils
 
+from ...helpers import runtime_enum_item_name
 from ._shared import material_by_name, runtime_engine, validate_engine
 
 
@@ -38,6 +39,31 @@ def _preview_mesh(name, geometry):
     bm.to_mesh(mesh)
     bm.free()
     return mesh
+
+
+def _configure_preview_color_management(scene: object) -> dict[str, str | float]:
+    """
+    Apply preferred available color-management choices and return their state.
+
+    Args:
+        scene: Scene whose color-management settings should be configured.
+
+    Returns:
+        The resulting view transform, look, and exposure.
+
+    """
+    settings = scene.view_settings
+    if runtime_enum_item_name(settings, "view_transform", "AgX"):
+        settings.view_transform = "AgX"
+    for look in ("AgX - Medium High Contrast", "Medium High Contrast", "None"):
+        if runtime_enum_item_name(settings, "look", look):
+            settings.look = look
+            break
+    return {
+        "view_transform": settings.view_transform,
+        "look": settings.look,
+        "exposure": float(settings.exposure),
+    }
 
 
 class TexturePreviewHandlers:
@@ -113,21 +139,7 @@ class TexturePreviewHandlers:
             render.image_settings.file_format = "PNG"
             render.image_settings.color_mode = "RGBA"
             render.film_transparent = bool(transparent_background)
-            view_items = {
-                item.identifier for item in scene.view_settings.bl_rna.properties["view_transform"].enum_items
-            }
-            if "AgX" in view_items:
-                scene.view_settings.view_transform = "AgX"
-            look_items = {item.identifier for item in scene.view_settings.bl_rna.properties["look"].enum_items}
-            for look in ("AgX - Medium High Contrast", "Medium High Contrast", "None"):
-                if look in look_items:
-                    scene.view_settings.look = look
-                    break
-            color_management = {
-                "view_transform": scene.view_settings.view_transform,
-                "look": scene.view_settings.look,
-                "exposure": float(scene.view_settings.exposure),
-            }
+            color_management = _configure_preview_color_management(scene)
             for engine in engines:
                 scene.render.engine = runtime_engine(engine)
                 if engine == "CYCLES":

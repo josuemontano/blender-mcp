@@ -9,6 +9,26 @@ from . import ADDON_ID
 _RENDER_ENGINE_CANDIDATES = ("CYCLES", "BLENDER_EEVEE_NEXT", "BLENDER_EEVEE")
 
 
+def runtime_enum_item_name(owner: object, property_name: str, identifier: str) -> str:
+    """
+    Resolve an enum identifier through Blender's runtime callback.
+
+    Args:
+        owner: RNA instance that owns the enum property.
+        property_name: RNA enum property identifier.
+        identifier: Candidate enum item identifier.
+
+    Returns:
+        The runtime display name, or an empty string when the item is unavailable.
+
+    """
+    return bpy.types.UILayout.enum_item_name(
+        owner,  # pyright: ignore[reportArgumentType]
+        property_name,
+        identifier,
+    )
+
+
 def runtime_render_engine_identifiers() -> dict[str, str]:
     """
     Return supported render engines from Blender's dynamic enum callback.
@@ -21,13 +41,7 @@ def runtime_render_engine_identifiers() -> dict[str, str]:
     return {
         identifier: name
         for identifier in _RENDER_ENGINE_CANDIDATES
-        if (
-            name := bpy.types.UILayout.enum_item_name(
-                render_settings,  # pyright: ignore[reportArgumentType]
-                "engine",
-                identifier,
-            )
-        )
+        if (name := runtime_enum_item_name(render_settings, "engine", identifier))
     }
 
 

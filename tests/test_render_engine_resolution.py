@@ -42,3 +42,25 @@ def test_runtime_engine_rejects_unavailable_candidates(monkeypatch: pytest.Monke
 
     with pytest.raises(ValueError, match="Render engine 'CYCLES' is unavailable"):
         texture_shared.runtime_engine("CYCLES")
+
+
+def test_preview_color_management_uses_runtime_enum_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Select AgX and its preferred look from Blender's dynamic OCIO enums."""
+    addon, bpy = _load_addon(monkeypatch, data={})
+    settings = types.SimpleNamespace(view_transform="Standard", look="None", exposure=1.25)
+    scene = types.SimpleNamespace(view_settings=settings)
+    names = {
+        ("view_transform", "AgX"): "AgX",
+        ("look", "AgX - Medium High Contrast"): "Medium High Contrast",
+    }
+
+    def enum_item_name(owner: object, property_name: str, identifier: str) -> str:
+        assert owner is settings
+        return names.get((property_name, identifier), "")
+
+    bpy.types.UILayout = types.SimpleNamespace(enum_item_name=enum_item_name)
+    previews = sys.modules[f"{addon.__name__}.handlers.texture.previews"]
+
+    result = previews._configure_preview_color_management(scene)
+
+    assert result == {"view_transform": "AgX", "look": "AgX - Medium High Contrast", "exposure": 1.25}
