@@ -2,14 +2,15 @@
 
 import asyncio
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from mcp.server.fastmcp import Context
+from mcp.server.fastmcp import Context, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field, model_validator
 
 from ...app import mcp
-from ._shared import LightType, StrictLightingInput, call_blender, dump_input
+from ._shared import LightType, StrictLightingInput, StudioLightingMood, call_blender, dump_input
+from .rendering import render_lighting_preview
 
 
 class LightSettings(StrictLightingInput):
@@ -224,3 +225,60 @@ async def configure_light_linking(
         },
         [light_name],
     )
+
+
+@mcp.tool(structured_output=False)
+async def create_studio_lighting(
+    ctx: Context,
+    scene_name: str,
+    target_object_name: str,
+    camera_name: str,
+    frame: int,
+    mood: StudioLightingMood = "SOFT",
+    key_ratio: Annotated[float | None, Field(gt=0)] = None,
+    rig_name: str | None = None,
+    collection_name: str = "Studio Lighting",
+    preview_engine: Literal["CYCLES", "EEVEE"] = "EEVEE",
+    preview_width: Annotated[int, Field(ge=16, le=1024)] = 512,
+    preview_height: Annotated[int, Field(ge=16, le=1024)] = 512,
+    preview_samples: Annotated[int, Field(ge=1, le=1024)] = 32,
+    preview_output_path: str | None = None,
+    confirm_overwrite: bool = False,
+    confirm_long_render: bool = False,
+) -> list[Image | dict]:
+    """Build a preset key/fill/rim AREA-light rig around a target and render a preview.
+
+    A one-call preset layer over create_light + aim_light: ratio, softbox sizing, and placement
+    conventions for the requested mood are encoded here instead of left to the caller. The rig is
+    sized off the target's evaluated bounding box and aimed using the given camera as the front
+    reference axis, which is also the camera used for the mandatory render_lighting_preview call.
+    Returns the rig-creation result (names and roles of the created lights), the preview image(s),
+    and the preview's own result envelope, in that order.
+    """
+    rig_result = await asyncio.to_thread(
+        call_blender,
+        "create_studio_lighting",
+        {
+            "scene_name": scene_name,
+            "target_object_name": target_object_name,
+            "camera_name": camera_name,
+            "mood": mood,
+            "key_ratio": key_ratio,
+            "rig_name": rig_name,
+            "collection_name": collection_name,
+        },
+    )
+    preview = await render_lighting_preview(
+        ctx,
+        scene_name=scene_name,
+        camera_name=camera_name,
+        frame=frame,
+        target_engine=preview_engine,
+        width=preview_width,
+        height=preview_height,
+        samples=preview_samples,
+        output_path=preview_output_path,
+        confirm_overwrite=confirm_overwrite,
+        confirm_long_render=confirm_long_render,
+    )
+    return [rig_result, *preview]

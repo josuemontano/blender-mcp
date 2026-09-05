@@ -742,3 +742,36 @@ async def reset_scene(
             "purge_orphaned_data": purge_orphaned_data,
         },
     )
+
+
+@mcp.tool()
+async def validate_scene(
+    ctx: Context,
+    scene_name: str,
+    scope: Annotated[
+        list[Literal["scene", "camera", "lighting", "pbr", "cloth", "liquid"]],
+        Field(min_length=1, max_length=6),
+    ]
+    | None = None,
+    max_findings: Annotated[int, Field(ge=1, le=1000)] = 300,
+) -> dict:
+    """Run one bounded, non-mutating pre-render preflight aggregating every domain validator.
+
+    Orchestrates ``validate_pbr_asset``, ``validate_lighting_setup``, ``validate_cloth_setup``,
+    ``validate_liquid_setup``, and ``validate_camera_rig`` for this scene, plus scene-level checks
+    no domain owns: camera/light presence (only when the camera and lighting domains are both
+    excluded from scope, since each already reports missing-camera findings on its own), frame
+    range consistency, unapplied mesh scale, degenerate base-mesh geometry, and dirty cloth/rigid-
+    body simulation caches.
+
+    Findings are normalized to ``{domain, severity, code, subject, message, evidence,
+    remediation}``, sorted by severity, and bounded by ``max_findings``. Check ``truncated`` and
+    ``domain_summaries`` before trusting an empty result as "clean" - a domain can be truncated
+    internally even while the top-level list still has room. Passing this check does not replace
+    representative evaluated-frame review in Blender.
+    """
+    return await asyncio.to_thread(
+        _call,
+        "validate_scene",
+        {"scene_name": scene_name, "scope": scope, "max_findings": max_findings},
+    )

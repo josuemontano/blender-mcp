@@ -47,7 +47,7 @@ class TextureValidationHandlers:
                             "Assign or remove the empty slot deliberately.",
                         )
                     )
-            else:
+            if obj.data.uv_layers:
                 active_uv = obj.data.uv_layers.active or obj.data.uv_layers[0]
                 uv_report = self.inspect_uv_layout(obj.name, active_uv.name, overlap_pair_limit)
                 metrics = uv_report["uv_maps"][0]

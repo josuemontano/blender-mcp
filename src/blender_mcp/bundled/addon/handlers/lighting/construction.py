@@ -1,6 +1,8 @@
 # pyright: reportArgumentType=false, reportGeneralTypeIssues=false, reportOptionalSubscript=false
 """Light creation, typed configuration, parent-safe aiming, and linking handlers."""
 
+import math
+
 import bpy
 import mathutils
 
@@ -10,6 +12,8 @@ from ._shared import (
     collection_is_in_tree,
     ensure_collection,
     evaluated_bounds_point,
+    evaluated_object_bounds,
+    finite_number,
     finite_vector,
     light_linking_snapshot,
     light_object,
@@ -23,6 +27,46 @@ from ._shared import (
 )
 
 LIGHTING_OWNER = "blender-mcp"
+
+# Placement distance (multiplier on the target's evaluated bounding-sphere radius) for each rig
+# role. Kept mood-independent: apparent softbox size (STUDIO_LIGHTING_MOODS[...]["size_factor"])
+# is what actually drives hard-vs-soft shadow character at a given distance.
+STUDIO_LIGHTING_DISTANCE_FACTORS = {"key": 3.5, "fill": 4.5, "rim": 3.0}
+
+_DEGENERATE_BOUNDS_EPSILON = 1e-6
+_ZERO_VECTOR_EPSILON = 1e-9
+
+# Photographic key/fill/rim presets. Angles are degrees measured from the horizontal projection of
+# the camera-to-subject axis ("forward"), rotated around world Z; rim's azimuth sits near the far
+# side (~180 degrees) so it grazes the subject's silhouette instead of aiming straight at the lens.
+# size_factor scales the AREA light's SQUARE `size` off the same bounding-sphere radius, so a light's
+# apparent angular size (softness) is size_factor/distance_factor - independent of scene scale.
+STUDIO_LIGHTING_MOODS = {
+    "SOFT": {
+        "default_key_ratio": 2.0,
+        "rim_ratio": 1.5,
+        "irradiance_constant": 90.0,
+        "key": {"elevation": 40.0, "azimuth": 35.0, "size_factor": 3.5},
+        "fill": {"elevation": 20.0, "azimuth": -45.0, "size_factor": 4.0},
+        "rim": {"elevation": 55.0, "azimuth": 160.0, "size_factor": 1.8},
+    },
+    "HIGH_CONTRAST": {
+        "default_key_ratio": 8.0,
+        "rim_ratio": 1.0,
+        "irradiance_constant": 140.0,
+        "key": {"elevation": 25.0, "azimuth": 45.0, "size_factor": 1.0},
+        "fill": {"elevation": 15.0, "azimuth": -55.0, "size_factor": 1.5},
+        "rim": {"elevation": 45.0, "azimuth": 165.0, "size_factor": 0.8},
+    },
+    "BEAUTY": {
+        "default_key_ratio": 3.0,
+        "rim_ratio": 2.5,
+        "irradiance_constant": 70.0,
+        "key": {"elevation": 50.0, "azimuth": 20.0, "size_factor": 4.5, "temperature": 3200.0},
+        "fill": {"elevation": 35.0, "azimuth": -25.0, "size_factor": 3.5, "temperature": 3600.0},
+        "rim": {"elevation": 60.0, "azimuth": 160.0, "size_factor": 1.5, "temperature": 5600.0},
+    },
+}
 
 
 def _validate_target_bone(target, bone_name):
@@ -335,4 +379,137 @@ class LightConstructionHandlers:
             "engine_support": ["CYCLES", "EEVEE"],
             "warnings": ["Render matched engine previews because linked-shadow behavior can differ by engine."],
             "changed_objects": [light.name] if changed else [],
+        }
+
+    def create_studio_lighting(
+        self,
+        scene_name,
+        target_object_name,
+        camera_name,
+        mood="SOFT",
+        key_ratio=None,
+        rig_name=None,
+        collection_name="Studio Lighting",
+    ):
+        """Build a photographically-sound key/fill/rim AREA-light rig sized to a target's bounds.
+
+        Orchestrates create_light + aim_light for each role instead of duplicating their validation
+        or mutation logic; placement, softbox size, and energy all scale off the target's evaluated
+        bounding-sphere radius so the rig is proportionate regardless of scene scale.
+        """
+        scene = scene_by_name(scene_name)
+        target = object_in_scene(scene, target_object_name)
+        camera = object_in_scene(scene, camera_name)
+        if camera.type != "CAMERA":
+            raise ValueError(f"Object '{camera_name}' is not a camera")
+        if mood not in STUDIO_LIGHTING_MOODS:
+            raise ValueError(f"mood must be one of {sorted(STUDIO_LIGHTING_MOODS)}")
+        preset = STUDIO_LIGHTING_MOODS[mood]
+        if key_ratio is None:
+            key_ratio = preset["default_key_ratio"]
+        else:
+            key_ratio = finite_number(key_ratio, "key_ratio")
+            if key_ratio <= 0:
+                raise ValueError("key_ratio must be positive")
+        rig_name = required_name(rig_name or target_object_name, "rig_name")
+
+        names = {role: f"{rig_name} {role.capitalize()}" for role in ("key", "fill", "rim")}
+        for obj_name in names.values():
+            if bpy.data.objects.get(obj_name) is not None:
+                raise ValueError(f"Object already exists: {obj_name}")
+            data_name = f"{obj_name} Light"
+            if bpy.data.lights.get(data_name) is not None:
+                raise ValueError(f"Light datablock already exists: {data_name}")
+
+        minimum, maximum = evaluated_object_bounds(target)
+        center = (minimum + maximum) * 0.5
+        bbox_radius = (maximum - minimum).length / 2.0
+        if bbox_radius <= _DEGENERATE_BOUNDS_EPSILON:
+            raise ValueError(f"Object '{target_object_name}' has degenerate evaluated bounds")
+
+        camera_offset = camera.matrix_world.translation - center
+        forward = mathutils.Vector((camera_offset.x, camera_offset.y, 0.0))
+        if forward.length_squared <= _ZERO_VECTOR_EPSILON:
+            forward = mathutils.Vector((0.0, -1.0, 0.0))
+        forward.normalize()
+
+        collection = bpy.data.collections.get(collection_name)
+        collection_existed = collection is not None
+        collection_was_in_scene = collection_existed and collection_is_in_tree(scene.collection, collection)
+
+        key_distance = bbox_radius * STUDIO_LIGHTING_DISTANCE_FACTORS["key"]
+        key_energy = preset["irradiance_constant"] * key_distance**2
+        role_energy = {"key": key_energy, "fill": key_energy / key_ratio, "rim": key_energy / preset["rim_ratio"]}
+
+        created_roles = []
+        lights = []
+        try:
+            for role in ("key", "fill", "rim"):
+                role_preset = preset[role]
+                distance = bbox_radius * STUDIO_LIGHTING_DISTANCE_FACTORS[role]
+                elevation = math.radians(role_preset["elevation"])
+                azimuth = math.radians(role_preset["azimuth"])
+                direction = forward.copy()
+                direction.rotate(mathutils.Quaternion((0.0, 0.0, 1.0), azimuth))
+                location = (
+                    center
+                    + direction * (distance * math.cos(elevation))
+                    + mathutils.Vector((0.0, 0.0, distance * math.sin(elevation)))
+                )
+                settings = {
+                    "energy": role_energy[role],
+                    "shape": "SQUARE",
+                    "size": bbox_radius * role_preset["size_factor"],
+                }
+                if "temperature" in role_preset:
+                    settings["use_temperature"] = True
+                    settings["temperature"] = role_preset["temperature"]
+                created = self.create_light(
+                    scene.name,
+                    collection_name,
+                    names[role],
+                    "AREA",
+                    tuple(location),
+                    settings=settings,
+                )
+                created_roles.append(role)
+                self.aim_light(scene.name, names[role], target_point=tuple(center))
+                lights.append(
+                    {
+                        "role": role,
+                        "object": created["object"],
+                        "light_data": created["light_data"],
+                        "energy": created["settings"]["energy"],
+                        "transform": transform_snapshot(bpy.data.objects[names[role]]),
+                    }
+                )
+        except Exception:
+            for role in created_roles:
+                obj = bpy.data.objects.get(names[role])
+                if obj is None:
+                    continue
+                data = obj.data
+                bpy.data.objects.remove(obj, do_unlink=True)
+                if data is not None and data.users == 0:
+                    bpy.data.lights.remove(data)
+            collection = bpy.data.collections.get(collection_name)
+            if collection is not None and not collection_was_in_scene:
+                linked = scene.collection.children.get(collection.name)
+                if linked == collection:
+                    scene.collection.children.unlink(collection)
+            if collection is not None and not collection_existed and collection.users == 0:
+                bpy.data.collections.remove(collection)
+            raise
+
+        return {
+            "scene": scene.name,
+            "rig_name": rig_name,
+            "target_object": target.name,
+            "camera": camera.name,
+            "mood": mood,
+            "key_ratio": key_ratio,
+            "collection": collection_name,
+            "lights": lights,
+            "changed_objects": [entry["object"] for entry in lights],
+            "changed_resources": [entry["light_data"] for entry in lights],
         }

@@ -3,8 +3,9 @@ Shared structured-result envelope for MCP tool return values.
 
 Every tool that returns a dict (all tools except `get_viewport_screenshot`,
 `get_sketchfab_model_preview`, `render_lighting_preview`, `render_pbr_material_preview`,
-and `inspect_render_output`, which return an image plus this same envelope as a second
-content item - see their docstrings) uses `ok()` to build it:
+`inspect_render_output`, and `create_studio_lighting`, which return one or more images
+plus this same envelope as additional content items - see their docstrings) uses `ok()`
+to build it:
 
 Of those five, only `get_viewport_screenshot` is a live viewport capture (OpenGL/GPU
 offscreen draw, not a render). `render_lighting_preview` and `render_pbr_material_preview`

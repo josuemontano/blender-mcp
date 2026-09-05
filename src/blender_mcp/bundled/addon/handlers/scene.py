@@ -3,10 +3,147 @@
 
 import os
 
+from collections import Counter
+
 import bpy
 import mathutils
 
 from ..helpers import apply_modifier, modifier_result, rotation_as_native_list
+
+_VALIDATE_SCENE_DOMAINS = ("scene", "camera", "lighting", "pbr", "cloth", "liquid")
+
+
+def _normalized_domain_finding(domain, item):
+    message = item.get("message")
+    evidence = item.get("evidence")
+    if message is None and isinstance(evidence, str):
+        message, evidence = evidence, None
+    return {
+        "domain": domain,
+        "severity": item["severity"],
+        "code": item.get("code"),
+        "subject": item.get("subject") or item.get("object") or item.get("resource"),
+        "message": message,
+        "evidence": evidence,
+        "remediation": item.get("remediation"),
+    }
+
+
+def _scene_level_findings(scene, active_domains):
+    findings = []
+
+    def add(severity, code, subject, message, evidence=None, remediation=None):
+        findings.append(
+            {
+                "domain": "scene",
+                "severity": severity,
+                "code": code,
+                "subject": subject,
+                "message": message,
+                "evidence": evidence,
+                "remediation": remediation,
+            }
+        )
+
+    if "camera" not in active_domains and "lighting" not in active_domains:
+        if scene.camera is None:
+            add(
+                "ERROR",
+                "MISSING_CAMERA",
+                scene.name,
+                "The scene has no active render camera.",
+                remediation="Assign an explicit scene camera before rendering.",
+            )
+        elif scene.camera.type != "CAMERA":
+            add(
+                "ERROR",
+                "INVALID_SCENE_CAMERA",
+                scene.camera.name,
+                "The active scene object is not a camera.",
+                remediation="Assign a camera object as the scene camera.",
+            )
+
+    if not any(obj.type == "LIGHT" for obj in scene.objects):
+        add(
+            "WARNING",
+            "MISSING_LIGHTS",
+            scene.name,
+            "The scene has no light objects.",
+            remediation="Add at least one light, or confirm the world background provides the intended illumination.",
+        )
+
+    if scene.frame_end < scene.frame_start:
+        add(
+            "ERROR",
+            "INVALID_FRAME_RANGE",
+            scene.name,
+            "frame_end is before frame_start.",
+            evidence={"frame_start": scene.frame_start, "frame_end": scene.frame_end},
+            remediation="Set frame_end to a value at or after frame_start.",
+        )
+
+    for obj in scene.objects:
+        action = obj.animation_data.action if obj.animation_data else None
+        if action is None:
+            continue
+        start, end = action.frame_range
+        if start < scene.frame_start or end > scene.frame_end:
+            add(
+                "WARNING",
+                "ANIMATION_OUTSIDE_FRAME_RANGE",
+                obj.name,
+                "The object's action extends outside the scene's playback frame range.",
+                evidence={
+                    "action_frame_range": [start, end],
+                    "scene_frame_range": [scene.frame_start, scene.frame_end],
+                },
+                remediation="Extend the scene frame range, or trim/retime the action.",
+            )
+
+    for obj in scene.objects:
+        if obj.type != "MESH":
+            continue
+        if any(abs(component - 1.0) > 1e-4 for component in obj.scale):
+            add(
+                "WARNING",
+                "UNAPPLIED_SCALE",
+                obj.name,
+                "Object scale is not applied (not 1.0 on every axis).",
+                evidence={"scale": [round(float(value), 6) for value in obj.scale]},
+                remediation="Apply scale (Object > Apply > Scale) if this asset is finalized for delivery.",
+            )
+        degenerate = sum(1 for polygon in obj.data.polygons if polygon.area <= 1e-12)
+        if degenerate:
+            add(
+                "WARNING",
+                "DEGENERATE_GEOMETRY",
+                obj.name,
+                f"{degenerate} zero-area face(s) in the base mesh.",
+                evidence={"zero_area_face_count": degenerate},
+                remediation="Repair or remove degenerate faces before rendering.",
+            )
+        for modifier in obj.modifiers:
+            if modifier.type == "CLOTH" and modifier.point_cache.is_outdated:
+                add(
+                    "WARNING",
+                    "DIRTY_SIMULATION_CACHE",
+                    obj.name,
+                    f"Cloth modifier '{modifier.name}' cache is outdated relative to current settings.",
+                    evidence={"modifier": modifier.name, "kind": "CLOTH"},
+                    remediation="Rebake this cloth cache before relying on cached playback.",
+                )
+
+    if scene.rigidbody_world is not None and scene.rigidbody_world.point_cache.is_outdated:
+        add(
+            "WARNING",
+            "DIRTY_SIMULATION_CACHE",
+            scene.name,
+            "Rigid body world cache is outdated relative to current settings.",
+            evidence={"kind": "RIGID_BODY_WORLD"},
+            remediation="Rebake the rigid body world cache before relying on cached playback.",
+        )
+
+    return findings
 
 
 def _required_name(value, label):
@@ -1099,6 +1236,88 @@ class SceneHandlersMixin:
             "purged_datablock_count": purged_datablock_count,
             "changed_objects": unlinked_objects,
             "changed_resources": unlinked_collections,
+        }
+
+    def validate_scene(self, scene_name, scope=None, max_findings=300):
+        if not 1 <= int(max_findings) <= 1000:
+            raise ValueError("max_findings must be in [1, 1000]")
+        scene = bpy.data.scenes.get(_required_name(scene_name, "scene_name"))
+        if scene is None:
+            raise ValueError(f"Scene not found: {scene_name}")
+        if scope is not None:
+            if not scope:
+                raise ValueError("scope must contain at least one domain when provided")
+            unknown = sorted(set(scope) - set(_VALIDATE_SCENE_DOMAINS))
+            if unknown:
+                raise ValueError(f"Unknown validation scope domain(s): {unknown}")
+            domains = [domain for domain in _VALIDATE_SCENE_DOMAINS if domain in scope]
+        else:
+            domains = list(_VALIDATE_SCENE_DOMAINS)
+
+        findings = []
+        domain_summaries = {}
+
+        def record(domain, items, *, truncated=False):
+            normalized = [_normalized_domain_finding(domain, item) for item in items]
+            findings.extend(normalized)
+            domain_summaries[domain] = {"findings": len(normalized), "truncated": bool(truncated)}
+
+        if "camera" in domains:
+            result = self.validate_camera_rig(scene.name)
+            record("camera", result.get("findings", []))
+
+        if "lighting" in domains:
+            result = self.validate_lighting_setup(scene.name, limit=200, offset=0)
+            record("lighting", result.get("findings", []), truncated=result.get("truncated", False))
+
+        if "pbr" in domains:
+            mesh_names = sorted(obj.name for obj in scene.objects if obj.type == "MESH")
+            if mesh_names:
+                result = self.validate_pbr_asset(object_names=mesh_names)
+                record("pbr", result.get("findings", []))
+            else:
+                domain_summaries["pbr"] = {"findings": 0, "truncated": False}
+
+        if "cloth" in domains:
+            result = self.validate_cloth_setup(scene.name, max_findings=int(max_findings))
+            record("cloth", result.get("findings", []), truncated=result.get("truncated", False))
+
+        if "liquid" in domains:
+            result = self.validate_liquid_setup(scene.name, max_findings=int(max_findings))
+            record("liquid", result.get("findings", []), truncated=result.get("truncated", False))
+
+        if "scene" in domains:
+            record("scene", _scene_level_findings(scene, domains))
+
+        severity_order = {"ERROR": 0, "WARNING": 1, "INFO": 2}
+        findings.sort(
+            key=lambda item: (
+                severity_order.get(item["severity"], 3),
+                item["domain"],
+                str(item["code"]),
+                str(item["subject"]),
+            )
+        )
+        domain_truncated = any(summary["truncated"] for summary in domain_summaries.values())
+        truncated = len(findings) > max_findings or domain_truncated
+        returned = findings[: int(max_findings)]
+
+        return {
+            "scene": scene.name,
+            "domains_checked": domains,
+            "domain_summaries": domain_summaries,
+            "findings": returned,
+            "summary": dict(Counter(item["severity"] for item in findings)),
+            "total_findings": len(findings),
+            "truncated": truncated,
+            "ready": not any(item["severity"] == "ERROR" for item in findings),
+            "limitations": [
+                "Aggregates validate_pbr_asset, validate_lighting_setup, validate_cloth_setup, "
+                "validate_liquid_setup, and validate_camera_rig plus scene-level checks (camera/light presence "
+                "when those domains are excluded from scope, frame range consistency, unapplied scale, "
+                "degenerate geometry, dirty cloth/rigid-body caches); it is a structural preflight, not a "
+                "rendered-frame review.",
+            ],
         }
 
 

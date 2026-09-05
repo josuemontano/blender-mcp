@@ -538,6 +538,7 @@ class BlenderMCPServer(
             "manage_modifiers": self.manage_modifiers,
             "remove_scene_objects": self.remove_scene_objects,
             "reset_scene": self.reset_scene,
+            "validate_scene": self.validate_scene,
             "inspect_render_setup": self.inspect_render_setup,
             "configure_render_settings": self.configure_render_settings,
             "get_scene_physics_info": self.get_scene_physics_info,
@@ -684,6 +685,7 @@ class BlenderMCPServer(
             "configure_light": self.configure_light,
             "aim_light": self.aim_light,
             "configure_light_linking": self.configure_light_linking,
+            "create_studio_lighting": self.create_studio_lighting,
             "configure_world_background": self.configure_world_background,
             "configure_hdri_environment": self.configure_hdri_environment,
             "configure_procedural_sky": self.configure_procedural_sky,
@@ -860,6 +862,7 @@ class BlenderMCPServer(
             "inspect_render_setup",
             "inspect_render_output",
             "get_scene_physics_info",
+            "validate_scene",
         }
     )
 

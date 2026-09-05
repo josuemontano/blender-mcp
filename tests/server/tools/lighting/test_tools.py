@@ -23,6 +23,7 @@ LIGHTING_COMMANDS = {
     "configure_light",
     "aim_light",
     "configure_light_linking",
+    "create_studio_lighting",
     "configure_world_background",
     "configure_hdri_environment",
     "configure_procedural_sky",
@@ -146,6 +147,36 @@ def test_aim_light_rejects_ambiguous_target_before_dispatch(monkeypatch) -> None
         )
 
     assert connection.calls == []
+
+
+def test_create_studio_lighting_dispatches_rig_then_preview(monkeypatch) -> None:
+    connection = StubConnection({"lights": [], "changed_objects": []})
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    result = run_tool(
+        lighting.create_studio_lighting,
+        scene_name="Scene",
+        target_object_name="Product",
+        camera_name="Camera",
+        frame=1,
+        preview_output_path="/tmp/studio_preview.png",
+    )
+
+    assert [call[0] for call in connection.calls] == ["create_studio_lighting", "render_lighting_preview"]
+    rig_command, preview_command = connection.calls
+    assert rig_command[1] == {
+        "scene_name": "Scene",
+        "target_object_name": "Product",
+        "camera_name": "Camera",
+        "mood": "SOFT",
+        "key_ratio": None,
+        "rig_name": None,
+        "collection_name": "Studio Lighting",
+    }
+    assert preview_command[1]["camera_name"] == "Camera"
+    assert preview_command[1]["target_engine"] == "EEVEE"
+    assert preview_command[1]["output_paths"] == {"EEVEE": "/tmp/studio_preview.png"}
+    assert [item["data"] for item in result] == [{"lights": []}, {"lights": []}]
 
 
 def test_lighting_quality_expands_strict_agent_payload(monkeypatch) -> None:
