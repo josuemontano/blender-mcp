@@ -16,6 +16,7 @@ import bpy
 import mathutils
 
 from ...helpers import paginate, sync_from_editmode
+from ._geometry import _cube_geometry
 from .manifest import read_manifest
 from .manifest import register_objects as register_manifest_objects
 
@@ -594,22 +595,6 @@ def _link_object(collection, obj):
         return False
     collection.objects.link(obj)
     return True
-
-
-def _cube_geometry(dimensions):
-    half = [value * 0.5 for value in dimensions]
-    vertices = [
-        (-half[0], -half[1], -half[2]),
-        (half[0], -half[1], -half[2]),
-        (half[0], half[1], -half[2]),
-        (-half[0], half[1], -half[2]),
-        (-half[0], -half[1], half[2]),
-        (half[0], -half[1], half[2]),
-        (half[0], half[1], half[2]),
-        (-half[0], half[1], half[2]),
-    ]
-    faces = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (4, 0, 3, 7)]
-    return vertices, faces
 
 
 def _validate_dimensions(values, label):
@@ -1353,6 +1338,65 @@ class LiquidInspectionAndSetupHandlers:
             )
         return collection
 
+    def _prepare_fluid_role(
+        self,
+        object_name,
+        domain_object_name,
+        modifier_name,
+        existing_policy,
+        role,
+        domain_type="LIQUID",
+    ):
+        """Validate and stage a flow/effector modifier without configuring its RNA settings."""
+        obj = _get_object(object_name, {"MESH"})
+        sync_from_editmode(obj)
+        if not obj.data.vertices or not obj.data.polygons:
+            raise ValueError(f"{role.title()} mesh '{object_name}' must contain vertices and faces")
+        domain_obj, domain_modifier, domain = _get_domain(
+            domain_object_name,
+            expected_domain_type=domain_type,
+        )
+        _reject_baked(domain)
+        if obj == domain_obj:
+            raise ValueError(f"A {domain_type.lower()} domain cannot also be its own {role.lower()}")
+        if existing_policy not in {"ERROR", "REUSE"}:
+            raise ValueError("existing_policy must be ERROR or REUSE")
+        collection = self._domain_collection_for_role(domain, role)
+        modifier = obj.modifiers.get(modifier_name)
+        created = modifier is None
+        if modifier is not None:
+            if existing_policy == "ERROR":
+                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
+            modifier = _get_fluid_modifier(obj, modifier_name, role)
+        else:
+            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
+        return obj, domain_obj, domain_modifier, domain, collection, modifier, created
+
+    @staticmethod
+    def _initialize_fluid_role(modifier, role, created):
+        """Initialize and return Blender's role-specific fluid settings."""
+        if created:
+            modifier.fluid_type = role
+            bpy.context.view_layer.update()
+        settings = getattr(modifier, f"{role.lower()}_settings")
+        if settings is None:
+            raise RuntimeError(f"Blender did not initialize Fluid{role.title()}Settings")
+        return settings
+
+    @staticmethod
+    def _rollback_fluid_role(obj, modifier, role, changes, collection, linked, created, identity=None):
+        """Undo a partially configured flow/effector component."""
+        _untag_liquid_object(identity)
+        settings = getattr(modifier, f"{role.lower()}_settings")
+        if changes and settings is not None:
+            _restore_rna(settings, changes)
+        if linked:
+            with contextlib.suppress(Exception):
+                collection.objects.unlink(obj)
+        if created:
+            with contextlib.suppress(Exception):
+                obj.modifiers.remove(modifier)
+
     def add_liquid_flow(
         self,
         object_name,
@@ -1362,35 +1406,18 @@ class LiquidInspectionAndSetupHandlers:
         behavior="GEOMETRY",
         settings=None,
     ):
-        obj = _get_object(object_name, {"MESH"})
-        sync_from_editmode(obj)
-        if not obj.data.vertices or not obj.data.polygons:
-            raise ValueError(f"Flow mesh '{object_name}' must contain vertices and faces")
-        domain_obj, domain_modifier, domain = _get_domain(domain_object_name)
-        _reject_baked(domain)
-        if obj == domain_obj:
-            raise ValueError("A liquid domain cannot also be its own flow")
-        if existing_policy not in {"ERROR", "REUSE"}:
-            raise ValueError("existing_policy must be ERROR or REUSE")
-        collection = self._domain_collection_for_role(domain, "FLOW")
-        existing = obj.modifiers.get(modifier_name)
-        created = existing is None
+        obj, domain_obj, domain_modifier, domain, collection, modifier, created = self._prepare_fluid_role(
+            object_name,
+            domain_object_name,
+            modifier_name,
+            existing_policy,
+            "FLOW",
+        )
         linked = False
         changes = {}
         identity = None
-        if existing is not None:
-            if existing_policy == "ERROR":
-                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
-            modifier = _get_fluid_modifier(obj, modifier_name, "FLOW")
-        else:
-            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
         try:
-            if created:
-                modifier.fluid_type = "FLOW"
-                bpy.context.view_layer.update()
-            flow = modifier.flow_settings
-            if flow is None:
-                raise RuntimeError("Blender did not initialize FluidFlowSettings after dependency-graph update")
+            flow = self._initialize_fluid_role(modifier, "FLOW", created)
             if not created and flow.flow_type != "LIQUID":
                 raise ValueError("REUSE requires an existing LIQUID flow")
             if created:
@@ -1402,15 +1429,7 @@ class LiquidInspectionAndSetupHandlers:
             identity = _tag_liquid_object(obj, "FLOW")
             bpy.context.view_layer.update()
         except Exception:
-            _untag_liquid_object(identity)
-            if changes and modifier.flow_settings is not None:
-                _restore_rna(modifier.flow_settings, changes)
-            if linked:
-                with contextlib.suppress(Exception):
-                    collection.objects.unlink(obj)
-            if created:
-                with contextlib.suppress(Exception):
-                    obj.modifiers.remove(modifier)
+            self._rollback_fluid_role(obj, modifier, "FLOW", changes, collection, linked, created, identity)
             raise
         domain_uuid = _ensure_liquid_uuid(domain_obj)
         manifest = _register_owned_objects(domain, domain_uuid, [(identity["uuid"], obj.name, "FLOW")])
@@ -1482,35 +1501,18 @@ class LiquidInspectionAndSetupHandlers:
         effector_type="COLLISION",
         settings=None,
     ):
-        obj = _get_object(object_name, {"MESH"})
-        sync_from_editmode(obj)
-        if not obj.data.vertices or not obj.data.polygons:
-            raise ValueError(f"Effector mesh '{object_name}' must contain vertices and faces")
-        domain_obj, domain_modifier, domain = _get_domain(domain_object_name)
-        _reject_baked(domain)
-        if obj == domain_obj:
-            raise ValueError("A liquid domain cannot also be its own effector")
-        if existing_policy not in {"ERROR", "REUSE"}:
-            raise ValueError("existing_policy must be ERROR or REUSE")
-        collection = self._domain_collection_for_role(domain, "EFFECTOR")
-        existing = obj.modifiers.get(modifier_name)
-        created = existing is None
+        obj, domain_obj, domain_modifier, domain, collection, modifier, created = self._prepare_fluid_role(
+            object_name,
+            domain_object_name,
+            modifier_name,
+            existing_policy,
+            "EFFECTOR",
+        )
         linked = False
         changes = {}
         identity = None
-        if existing is not None:
-            if existing_policy == "ERROR":
-                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
-            modifier = _get_fluid_modifier(obj, modifier_name, "EFFECTOR")
-        else:
-            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
         try:
-            if created:
-                modifier.fluid_type = "EFFECTOR"
-                bpy.context.view_layer.update()
-            effector = modifier.effector_settings
-            if effector is None:
-                raise RuntimeError("Blender did not initialize FluidEffectorSettings after dependency-graph update")
+            effector = self._initialize_fluid_role(modifier, "EFFECTOR", created)
             patch = dict(settings or {})
             patch["effector_type"] = effector_type
             changes = _patch_rna(effector, patch, _EFFECTOR_FIELDS)
@@ -1518,15 +1520,7 @@ class LiquidInspectionAndSetupHandlers:
             identity = _tag_liquid_object(obj, "GUIDE" if effector_type == "GUIDE" else "EFFECTOR")
             bpy.context.view_layer.update()
         except Exception:
-            _untag_liquid_object(identity)
-            if changes and modifier.effector_settings is not None:
-                _restore_rna(modifier.effector_settings, changes)
-            if linked:
-                with contextlib.suppress(Exception):
-                    collection.objects.unlink(obj)
-            if created:
-                with contextlib.suppress(Exception):
-                    obj.modifiers.remove(modifier)
+            self._rollback_fluid_role(obj, modifier, "EFFECTOR", changes, collection, linked, created, identity)
             raise
         domain_uuid = _ensure_liquid_uuid(domain_obj)
         manifest = _register_owned_objects(domain, domain_uuid, [(identity["uuid"], obj.name, identity["role"])])
@@ -2271,33 +2265,18 @@ class LiquidInspectionAndSetupHandlers:
             )
         if domain_type != "GAS":
             raise ValueError("domain_type must be LIQUID or GAS")
-        obj = _get_object(object_name, {"MESH"})
-        sync_from_editmode(obj)
-        if not obj.data.vertices or not obj.data.polygons:
-            raise ValueError(f"Flow mesh '{object_name}' must contain vertices and faces")
-        domain_obj, _domain_modifier, domain = _get_domain(domain_object_name, expected_domain_type="GAS")
-        if obj == domain_obj:
-            raise ValueError("A fluid domain cannot also be its own flow")
-        if existing_policy not in {"ERROR", "REUSE"}:
-            raise ValueError("existing_policy must be ERROR or REUSE")
-        collection = self._domain_collection_for_role(domain, "FLOW")
-        existing = obj.modifiers.get(modifier_name)
-        created = existing is None
-        if existing is not None:
-            if existing_policy == "ERROR":
-                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
-            modifier = _get_fluid_modifier(obj, modifier_name, "FLOW")
-        else:
-            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
+        obj, domain_obj, _domain_modifier, _domain, collection, modifier, created = self._prepare_fluid_role(
+            object_name,
+            domain_object_name,
+            modifier_name,
+            existing_policy,
+            "FLOW",
+            "GAS",
+        )
         linked = False
         changes = {}
         try:
-            if created:
-                modifier.fluid_type = "FLOW"
-                bpy.context.view_layer.update()
-            flow = modifier.flow_settings
-            if flow is None:
-                raise RuntimeError("Blender did not initialize FluidFlowSettings")
+            flow = self._initialize_fluid_role(modifier, "FLOW", created)
             if not created and flow.flow_type not in {"SMOKE", "FIRE", "BOTH"}:
                 raise ValueError("REUSE requires an existing gas flow")
             flow.flow_type = gas_flow_type
@@ -2307,14 +2286,7 @@ class LiquidInspectionAndSetupHandlers:
             linked = _link_object(collection, obj)
             bpy.context.view_layer.update()
         except Exception:
-            if changes and modifier.flow_settings is not None:
-                _restore_rna(modifier.flow_settings, changes)
-            if linked:
-                with contextlib.suppress(Exception):
-                    collection.objects.unlink(obj)
-            if created:
-                with contextlib.suppress(Exception):
-                    obj.modifiers.remove(modifier)
+            self._rollback_fluid_role(obj, modifier, "FLOW", changes, collection, linked, created)
             raise
         return {
             "changed_objects": [obj.name, domain_obj.name],
@@ -2349,48 +2321,25 @@ class LiquidInspectionAndSetupHandlers:
             )
         if domain_type != "GAS":
             raise ValueError("domain_type must be LIQUID or GAS")
-        obj = _get_object(object_name, {"MESH"})
-        sync_from_editmode(obj)
-        if not obj.data.vertices or not obj.data.polygons:
-            raise ValueError(f"Effector mesh '{object_name}' must contain vertices and faces")
-        domain_obj, domain_modifier, domain = _get_domain(domain_object_name, expected_domain_type="GAS")
-        _reject_baked(domain)
-        if obj == domain_obj:
-            raise ValueError("A fluid domain cannot also be its own effector")
-        if existing_policy not in {"ERROR", "REUSE"}:
-            raise ValueError("existing_policy must be ERROR or REUSE")
-        collection = self._domain_collection_for_role(domain, "EFFECTOR")
-        modifier = obj.modifiers.get(modifier_name)
-        created = modifier is None
-        if modifier is not None:
-            if existing_policy == "ERROR":
-                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
-            modifier = _get_fluid_modifier(obj, modifier_name, "EFFECTOR")
-        else:
-            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
+        obj, domain_obj, domain_modifier, _domain, collection, modifier, created = self._prepare_fluid_role(
+            object_name,
+            domain_object_name,
+            modifier_name,
+            existing_policy,
+            "EFFECTOR",
+            "GAS",
+        )
         linked = False
         changes = {}
         try:
-            if created:
-                modifier.fluid_type = "EFFECTOR"
-                bpy.context.view_layer.update()
-            effector = modifier.effector_settings
-            if effector is None:
-                raise RuntimeError("Blender did not initialize FluidEffectorSettings")
+            effector = self._initialize_fluid_role(modifier, "EFFECTOR", created)
             patch = dict(settings or {})
             patch["effector_type"] = effector_type
             changes = _patch_rna(effector, patch, _EFFECTOR_FIELDS)
             linked = _link_object(collection, obj)
             bpy.context.view_layer.update()
         except Exception:
-            if changes and modifier.effector_settings is not None:
-                _restore_rna(modifier.effector_settings, changes)
-            if linked:
-                with contextlib.suppress(Exception):
-                    collection.objects.unlink(obj)
-            if created:
-                with contextlib.suppress(Exception):
-                    obj.modifiers.remove(modifier)
+            self._rollback_fluid_role(obj, modifier, "EFFECTOR", changes, collection, linked, created)
             raise
         return {
             "changed_objects": [obj.name, domain_obj.name],

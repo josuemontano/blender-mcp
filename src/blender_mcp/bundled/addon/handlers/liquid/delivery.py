@@ -15,6 +15,7 @@ import bpy
 import mathutils
 
 from ...helpers import preserve_mode_and_selection
+from ._geometry import _RIM_AXES
 from .inspection_and_setup import (
     _CACHE_FLAGS,
     _LIQUID_UUID_PROPERTY,
@@ -38,14 +39,6 @@ _SCHEMA_VERSION = 1
 _UNIT_METERS = {"METERS": 1.0, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001}
 _DEFORMING_MODIFIERS = {"ARMATURE", "CAST", "CURVE", "DISPLACE", "LATTICE", "MESH_DEFORM", "NODES", "WARP", "WAVE"}
 _SPEED_ATTRIBUTE_NAMES = {"velocity", "fluid_velocity", "vel"}
-_RIM_AXES = {
-    "X": (0, 1.0),
-    "Y": (1, 1.0),
-    "Z": (2, 1.0),
-    "NEGATIVE_X": (0, -1.0),
-    "NEGATIVE_Y": (1, -1.0),
-    "NEGATIVE_Z": (2, -1.0),
-}
 _HOLLOW_CONTAINER_CAP_FRACTION = 0.08
 _HOLLOW_CONTAINER_MIN_ALIGNMENT = 0.3
 

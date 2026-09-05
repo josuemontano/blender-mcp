@@ -6,10 +6,10 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from .inspection_and_setup import _call, _dump
+from ._shared import _call, _dump, _StrictModel
 from .mesh_and_materials import CacheMeshFormat
 
 CacheAction = Literal[
@@ -32,10 +32,6 @@ CacheAction = Literal[
 ]
 BakeStage = Literal["DATA", "GUIDES", "MESH", "PARTICLES", "ALL"]
 LiquidCacheType = Literal["REPLAY", "MODULAR", "FINAL", "ALL"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LiquidCachePatch(_StrictModel):

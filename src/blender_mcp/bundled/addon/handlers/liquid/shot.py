@@ -7,6 +7,7 @@ import bpy
 import mathutils
 
 from ..scene_physics import _scene_fps
+from ._geometry import _RIM_AXES, _cube_geometry
 from .inspection_and_setup import (
     _ensure_collection,
     _get_domain,
@@ -27,14 +28,6 @@ SHOT_ID_PROPERTY = "blendermcp_liquid_shot_id"
 VOLUME_CONTAINER_PROPERTY = "blendermcp_liquid_volume_container"
 VALIDATION_COLLECTION_SUFFIX = "Validation Volumes"
 
-_RIM_AXES = {
-    "X": (0, 1.0),
-    "Y": (1, 1.0),
-    "Z": (2, 1.0),
-    "NEGATIVE_X": (0, -1.0),
-    "NEGATIVE_Y": (1, -1.0),
-    "NEGATIVE_Z": (2, -1.0),
-}
 _FLOW_BEHAVIORS = {"GEOMETRY", "INFLOW", "OUTFLOW"}
 _COLLISION_PROXIES = {"NONE", "HOLLOW_CONTAINER"}
 _MAX_CONTAINERS = 16
@@ -207,18 +200,7 @@ def _spill_margin(bounds, rim_axis):
 
 def _box_object(name, center, dimensions):
     """Build an axis-aligned world-space box as a standalone, still-unlinked mesh object."""
-    half = [value * 0.5 for value in dimensions]
-    vertices = [
-        (-half[0], -half[1], -half[2]),
-        (half[0], -half[1], -half[2]),
-        (half[0], half[1], -half[2]),
-        (-half[0], half[1], -half[2]),
-        (-half[0], -half[1], half[2]),
-        (half[0], -half[1], half[2]),
-        (half[0], half[1], half[2]),
-        (-half[0], half[1], half[2]),
-    ]
-    faces = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (4, 0, 3, 7)]
+    vertices, faces = _cube_geometry(dimensions)
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(vertices, [], faces)
     mesh.validate()

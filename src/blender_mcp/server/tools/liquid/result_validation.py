@@ -9,7 +9,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from .inspection_and_setup import _call
+from ._shared import _call
 
 OverflowPolicy = Literal["ALLOW", "FORBID"]
 

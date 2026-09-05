@@ -6,17 +6,13 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from .inspection_and_setup import _call
+from ._shared import _call, _StrictModel
 
 Interpolation = Literal["CONSTANT", "LINEAR", "BEZIER"]
 AnimationPolicy = Literal["INSERT_ONLY", "REPLACE_EXISTING"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LiquidFlowKeyframe(_StrictModel):

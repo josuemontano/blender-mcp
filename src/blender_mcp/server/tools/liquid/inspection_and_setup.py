@@ -2,24 +2,18 @@
 # receive a useful schema instead of an unrestricted FluidDomainSettings bag.
 # Ruff's argument-count and unused-context rules conflict with FastMCP's typed
 # public signatures; return sections are carried by the generated tool schema.
-# ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, too-many-statements-in-try-clause, undocumented-public-method, unused-function-argument]
+# ruff: file-ignore[docstring-missing-returns, multi-line-summary-second-line, too-many-arguments, too-many-positional-arguments, undocumented-public-method, unused-function-argument]
 """Typed tools for liquid domain inspection, setup, flows, effectors, and validation."""
 
 import asyncio
-import logging
-import sys
 
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.exceptions import ToolError
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from ...connection import get_blender_connection
-from ..envelope import ok
-
-logger = logging.getLogger("BlenderMCPServer")
+from ._shared import _call, _dump, _StrictModel
 
 CacheType = Literal["REPLAY", "MODULAR", "ALL"]
 ExistingPolicy = Literal["ERROR", "REUSE"]
@@ -28,10 +22,6 @@ EffectorType = Literal["COLLISION", "GUIDE"]
 GuideMode = Literal["MAXIMUM", "MINIMUM", "OVERRIDE", "AVERAGED"]
 SimulationMethod = Literal["FLIP", "APIC"]
 BoundaryFace = Literal["FRONT", "BACK", "LEFT", "RIGHT", "TOP", "BOTTOM"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LiquidSolverPatch(_StrictModel):
@@ -128,39 +118,6 @@ class LiquidBoundaryPatch(_StrictModel):
     right: bool | None = None
     top: bool | None = None
     bottom: bool | None = None
-
-
-def _dump(model: BaseModel | None) -> dict | None:
-    return model.model_dump(exclude_none=True, exclude_unset=True) if model is not None else None
-
-
-def _connection_call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
-    try:
-        result = get_blender_connection().send_command(command, params)
-        changed = result.get("changed_objects", changed_objects or []) if isinstance(result, dict) else changed_objects
-        resources = result.get("changed_resources", []) if isinstance(result, dict) else []
-        warnings = result.get("warnings", []) if isinstance(result, dict) else []
-        if isinstance(result, dict):
-            result = {
-                key: value
-                for key, value in result.items()
-                if key not in {"changed_objects", "changed_resources", "warnings"}
-            }
-        envelope = ok(result, changed_objects=changed or [], changed_resources=resources)
-        envelope["warnings"] = warnings
-        return envelope
-    except Exception as exc:
-        logger.error("Error running %s: %s", command, exc)
-        raise ToolError(f"Error running {command}: {exc}") from exc
-
-
-def _call(command: str, params: dict, changed_objects: list[str] | None = None) -> dict:
-    """Dispatch through the package hook so tests and embedders can replace the transport."""
-    package = sys.modules.get(__package__) if __package__ is not None else None
-    override = getattr(package, "_call", None) if package is not None else None
-    if override is not None and override is not _call:
-        return override(command, params, changed_objects)
-    return _connection_call(command, params, changed_objects)
 
 
 @mcp.tool()

@@ -6,18 +6,14 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from .inspection_and_setup import _call, _dump
+from ._shared import _call, _dump, _StrictModel
 
 FieldType = Literal["FORCE", "WIND", "VORTEX", "TURBULENCE", "DRAG"]
 FieldShape = Literal["POINT", "LINE", "PLANE", "SURFACE", "POINTS"]
 FalloffType = Literal["CONE", "SPHERE", "TUBE"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class EffectorWeightsPatch(_StrictModel):

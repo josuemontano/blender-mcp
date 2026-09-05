@@ -7,10 +7,11 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from .inspection_and_setup import ExistingPolicy, FlowBehavior, _call, _dump
+from ._shared import _call, _dump, _StrictModel
+from .inspection_and_setup import ExistingPolicy, FlowBehavior
 
 ProxyGeometry = Literal["BOX", "CAPSULE", "CONVEX_HULL", "DECIMATED", "HOLLOW_CONTAINER", "SUPPLIED"]
 ProxyRole = Literal["FLOW", "EFFECTOR"]
@@ -24,10 +25,6 @@ ExportFormat = Literal["ALEMBIC", "USD"]
 ExportSpace = Literal["WORLD", "LOCAL"]
 ExportUnits = Literal["SCENE", "METERS", "CENTIMETERS", "MILLIMETERS"]
 ExportAxis = Literal["X", "Y", "Z", "NEGATIVE_X", "NEGATIVE_Y", "NEGATIVE_Z"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class ProxyFlowSettings(_StrictModel):

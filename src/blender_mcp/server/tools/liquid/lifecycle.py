@@ -6,14 +6,10 @@ import asyncio
 from typing import Annotated
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from ...app import mcp
-from .inspection_and_setup import _call
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+from ._shared import _call, _StrictModel
 
 
 class FluidComponentTarget(_StrictModel):

@@ -6,17 +6,17 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ..app import mcp
+from .liquid._shared import _call, _dump
+from .liquid._shared import _FiniteStrictModel as _StrictModel
 from .liquid.inspection_and_setup import (
     CacheType,
     EffectorType,
     ExistingPolicy,
     FlowBehavior,
     LiquidEffectorPatch,
-    _call,
-    _dump,
 )
 from .liquid.simulation import LiquidCachePatch
 
@@ -42,10 +42,6 @@ FluidCacheAction = Literal[
     "FREE_NOISE",
     "FREE_ALL",
 ]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class FluidSolverPatch(_StrictModel):

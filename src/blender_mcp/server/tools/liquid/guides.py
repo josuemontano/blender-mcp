@@ -9,7 +9,8 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from .inspection_and_setup import ExistingPolicy, GuideMode, _call
+from ._shared import _call
+from .inspection_and_setup import ExistingPolicy, GuideMode
 
 GuideSource = Literal["EFFECTOR", "DOMAIN"]
 

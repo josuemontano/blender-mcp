@@ -4,13 +4,18 @@
 from __future__ import annotations
 
 import math
-import time
 
 from collections import defaultdict
 
 import bpy
 import mathutils
 
+from ._frame_evaluation import (
+    _evaluate_frames,
+    _normalize_frames,
+    _plan_frame_evaluation,
+    _require_cache_available,
+)
 from .inspection_and_setup import (
     _get_domain,
     _get_object,
@@ -314,9 +319,7 @@ class LiquidResultValidationHandlers:
         max_preroll_frames=250,
     ):
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
-        if not frames or len(frames) > _MAX_FRAMES or len(set(frames)) != len(frames):
-            raise ValueError(f"frames must contain 1-{_MAX_FRAMES} unique frame numbers")
-        normalized = sorted(int(frame) for frame in frames)
+        normalized = _normalize_frames(frames, max_frames=_MAX_FRAMES)
         if overflow_policy not in _OVERFLOW_POLICIES:
             raise ValueError(f"overflow_policy must be one of {sorted(_OVERFLOW_POLICIES)}")
         resolution = int(sample_resolution)
@@ -324,9 +327,7 @@ class LiquidResultValidationHandlers:
             raise ValueError(f"sample_resolution must be in [{_MIN_SAMPLE_RESOLUTION}, {_MAX_SAMPLE_RESOLUTION}]")
         if target_fill_fraction is not None and not 0.0 <= target_fill_fraction <= 1.0:
             raise ValueError("target_fill_fraction must be in [0.0, 1.0]")
-        if settings.cache_type != "REPLAY" and not settings.has_cache_baked_any:
-            raise ValueError("Measuring results requires REPLAY cache mode or an existing modular/final bake")
-
+        _require_cache_available(settings, operation="Measuring")
         container_specs = _resolve_container_specs(obj, volume_object_names)
         if not container_specs:
             raise ValueError(
@@ -342,77 +343,38 @@ class LiquidResultValidationHandlers:
             )
 
         scene, view_layer = _scene_context_for_object(obj)
-        if any(frame < scene.frame_start or frame > scene.frame_end for frame in normalized):
-            raise ValueError("All frames must be inside the scene frame range")
-        is_replay = settings.cache_type == "REPLAY"
-        preroll_frames = None
-        if is_replay:
-            if normalized[0] < settings.cache_frame_start:
-                raise ValueError(
-                    f"Requested frame {normalized[0]} is before cache_frame_start={settings.cache_frame_start}; "
-                    "REPLAY caching only advances forward from the start of its cache range"
-                )
-            preroll_frames = normalized[-1] - settings.cache_frame_start + 1
-            if preroll_frames > max_preroll_frames:
-                raise ValueError(
-                    f"Measuring frame {normalized[-1]} in REPLAY mode requires sequentially stepping through "
-                    f"{preroll_frames} frames from cache_frame_start={settings.cache_frame_start}; exceeds "
-                    f"max_preroll_frames={max_preroll_frames}"
-                )
-        else:
-            ceiling = _baked_frame_ceiling(settings)
-            out_of_range = [frame for frame in normalized if frame < settings.cache_frame_start or frame > ceiling]
-            if out_of_range:
-                raise ValueError(
-                    f"Frames {out_of_range} are outside the baked cache range "
-                    f"[{settings.cache_frame_start}, {ceiling}] for cache_type={settings.cache_type}"
-                )
-
+        plan = _plan_frame_evaluation(
+            normalized,
+            scene,
+            settings,
+            baked_frame_ceiling=_baked_frame_ceiling,
+            max_frames=_MAX_FRAMES,
+            max_preroll_frames=max_preroll_frames,
+            operation="Measuring",
+        )
         domain_bounds = _world_bounds(obj, evaluated=False)
         cell_size = max(domain_bounds["dimensions"]) / settings.resolution_max
         epsilon = max(cell_size * 1e-3, 1e-6)
-        original_frame = scene.frame_current
-        original_subframe = scene.frame_subframe
-        deadline = time.monotonic() + timeout_seconds
-        requested = set(normalized)
-        frame_reports = []
-        timed_out = False
-        try:
-            if is_replay:
-                cursor = settings.cache_frame_start
-                while cursor <= normalized[-1]:
-                    scene.frame_set(cursor)
-                    view_layer.update()
-                    if cursor in requested:
-                        frame_reports.append(_measure_frame(obj, cursor, container_specs, resolution, epsilon))
-                    if time.monotonic() >= deadline and cursor != normalized[-1]:
-                        timed_out = True
-                        break
-                    cursor += 1
-            else:
-                for frame in normalized:
-                    scene.frame_set(frame)
-                    view_layer.update()
-                    frame_reports.append(_measure_frame(obj, frame, container_specs, resolution, epsilon))
-                    if time.monotonic() >= deadline and frame != normalized[-1]:
-                        timed_out = True
-                        break
-        finally:
-            scene.frame_set(original_frame, subframe=original_subframe)
-            view_layer.update()
+        frame_reports, timed_out = _evaluate_frames(
+            scene,
+            view_layer,
+            plan,
+            timeout_seconds,
+            lambda frame: _measure_frame(obj, frame, container_specs, resolution, epsilon),
+        )
 
         findings = _evaluate_targets(frame_reports, target_fill_fraction, deadline_frame, overflow_policy)
         return {
-            "changed_objects": [obj.name] if is_replay else [],
+            "changed_objects": [obj.name] if plan.is_replay else [],
             "domain": obj.name,
             "modifier": modifier.name,
             "cache_type": settings.cache_type,
-            "requested_frames": normalized,
+            "requested_frames": plan.frames,
             "evaluated_frames": [report["frame"] for report in frame_reports],
             "timed_out": timed_out,
             "timeout_seconds": timeout_seconds,
-            "preroll_frames": preroll_frames,
-            "max_preroll_frames": max_preroll_frames if is_replay else None,
+            "preroll_frames": plan.preroll_frames,
+            "max_preroll_frames": max_preroll_frames if plan.is_replay else None,
             "sample_resolution": resolution,
             "target_fill_fraction": target_fill_fraction,
             "deadline_frame": deadline_frame,

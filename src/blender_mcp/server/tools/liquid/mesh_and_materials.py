@@ -6,10 +6,11 @@ import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
 from ...app import mcp
-from .inspection_and_setup import ExistingPolicy, _call, _dump
+from ._shared import _call, _dump, _StrictModel
+from .inspection_and_setup import ExistingPolicy
 
 MeshGenerator = Literal["IMPROVED", "UNION"]
 CacheMeshFormat = Literal["UNI", "OPENVDB", "RAW"]
@@ -19,10 +20,6 @@ ViscosityPreset = Literal["WATER", "OIL", "HONEY", "MOLTEN", "STYLIZED"]
 MaterialPreset = Literal["WATER", "GLASS", "OIL", "TINTED"]
 LiquidMaterialAssignment = Literal["APPEND", "REPLACE_SLOT"]
 ParticleRepresentation = Literal["OBJECT"]
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class LiquidMeshPatch(_StrictModel):

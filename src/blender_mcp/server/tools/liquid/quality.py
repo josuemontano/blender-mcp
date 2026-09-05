@@ -8,7 +8,8 @@ from typing import Literal
 from mcp.server.fastmcp import Context
 
 from ...app import mcp
-from .inspection_and_setup import LiquidSolverPatch, _call, _dump
+from ._shared import _call, _dump
+from .inspection_and_setup import LiquidSolverPatch
 from .mesh_and_materials import LiquidMeshPatch
 
 QualityProfile = Literal["PREVIEW", "BALANCED", "FINAL"]

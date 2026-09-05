@@ -7,12 +7,12 @@ import itertools
 import json
 import math
 import os
-import time
 
 import bpy
 
 from ...helpers import preserve_mode_and_selection, set_active
 from ..simulation_cache import mantaflow_cache_info, require_cache_confirmation
+from ._frame_evaluation import _evaluate_frames, _plan_frame_evaluation
 from .inspection_and_setup import (
     _CACHE_FIELDS,
     _CACHE_FLAGS,
@@ -383,71 +383,25 @@ class LiquidSimulationHandlers:
         max_preroll_frames=250,
     ):
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
-        if not frames or len(frames) > 32 or len(set(frames)) != len(frames):
-            raise ValueError("frames must contain 1-32 unique frame numbers")
-        normalized = sorted(int(frame) for frame in frames)
-        if settings.cache_type != "REPLAY" and not settings.has_cache_baked_any:
-            raise ValueError("Sampling requires REPLAY cache mode or an existing modular/final bake")
         scene, view_layer = _scene_context_for_object(obj)
-        if any(frame < scene.frame_start or frame > scene.frame_end for frame in normalized):
-            raise ValueError("All sample frames must be inside the scene frame range")
-        is_replay = settings.cache_type == "REPLAY"
-        preroll_frames = None
-        if is_replay:
-            if normalized[0] < settings.cache_frame_start:
-                raise ValueError(
-                    f"Requested frame {normalized[0]} is before cache_frame_start="
-                    f"{settings.cache_frame_start}; REPLAY caching only advances forward from the "
-                    "start of its cache range"
-                )
-            preroll_frames = normalized[-1] - settings.cache_frame_start + 1
-            if preroll_frames > max_preroll_frames:
-                raise ValueError(
-                    f"Sampling frame {normalized[-1]} in REPLAY mode requires sequentially stepping "
-                    f"through {preroll_frames} frames from cache_frame_start={settings.cache_frame_start} "
-                    "(Replay caching only evaluates correctly under sequential 'Play Every Frame' "
-                    f"playback); exceeds max_preroll_frames={max_preroll_frames}"
-                )
-        else:
-            ceiling = _baked_frame_ceiling(settings)
-            out_of_range = [f for f in normalized if f < settings.cache_frame_start or f > ceiling]
-            if out_of_range:
-                raise ValueError(
-                    f"Frames {out_of_range} are outside the baked cache range "
-                    f"[{settings.cache_frame_start}, {ceiling}] for cache_type={settings.cache_type}"
-                )
-        original_frame = scene.frame_current
-        original_subframe = scene.frame_subframe
-        deadline = time.monotonic() + timeout_seconds
+        plan = _plan_frame_evaluation(
+            frames,
+            scene,
+            settings,
+            baked_frame_ceiling=_baked_frame_ceiling,
+            max_preroll_frames=max_preroll_frames,
+            operation="Sampling",
+        )
         domain_bounds = _world_bounds(obj, evaluated=False)
         cell = max(domain_bounds["dimensions"]) / settings.resolution_max
         tolerance = cell * boundary_tolerance_cells
-        requested = set(normalized)
-        samples = []
-        timed_out = False
-        try:
-            if is_replay:
-                cursor = settings.cache_frame_start
-                while cursor <= normalized[-1]:
-                    scene.frame_set(cursor)
-                    view_layer.update()
-                    if cursor in requested:
-                        samples.append(_frame_sample(obj, cursor, domain_bounds, tolerance))
-                    if time.monotonic() >= deadline and cursor != normalized[-1]:
-                        timed_out = True
-                        break
-                    cursor += 1
-            else:
-                for frame in normalized:
-                    scene.frame_set(frame)
-                    view_layer.update()
-                    samples.append(_frame_sample(obj, frame, domain_bounds, tolerance))
-                    if time.monotonic() >= deadline and frame != normalized[-1]:
-                        timed_out = True
-                        break
-        finally:
-            scene.frame_set(original_frame, subframe=original_subframe)
-            view_layer.update()
+        samples, timed_out = _evaluate_frames(
+            scene,
+            view_layer,
+            plan,
+            timeout_seconds,
+            lambda frame: _frame_sample(obj, frame, domain_bounds, tolerance),
+        )
         discontinuities = []
         for previous, current in itertools.pairwise(samples):
             before = previous["evaluated_mesh"]["vertices"]
@@ -458,16 +412,16 @@ class LiquidSimulationHandlers:
                     {"from_frame": previous["frame"], "to_frame": current["frame"], "vertex_count_change_ratio": ratio}
                 )
         return {
-            "changed_objects": [obj.name] if settings.cache_type == "REPLAY" else [],
+            "changed_objects": [obj.name] if plan.is_replay else [],
             "domain": obj.name,
             "modifier": modifier.name,
             "cache_type": settings.cache_type,
-            "requested_frames": normalized,
+            "requested_frames": plan.frames,
             "evaluated_frames": [item["frame"] for item in samples],
             "timed_out": timed_out,
             "timeout_seconds": timeout_seconds,
-            "preroll_frames": preroll_frames,
-            "max_preroll_frames": max_preroll_frames if is_replay else None,
+            "preroll_frames": plan.preroll_frames,
+            "max_preroll_frames": max_preroll_frames if plan.is_replay else None,
             "domain_bounds": domain_bounds,
             "estimated_cell_size": cell,
             "samples": samples,
@@ -476,7 +430,7 @@ class LiquidSimulationHandlers:
             "cache_effect": (
                 "REPLAY sampling steps sequentially from cache_frame_start so every intermediate frame is "
                 "evaluated in order; existing modular/final cache files are not changed."
-                if is_replay
+                if plan.is_replay
                 else "Frame evaluation reads the existing modular/final bake; no cache files are changed."
             ),
             "claim": "Bounded numerical evidence only; this is not a final bake or visual-quality assessment.",
