@@ -690,6 +690,7 @@ class BlenderMCPServer(
             "export_liquid_simulation": self.export_liquid_simulation,
             "analyze_liquid_performance": self.analyze_liquid_performance,
             "setup_liquid_shot": self.setup_liquid_shot,
+            "validate_liquid_result": self.validate_liquid_result,
         }
 
         # Add Polyhaven handlers only if enabled

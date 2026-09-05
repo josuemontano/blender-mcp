@@ -13,11 +13,13 @@ from .mesh_and_materials import LiquidMeshAndMaterialHandlers
 from .mesh_and_materials import _expand_viscosity_config as _expand_viscosity_config
 from .mesh_and_materials import _particle_role as _particle_role
 from .quality import LiquidQualityHandlers
+from .result_validation import LiquidResultValidationHandlers
 from .shot import LiquidShotHandlers
 from .simulation import LiquidSimulationHandlers
 
 
 class LiquidHandlersMixin(
+    LiquidResultValidationHandlers,
     LiquidShotHandlers,
     LiquidDeliveryHandlers,
     LiquidQualityHandlers,
