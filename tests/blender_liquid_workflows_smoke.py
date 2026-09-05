@@ -27,9 +27,10 @@ addon = importlib.util.module_from_spec(spec)
 sys.modules[PACKAGE_NAME] = addon
 spec.loader.exec_module(addon)
 LiquidHandlersMixin = sys.modules[f"{PACKAGE_NAME}.handlers.liquid"].LiquidHandlersMixin
+TextureHandlers = sys.modules[f"{PACKAGE_NAME}.handlers.texture"].TextureHandlers
 
 
-class Harness(LiquidHandlersMixin):
+class Harness(LiquidHandlersMixin, TextureHandlers):
     """Expose every liquid workflow handler without starting a socket server."""
 
 
@@ -152,6 +153,9 @@ assert len(animation["keyframes"]) == 2
 assert guide["settings"]["guide_source"] == "EFFECTOR"
 assert forces["force_fields"][0]["field"]["type"] == "WIND"
 assert material["created"] is True
+assert material["assignment"]["slot_index"] == 0
+assert material["material"] in [slot.name for slot in bpy.data.objects[domain["object"]].data.materials]
+assert bpy.data.materials[material["material"]].node_tree.nodes["PBR Volume Absorption"]
 assert cache["cache"]["configuration"]["cache_type"] == "REPLAY"
 assert sample["timeline_restored"]["frame"] == 1
 assert removed["removed"][0]["fluid_type"] == "EFFECTOR"

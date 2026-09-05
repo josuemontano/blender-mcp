@@ -93,6 +93,42 @@ def test_material_patch_is_strict_and_rejects_nonfinite_values():
         texture.PBRMaterialSettings(base_color=(1.2, 0.2, 0.2, 1.0))
 
 
+def test_material_patch_requires_volume_fields_together():
+    with pytest.raises(ValidationError, match="volume_absorption_color and volume_density"):
+        texture.PBRMaterialSettings(volume_density=0.1)
+    with pytest.raises(ValidationError, match="volume_absorption_color and volume_density"):
+        texture.PBRMaterialSettings(volume_absorption_color=(1.0, 1.0, 1.0, 1.0))
+    with pytest.raises(ValidationError):
+        texture.PBRMaterialSettings(volume_absorption_color=(1.2, 1.0, 1.0, 1.0), volume_density=0.1)
+    settings = texture.PBRMaterialSettings(volume_absorption_color=(0.5, 0.5, 0.5, 1.0), volume_density=0.1)
+    assert settings.volume_density == 0.1
+
+
+def test_create_material_forwards_preset_and_volume_settings(monkeypatch):
+    connection = StubConnection({"material": "Water", "created": True, "changed_resources": ["Water"]})
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    run_tool(
+        texture.create_pbr_material,
+        material_name="Water",
+        preset="WATER",
+        settings=texture.PBRMaterialSettings(volume_density=0.05, volume_absorption_color=(0.7, 0.9, 1.0, 1.0)),
+    )
+
+    assert connection.calls == [
+        (
+            "create_pbr_material",
+            {
+                "material_name": "Water",
+                "target_engine": "BOTH",
+                "preset": "WATER",
+                "settings": {"volume_density": 0.05, "volume_absorption_color": (0.7, 0.9, 1.0, 1.0)},
+                "reuse_existing": False,
+            },
+        )
+    ]
+
+
 def test_configure_material_sends_only_explicit_fields(monkeypatch):
     connection = StubConnection({"material": "Paint", "changed_resources": ["Paint"]})
     monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)

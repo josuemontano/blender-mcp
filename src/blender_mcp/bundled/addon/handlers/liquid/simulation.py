@@ -9,8 +9,6 @@ import math
 import os
 import time
 
-from datetime import UTC, datetime
-
 import bpy
 
 from ...helpers import preserve_mode_and_selection, set_active
@@ -26,8 +24,9 @@ from .inspection_and_setup import (
     _validate_rna_value,
     _world_bounds,
 )
+from .manifest import read_manifest as _read_manifest
+from .manifest import write_stage_entry as _write_manifest_entry
 
-_MANIFEST_FILENAME = ".blender_mcp_liquid_manifest.json"
 _PENDING_BAKE_KEY = "blendermcp_liquid_pending_bake"
 
 _BAKE_STAGES = {
@@ -79,7 +78,16 @@ _CACHE_CONFIG_FIELDS = {
     "cache_frame_end",
     "cache_frame_offset",
     "cache_resumable",
+    "openvdb_cache_compress_type",
+    "openvdb_data_depth",
 }
+# OpenVDB compression and precision only apply to OpenVDB-formatted cache stages. Verified against
+# Blender 5.2.1: `openvdb_data_depth` is a dynamic enum whose static RNA enum_items reports only
+# ['NONE'] while the accepted identifiers are the strings ('32', '16', '8'), so the generic
+# _validate_rna_value enum check cannot be used for it; the tool-side Literal pins the valid values.
+_OPENVDB_FIELDS = {"openvdb_cache_compress_type", "openvdb_data_depth"}
+_OPENVDB_DATA_DEPTHS = ("8", "16", "32")
+_OPENVDB_FORMAT_FIELDS = ("cache_data_format", "cache_mesh_format", "cache_particle_format")
 _SECONDARY_TOGGLES = (
     "use_spray_particles",
     "use_foam_particles",
@@ -89,7 +97,12 @@ _SECONDARY_TOGGLES = (
 
 
 def _cache_state(settings):
-    return mantaflow_cache_info(settings, _CACHE_FLAGS, _CACHE_FIELDS)
+    state = mantaflow_cache_info(settings, _CACHE_FLAGS, _CACHE_FIELDS)
+    if hasattr(settings, "openvdb_data_depth"):
+        # Blender reports this dynamic enum as a number while only string identifiers are writable;
+        # normalize so callers can feed the reported value straight back into a CONFIGURE patch.
+        state["configuration"]["openvdb_data_depth"] = str(settings.openvdb_data_depth)
+    return state
 
 
 def _active_cache_flags(settings, names=None):
@@ -210,36 +223,6 @@ def _cache_directory_evidence(path, max_entries=10_000):
     }
 
 
-def _manifest_path(resolved_directory):
-    return os.path.join(resolved_directory, _MANIFEST_FILENAME)
-
-
-def _read_manifest(resolved_directory):
-    """Read this domain's bake manifest, or None if absent/unreadable/foreign."""
-    try:
-        with open(_manifest_path(resolved_directory), encoding="utf-8") as handle:
-            manifest = json.load(handle)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("stages"), dict):
-        return None
-    return manifest
-
-
-def _write_manifest_entry(resolved_directory, domain_uuid, stage, cache_type, frame_range):
-    """Record a successful bake stage so later STATUS/overwrite checks can recognize MCP-owned files."""
-    manifest = _read_manifest(resolved_directory) or {"domain_uuid": domain_uuid, "stages": {}}
-    manifest["domain_uuid"] = domain_uuid
-    manifest["stages"][stage] = {
-        "cache_type": cache_type,
-        "frame_range": list(frame_range),
-        "updated_at": datetime.now(UTC).isoformat(),
-    }
-    with open(_manifest_path(resolved_directory), "w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
-    return manifest
-
-
 def _job_id(domain_uuid, stage, resolved_directory):
     digest = hashlib.sha256(resolved_directory.encode("utf-8")).hexdigest()[:12]
     return f"{domain_uuid}:{stage}:{digest}"
@@ -281,6 +264,32 @@ def _set_cache_range(settings, start, end):
     else:
         settings.cache_frame_start = start
         settings.cache_frame_end = end
+
+
+def _reject_unused_openvdb_fields(settings, patch):
+    """Reject OpenVDB compression/precision when no cache stage will be written as OpenVDB."""
+    if not _OPENVDB_FIELDS & set(patch):
+        return
+    formats = {patch.get(name, getattr(settings, name, None)) for name in _OPENVDB_FORMAT_FIELDS}
+    if "OPENVDB" not in formats:
+        raise ValueError(
+            "openvdb_cache_compress_type/openvdb_data_depth only affect OpenVDB caches; set "
+            "cache_data_format, cache_mesh_format, or cache_particle_format to OPENVDB first"
+        )
+
+
+def _set_openvdb_data_depth(settings, value):
+    """Set the OpenVDB float precision, bypassing the RNA enum whose static items are unreliable.
+
+    Blender 5.2.1 reports ``enum_items == ['NONE']`` for this dynamic enum while only the strings
+    ``'32'``, ``'16'`` and ``'8'`` are accepted, so the value is checked against the verified
+    identifiers instead of the RNA metadata.
+    """
+    if value not in _OPENVDB_DATA_DEPTHS:
+        raise ValueError(f"openvdb_data_depth must be one of {list(_OPENVDB_DATA_DEPTHS)}, got {value!r}")
+    old = str(settings.openvdb_data_depth)
+    settings.openvdb_data_depth = value
+    return {"old": old, "new": str(settings.openvdb_data_depth)}
 
 
 def _baked_frame_ceiling(settings):
@@ -564,6 +573,7 @@ class LiquidSimulationHandlers:
             end = patch.get("cache_frame_end", settings.cache_frame_end)
             if start > end:
                 raise ValueError("cache_frame_start must be <= cache_frame_end")
+            _reject_unused_openvdb_fields(settings, patch)
             if "cache_directory" in patch:
                 if not confirm_external_path:
                     raise ValueError("Changing cache_directory requires confirm_external_path=True")
@@ -581,10 +591,14 @@ class LiquidSimulationHandlers:
                 patch["cache_type"] = "ALL"
             old_range = (settings.cache_frame_start, settings.cache_frame_end)
             scalar_patch = {
-                name: value for name, value in patch.items() if name not in {"cache_frame_start", "cache_frame_end"}
+                name: value
+                for name, value in patch.items()
+                if name not in {"cache_frame_start", "cache_frame_end", "openvdb_data_depth"}
             }
             changes = _patch_rna(settings, scalar_patch, _CACHE_CONFIG_FIELDS)
             try:
+                if "openvdb_data_depth" in patch:
+                    changes["openvdb_data_depth"] = _set_openvdb_data_depth(settings, patch["openvdb_data_depth"])
                 if "cache_frame_start" in patch or "cache_frame_end" in patch:
                     _set_cache_range(settings, start, end)
                     changes["cache_frame_start"] = {"old": old_range[0], "new": settings.cache_frame_start}

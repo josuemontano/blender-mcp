@@ -9,6 +9,7 @@ from ...helpers import paginate
 from ..geometry_nodes._shared import serialize_socket
 from ..node_graph import apply_graph_operation
 from ._shared import (
+    MANAGED_OWNER,
     PRINCIPLED_INPUTS,
     active_output,
     linked_principled,
@@ -22,7 +23,45 @@ from ._shared import (
     socket_snapshot,
     tag_node,
     validate_engine,
+    validate_unit_color,
 )
+
+_VOLUME_ABSORPTION_ROLE = "volume_absorption"
+
+_MATERIAL_PRESETS = {
+    "WATER": {
+        "base_color": (0.92, 0.98, 1.0, 1.0),
+        "transmission_weight": 1.0,
+        "ior": 1.333,
+        "roughness": 0.04,
+        "volume_absorption_color": (0.75, 0.95, 1.0, 1.0),
+        "volume_density": 0.02,
+    },
+    "GLASS": {
+        "base_color": (1.0, 1.0, 1.0, 1.0),
+        "transmission_weight": 1.0,
+        "ior": 1.45,
+        "roughness": 0.02,
+        "volume_absorption_color": (1.0, 1.0, 1.0, 1.0),
+        "volume_density": 0.0,
+    },
+    "OIL": {
+        "base_color": (0.55, 0.32, 0.08, 1.0),
+        "transmission_weight": 0.82,
+        "ior": 1.47,
+        "roughness": 0.12,
+        "volume_absorption_color": (0.35, 0.12, 0.02, 1.0),
+        "volume_density": 0.15,
+    },
+    "TINTED": {
+        "base_color": (0.1, 0.45, 0.8, 1.0),
+        "transmission_weight": 0.95,
+        "ior": 1.36,
+        "roughness": 0.08,
+        "volume_absorption_color": (0.04, 0.22, 0.7, 1.0),
+        "volume_density": 0.12,
+    },
+}
 
 
 def _material_users(material):
@@ -59,6 +98,29 @@ def _material_summary(material):
         "assigned_objects": _material_users(material),
         "users": material.users,
     }
+
+
+def _configure_volume_absorption(material, color, density):
+    """Create, update, or remove the managed Volume Absorption node feeding the active output."""
+    tree = material.node_tree
+    existing = next(
+        (
+            node
+            for node in tree.nodes
+            if node.get("mcp_owner") == MANAGED_OWNER and node.get("mcp_texture_role") == _VOLUME_ABSORPTION_ROLE
+        ),
+        None,
+    )
+    if density is None or density <= 0:
+        if existing is not None:
+            tree.nodes.remove(existing)
+        return None
+    validate_unit_color(color, "volume_absorption_color")
+    node = managed_node(tree.nodes, "ShaderNodeVolumeAbsorption", _VOLUME_ABSORPTION_ROLE, "PBR Volume Absorption")
+    set_finite_socket(node, ("Color",), color, "volume_absorption_color")
+    set_finite_socket(node, ("Density",), density, "volume_density")
+    tree.links.new(node.outputs["Volume"], active_output(material).inputs["Volume"])
+    return node.name
 
 
 def _set_material_properties(material, patch, engine):
@@ -387,13 +449,17 @@ class TextureMaterialHandlers:
             "changed_resources": [replacement.name],
         }
 
-    def create_pbr_material(self, material_name, target_engine="BOTH", settings=None, reuse_existing=False):
+    def create_pbr_material(
+        self, material_name, target_engine="BOTH", settings=None, reuse_existing=False, preset=None
+    ):
         name, engine = required_name(material_name, "material_name"), validate_engine(target_engine)
         existing = bpy.data.materials.get(name)
         if existing:
             if not reuse_existing:
                 raise ValueError(f"Material already exists: {name}")
             return {"material": _material_summary(existing), "created": False, "changed_resources": []}
+        if preset is not None and preset not in _MATERIAL_PRESETS:
+            raise ValueError(f"Unknown material preset: {preset}")
         material = bpy.data.materials.new(name)
         try:
             material.use_nodes = True
@@ -408,11 +474,14 @@ class TextureMaterialHandlers:
             tag_node(shader, "principled_surface")
             tree.links.new(shader.outputs["BSDF"], output.inputs["Surface"])
             defaults = {"base_color": (0.8, 0.8, 0.8, 1.0), "metallic": 0.0, "roughness": 0.5, "ior": 1.5, "alpha": 1.0}
-            patch = defaults | dict(settings or {})
+            patch = defaults | dict(_MATERIAL_PRESETS[preset] if preset else {}) | dict(settings or {})
             for key, value in patch.items():
                 if key in PRINCIPLED_INPUTS:
                     set_finite_socket(shader, PRINCIPLED_INPUTS[key], value, key)
             warnings = _set_material_properties(material, patch, engine)
+            volume_node = _configure_volume_absorption(
+                material, patch.get("volume_absorption_color"), patch.get("volume_density")
+            )
         except Exception:
             bpy.data.materials.remove(material)
             raise
@@ -420,6 +489,8 @@ class TextureMaterialHandlers:
             "material": _material_summary(material),
             "created": True,
             "target_engine": engine,
+            "preset": preset,
+            "volume_node": volume_node,
             "warnings": warnings,
             "changed_resources": [material.name],
         }
@@ -435,6 +506,11 @@ class TextureMaterialHandlers:
             if key in PRINCIPLED_INPUTS:
                 set_finite_socket(shader, PRINCIPLED_INPUTS[key], value, key)
         warnings = _set_material_properties(material, patch, engine)
+        volume_node = None
+        if "volume_density" in patch:
+            volume_node = _configure_volume_absorption(
+                material, patch.get("volume_absorption_color"), patch["volume_density"]
+            )
         normal_strength = patch.get("normal_strength")
         if normal_strength is not None:
             normal_input = socket_by_names(shader, ("Normal",))
@@ -452,6 +528,7 @@ class TextureMaterialHandlers:
             "target_engine": engine,
             "before": before,
             "after": _principled_values(shader),
+            "volume_node": volume_node,
             "warnings": warnings,
             "changed_resources": [material.name],
         }

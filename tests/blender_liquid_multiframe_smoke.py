@@ -39,9 +39,10 @@ addon = importlib.util.module_from_spec(spec)
 sys.modules[PACKAGE_NAME] = addon
 spec.loader.exec_module(addon)
 LiquidHandlersMixin = sys.modules[f"{PACKAGE_NAME}.handlers.liquid"].LiquidHandlersMixin
+TextureHandlers = sys.modules[f"{PACKAGE_NAME}.handlers.texture"].TextureHandlers
 
 
-class Harness(LiquidHandlersMixin):
+class Harness(LiquidHandlersMixin, TextureHandlers):
     """Expose the mixin without starting a socket server."""
 
 
@@ -194,6 +195,46 @@ sample = handler.sample_liquid_simulation(
 )
 assert sample["evaluated_frames"] == [1, 2, 3, 4]
 assert sample["timed_out"] is False
+
+# Rendered-frame regression check for the item-18 shared-PBR WATER preset (transmission +
+# Volume Absorption): renders through the same preview path exercised in
+# blender_texture_smoke.py rather than the baked domain mesh itself, since a full GI render of
+# the fluid mesh is unbounded scope for a smoke check. This still catches a broken node graph
+# that would otherwise only fail silently (e.g. a disconnected BSDF/output link). Uses EEVEE
+# rather than Cycles: this Blender build has no Cycles render engine registered even after
+# `preferences.addon_enable(module="cycles")`, so BLENDER_EEVEE_NEXT (falling back to
+# BLENDER_EEVEE) is the only engine available under --background here.
+material = handler.create_liquid_material(
+    domain_object_name=domain["object"],
+    modifier_name=domain["modifier"],
+    material_name="Multiframe Water",
+    config={"preset": "WATER"},
+)
+assert material["created"] is True
+
+preview_path = str(Path(tempfile.gettempdir()) / "blendermcp-liquid-multiframe-preview.png")
+Path(preview_path).unlink(missing_ok=True)
+preview = handler.render_pbr_material_preview(
+    "Multiframe Water",
+    "BLENDER_EEVEE_NEXT",
+    "SPHERE",
+    32,
+    4,
+    True,
+    {"BLENDER_EEVEE_NEXT": preview_path},
+)
+assert preview["outputs"][0]["size_bytes"] > 0
+
+rendered = bpy.data.images.load(preview_path)
+try:
+    pixels = list(rendered.pixels)
+    alphas = pixels[3::4]
+    reds = pixels[0::4]
+    assert any(alpha < 0.05 for alpha in alphas), "expected transparent background pixels around the sphere"
+    assert any(alpha > 0.5 for alpha in alphas), "expected the rendered sphere to be visible"
+    assert max(reds) - min(reds) > 0.01, "rendered material should not be a single flat color"
+finally:
+    bpy.data.images.remove(rendered)
 
 # Nothing was ever paused mid-bake (the --background bake ran synchronously to
 # completion), so RESUME must reject the already-finished stage rather than silently

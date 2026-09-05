@@ -22,7 +22,11 @@ from .simulation import (
     _scene_context_for_object,
     _update_or_restore,
 )
+from ..texture.materials import _MATERIAL_PRESETS as _PBR_MATERIAL_PRESETS
 
+# Recorded on ParticleSettings (not the ParticleSystem, which rejects ID properties) the first time a
+# Mantaflow system is observed, so later reads survive a rename of either datablock.
+_PARTICLE_ROLE_PROPERTY = "blendermcp_particle_role"
 _MESH_FIELDS = {
     "use_mesh",
     "mesh_scale",
@@ -52,6 +56,7 @@ _SECONDARY_FIELDS = {
     "sndparticle_potential_max_energy",
     "sndparticle_sampling_wavecrest",
     "sndparticle_sampling_trappedair",
+    "sndparticle_potential_radius",
     "sndparticle_update_radius",
     "sndparticle_bubble_buoyancy",
     "sndparticle_bubble_drag",
@@ -105,40 +110,6 @@ _LIQUID_PRESETS = {
         "use_viscosity": True,
         "viscosity_value": 2.0,
         "surface_tension": 2.0,
-    },
-}
-_MATERIAL_PRESETS = {
-    "WATER": {
-        "base_color": (0.92, 0.98, 1.0, 1.0),
-        "transmission_weight": 1.0,
-        "ior": 1.333,
-        "roughness": 0.04,
-        "volume_absorption_color": (0.75, 0.95, 1.0, 1.0),
-        "volume_density": 0.02,
-    },
-    "GLASS": {
-        "base_color": (1.0, 1.0, 1.0, 1.0),
-        "transmission_weight": 1.0,
-        "ior": 1.45,
-        "roughness": 0.02,
-        "volume_absorption_color": (1.0, 1.0, 1.0, 1.0),
-        "volume_density": 0.0,
-    },
-    "OIL": {
-        "base_color": (0.55, 0.32, 0.08, 1.0),
-        "transmission_weight": 0.82,
-        "ior": 1.47,
-        "roughness": 0.12,
-        "volume_absorption_color": (0.35, 0.12, 0.02, 1.0),
-        "volume_density": 0.15,
-    },
-    "TINTED": {
-        "base_color": (0.1, 0.45, 0.8, 1.0),
-        "transmission_weight": 0.95,
-        "ior": 1.36,
-        "roughness": 0.08,
-        "volume_absorption_color": (0.04, 0.22, 0.7, 1.0),
-        "volume_density": 0.12,
     },
 }
 
@@ -198,25 +169,6 @@ def _expand_viscosity_config(config):
     return expanded, source, conversion
 
 
-def _configure_principled_material(material, values):
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    nodes.clear()
-    output = nodes.new("ShaderNodeOutputMaterial")
-    principled = nodes.new("ShaderNodeBsdfPrincipled")
-    principled.inputs["Base Color"].default_value = values["base_color"]
-    principled.inputs["Transmission Weight"].default_value = values["transmission_weight"]
-    principled.inputs["IOR"].default_value = values["ior"]
-    principled.inputs["Roughness"].default_value = values["roughness"]
-    material.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    if values["volume_density"] > 0:
-        volume = nodes.new("ShaderNodeVolumeAbsorption")
-        volume.inputs["Color"].default_value = values["volume_absorption_color"]
-        volume.inputs["Density"].default_value = values["volume_density"]
-        material.node_tree.links.new(volume.outputs["Volume"], output.inputs["Volume"])
-    return {"surface_node": principled.name, "output_node": output.name}
-
-
 def _octahedron_mesh(name):
     mesh = bpy.data.meshes.new(f"{name} Mesh")
     vertices = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
@@ -235,10 +187,46 @@ def _octahedron_mesh(name):
     return mesh
 
 
-def _particle_role(system):
+def _classify_particle_role_by_name(system):
+    """Derive a role from Blender's freshly generated system/settings labels.
+
+    Only used the first time a Mantaflow system is seen, before its role is recorded; every later
+    read comes from the stored property so a rename cannot silently reclassify a system.
+    """
     label = f"{system.name} {getattr(system.settings, 'name', '')}".lower()
     roles = [role for role in ("spray", "foam", "bubble", "tracer") if role in label]
     return "+".join(role.upper() for role in roles) if roles else "UNKNOWN"
+
+
+def _particle_role(system):
+    """Return the recorded role for a Mantaflow particle system, falling back to its labels.
+
+    The role lives on ``system.settings`` because ParticleSystem itself rejects ID properties
+    ("id properties not supported for this type" in Blender 5.2.1) while ParticleSettings is a real
+    datablock that accepts them.
+    """
+    recorded = getattr(system.settings, "get", lambda _key: None)(_PARTICLE_ROLE_PROPERTY)
+    if isinstance(recorded, str) and recorded:
+        return recorded
+    return _classify_particle_role_by_name(system)
+
+
+def _tag_particle_roles(obj):
+    """Record ``blendermcp_particle_role`` on any of the domain's systems that lack it, then report them.
+
+    Mantaflow, not this add-on, creates the systems, so the earliest moment a role can be captured is
+    the call that enables the corresponding secondary-particle toggle - at which point Blender's own
+    labels are still authoritative.
+    """
+    tagged = []
+    for system in obj.particle_systems:
+        settings = system.settings
+        recorded = settings.get(_PARTICLE_ROLE_PROPERTY) if hasattr(settings, "get") else None
+        if not isinstance(recorded, str) or not recorded:
+            role = _classify_particle_role_by_name(system)
+            settings[_PARTICLE_ROLE_PROPERTY] = role
+            tagged.append({"system": system.name, "settings": settings.name, "role": role})
+    return tagged
 
 
 class LiquidMeshAndMaterialHandlers:
@@ -259,6 +247,10 @@ class LiquidMeshAndMaterialHandlers:
                 ("has_cache_baked_data", "has_cache_baked_mesh", "is_cache_baking_any"),
                 "Speed vectors must be configured before data or mesh baking",
             )
+        concave_lower = patch.get("mesh_concave_lower", settings.mesh_concave_lower)
+        concave_upper = patch.get("mesh_concave_upper", settings.mesh_concave_upper)
+        if concave_lower > concave_upper:
+            raise ValueError("mesh_concave_lower must be <= mesh_concave_upper")
         changes = _patch_rna(settings, patch, _MESH_FIELDS)
         _update_or_restore(obj, settings, changes)
         return {
@@ -291,6 +283,9 @@ class LiquidMeshAndMaterialHandlers:
                 raise ValueError(f"{minimum} must be <= {maximum}")
         changes = _patch_rna(settings, patch, _SECONDARY_FIELDS)
         _update_or_restore(obj, settings, changes)
+        # Enabling a toggle is when Mantaflow materializes the matching system, so this is the first
+        # and most reliable moment to record its role for later name-independent lookups.
+        tagged_roles = _tag_particle_roles(obj)
         enabled = [
             name.removeprefix("use_").removesuffix("_particles").upper()
             for name in _SECONDARY_TOGGLES
@@ -302,6 +297,7 @@ class LiquidMeshAndMaterialHandlers:
             "modifier": modifier.name,
             "changes": changes,
             "enabled_particle_types": enabled,
+            "particle_roles_recorded": tagged_roles,
             "combined_export": settings.sndparticle_combined_export,
             "combined_export_semantics": (
                 "OFF creates separate eligible systems; another value combines the named roles into one output."
@@ -350,6 +346,7 @@ class LiquidMeshAndMaterialHandlers:
         assignment="APPEND",
         slot_index=None,
     ):
+        """Resolve the domain and preset, then delegate node construction and assignment to the shared PBR handlers."""
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
         if existing_policy not in {"ERROR", "REUSE"}:
             raise ValueError("existing_policy must be ERROR or REUSE")
@@ -360,69 +357,58 @@ class LiquidMeshAndMaterialHandlers:
                 raise ValueError("REPLACE_SLOT requires an existing valid slot_index")
         elif slot_index is not None:
             raise ValueError("slot_index is valid only with REPLACE_SLOT")
-        material = bpy.data.materials.get(material_name)
-        created = material is None
-        if material is not None and existing_policy == "ERROR":
+        existing_material = bpy.data.materials.get(material_name)
+        created = existing_material is None
+        if existing_material is not None and existing_policy == "ERROR":
             raise ValueError(f"Material already exists: {material_name}")
         preset = config.get("preset", "WATER")
-        if preset not in _MATERIAL_PRESETS:
+        if preset not in _PBR_MATERIAL_PRESETS:
             raise ValueError(f"Unknown liquid material preset: {preset}")
-        values = dict(_MATERIAL_PRESETS[preset])
-        values.update({key: value for key, value in config.items() if key != "preset"})
+        overrides = {key: value for key, value in config.items() if key != "preset"}
+        values = {**_PBR_MATERIAL_PRESETS[preset], **overrides}
         for color_name in ("base_color", "volume_absorption_color"):
             color = values[color_name]
             _finite(color, color_name)
             if len(color) != 4 or any(not 0.0 <= component <= 1.0 for component in color):
                 raise ValueError(f"{color_name} must contain four values in [0, 1]")
-        if material is None:
-            material = bpy.data.materials.new(material_name)
-            nodes = _configure_principled_material(material, values)
+
+        creation = self.create_pbr_material(
+            material_name,
+            target_engine="BOTH",
+            preset=preset,
+            settings=overrides,
+            reuse_existing=(existing_policy == "REUSE"),
+        )
+        material = bpy.data.materials[material_name]
+        if created:
             material["blendermcp_liquid_material"] = obj.name
             material["blendermcp_liquid_material_schema"] = 1
-        else:
-            nodes = None
-        old_material = obj.data.materials[slot_index] if assignment == "REPLACE_SLOT" else None
-        appended = False
-        changed_slot = False
         try:
-            if assignment == "APPEND":
-                existing_slot = next(
-                    (index for index, candidate in enumerate(obj.data.materials) if candidate == material), None
-                )
-                if existing_slot is None:
-                    obj.data.materials.append(material)
-                    slot_index = len(obj.data.materials) - 1
-                    appended = True
-                else:
-                    slot_index = existing_slot
-            elif old_material != material:
-                obj.data.materials[slot_index] = material
-                changed_slot = True
-            bpy.context.view_layer.update()
+            assignment_result = self.assign_material(material_name, [obj.name], mode=assignment, slot_index=slot_index)
         except Exception:
-            if appended:
-                with contextlib.suppress(Exception):
-                    obj.data.materials.pop(index=slot_index)
-            elif changed_slot:
-                with contextlib.suppress(Exception):
-                    obj.data.materials[slot_index] = old_material
             if created:
                 with contextlib.suppress(Exception):
                     bpy.data.materials.remove(material)  # pyright: ignore[reportArgumentType]
             raise
-        changed_objects = [obj.name] if appended or changed_slot else []
+        changed_objects = list(assignment_result["changed_objects"])
         return {
             "changed_objects": changed_objects,
-            "changed_resources": [material.name] if created else [],
+            "changed_resources": creation["changed_resources"],
             "domain": obj.name,
             "modifier": modifier.name,
             "material": material.name,
             "created": created,
-            "configured_nodes": nodes,
+            "configured_nodes": (
+                {"surface_node": "PBR Principled BSDF", "output_node": "PBR Material Output"} if created else None
+            ),
             "preset_schema_version": 1,
             "expanded_values": values if created else None,
             "existing_material_reused_unchanged": not created,
-            "assignment": {"policy": assignment, "slot_index": slot_index, "slot_changed": bool(changed_objects)},
+            "assignment": {
+                "policy": assignment,
+                "slot_index": assignment_result["assignments"][0]["slot_index"],
+                "slot_changed": bool(changed_objects),
+            },
             "solver_settings_changed": False,
             "cache_changed": False,
             "warnings": [] if settings.use_mesh else ["Liquid mesh generation is currently disabled on this domain."],
@@ -452,6 +438,7 @@ class LiquidMeshAndMaterialHandlers:
         systems = list(obj.particle_systems)
         if len(systems) > max_systems:
             raise ValueError(f"Domain has {len(systems)} particle systems, exceeding max_systems={max_systems}")
+        tagged_roles = _tag_particle_roles(obj)
         discovered = [(system, _particle_role(system)) for system in systems]
         eligible = [(system, role) for system, role in discovered if role != "UNKNOWN"]
         if not eligible:
@@ -534,7 +521,11 @@ class LiquidMeshAndMaterialHandlers:
             "instance_object": instance.name,
             "instance_helper_created": created_helper,
             "systems": mappings,
+            "particle_roles_recorded": tagged_roles,
             "unknown_systems_left_unchanged": [item["system"] for item in mappings if not item["configured"]],
-            "classification_basis": "Public particle-system and settings labels; unrecognized systems are not mutated.",
+            "classification_basis": (
+                f"Recorded '{_PARTICLE_ROLE_PROPERTY}' custom property on each system's ParticleSettings, "
+                "first derived from Blender's own labels; unrecognized systems are not mutated."
+            ),
             "warnings": ["Particle counts are observed at the current frame and may vary over the bake."],
         }

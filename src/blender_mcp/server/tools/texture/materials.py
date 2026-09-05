@@ -12,6 +12,8 @@ from ...app import mcp
 from .._node_graph import NodeGraphEdit
 from ._shared import StrictTextureInput, TargetEngine, absolute_path, call_blender, explicit_fields
 
+MaterialPreset = Literal["WATER", "GLASS", "OIL", "TINTED"]
+
 
 class ShaderGraphTarget(StrictTextureInput):
     """Exact Blender datablock that owns the shader graph."""
@@ -46,13 +48,17 @@ class PBRMaterialSettings(StrictTextureInput):
     thickness_mode: Literal["SPHERE", "SLAB"] | None = None
     use_backface_culling: bool | None = None
     use_transparent_shadow: bool | None = None
+    volume_absorption_color: tuple[float, float, float, float] | None = None
+    volume_density: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_colors(self) -> "PBRMaterialSettings":
-        for name in ("base_color", "emission_color"):
+        for name in ("base_color", "emission_color", "volume_absorption_color"):
             value = getattr(self, name)
             if value is not None and any(channel < 0 or channel > 1 for channel in value):
                 raise ValueError(f"{name} channels must be in [0, 1]")
+        if (self.volume_absorption_color is None) != (self.volume_density is None):
+            raise ValueError("volume_absorption_color and volume_density must be supplied together")
         return self
 
 
@@ -210,17 +216,21 @@ async def create_pbr_material(
     ctx: Context,
     material_name: str,
     target_engine: TargetEngine = "BOTH",
+    preset: MaterialPreset | None = None,
     settings: PBRMaterialSettings | None = None,
     reuse_existing: bool = False,
 ) -> dict:
     """Create one unassigned Principled material with an explicit engine compatibility target.
 
     A collision is rejected unless `reuse_existing` is true; reuse never clears or rebuilds an
-    existing graph. The result identifies the active surface shader and any engine compromise.
+    existing graph. `preset` seeds WATER/GLASS/OIL/TINTED starting values (WATER/OIL/TINTED also add
+    a Volume Absorption node); `settings` overrides individual preset values. The result identifies
+    the active surface shader, any Volume Absorption node, and any engine compromise.
     """
     params = {
         "material_name": material_name,
         "target_engine": target_engine,
+        "preset": preset,
         "settings": explicit_fields(settings),
         "reuse_existing": reuse_existing,
     }

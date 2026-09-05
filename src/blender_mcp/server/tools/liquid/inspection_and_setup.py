@@ -54,6 +54,9 @@ class LiquidSolverPatch(_StrictModel):
     use_fractions: bool | None = None
     fractions_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     fractions_distance: float | None = None
+    delete_in_obstacle: bool | None = None
+    use_flip_particles: bool | None = None
+    sys_particle_maximum: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "LiquidSolverPatch":
@@ -69,7 +72,13 @@ class LiquidSolverPatch(_StrictModel):
 
 
 class LiquidFlowPatch(_StrictModel):
-    """Allowlisted liquid-applicable FluidFlowSettings properties."""
+    """Allowlisted liquid-applicable FluidFlowSettings properties.
+
+    Flows managed by these tools always have ``flow_type == "LIQUID"``. ``use_particle_size`` and
+    ``particle_size`` are declared only so that setting them fails with an explanation instead of a
+    bare schema violation: Blender applies them to particle-system smoke/fire emission, never to a
+    liquid surface.
+    """
 
     flow_behavior: FlowBehavior | None = None
     use_inflow: bool | None = None
@@ -82,6 +91,20 @@ class LiquidFlowPatch(_StrictModel):
     velocity_normal: float | None = None
     velocity_random: float | None = Field(default=None, ge=0.0)
     density_vertex_group: str | None = None
+    use_particle_size: bool | None = None
+    particle_size: float | None = Field(default=None, gt=0.0)
+
+    @model_validator(mode="after")
+    def reject_smoke_only_fields(self) -> "LiquidFlowPatch":
+        """Reject particle-size emission, which Blender only applies to particle-system smoke flows."""
+        supplied = [name for name in ("use_particle_size", "particle_size") if getattr(self, name) is not None]
+        if supplied:
+            raise ValueError(
+                f"{', '.join(supplied)} only affects particle-system smoke/fire emission and is ignored "
+                "for a LIQUID flow; control liquid emission with surface_distance, subframes, or "
+                "use_plane_init instead"
+            )
+        return self
 
 
 class LiquidEffectorPatch(_StrictModel):
@@ -145,6 +168,7 @@ async def get_liquid_simulation_info(
     ctx: Context,
     scene_name: Annotated[str | None, Field(min_length=1)] = None,
     domain_object_name: str | None = None,
+    domain_uuid: Annotated[str | None, Field(min_length=1)] = None,
     domain_limit: Annotated[int, Field(ge=1, le=100)] = 25,
     domain_offset: Annotated[int, Field(ge=0)] = 0,
     dependency_limit: Annotated[int, Field(ge=1, le=1000)] = 100,
@@ -156,6 +180,12 @@ async def get_liquid_simulation_info(
     Coordinates and bounds are labelled; this call never initializes or advances a simulation.
     Each domain reports "base_domain_bounds" (the container, always present) and
     "evaluated_liquid_bounds" (the generated liquid surface, null until data or mesh caching exists).
+
+    Pass domain_uuid to resolve a domain by the stable "blendermcp_liquid_uuid" custom property the
+    liquid tools assign, which survives renames as object names do not; supplying both it and
+    domain_object_name requires them to agree. Each domain also reports its recorded "role" and
+    "owned_objects" (the cache-side manifest's UUID -> {name, role} registry, null when the manifest
+    is absent or unreadable).
     """
     return await asyncio.to_thread(
         _call,
@@ -163,6 +193,7 @@ async def get_liquid_simulation_info(
         {
             "scene_name": scene_name,
             "domain_object_name": domain_object_name,
+            "domain_uuid": domain_uuid,
             "domain_limit": domain_limit,
             "domain_offset": domain_offset,
             "dependency_limit": dependency_limit,
@@ -303,6 +334,9 @@ async def configure_liquid_solver(
 
     patch must set at least one field. If both are given, timesteps_min must be <= timesteps_max and
     particle_min must be <= particle_max (enforced by LiquidSolverPatch).
+    patch.use_flip_particles is applied with set-to-desired-state semantics: Blender's own RNA setter
+    ignores the assigned value and toggles the FLIP particle system, so this tool writes it only when
+    the current state differs and reports it in "changes" only when it actually changed.
     """
     return await asyncio.to_thread(
         _call,

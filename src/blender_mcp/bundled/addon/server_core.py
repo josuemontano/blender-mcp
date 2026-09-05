@@ -750,6 +750,7 @@ class BlenderMCPServer(
             "estimate_liquid_resources": self.estimate_liquid_resources,
             "validate_liquid_setup": self.validate_liquid_setup,
             "configure_liquid_mesh": self.configure_liquid_mesh,
+            "apply_liquid_quality_profile": self.apply_liquid_quality_profile,
             "configure_liquid_secondary_particles": self.configure_liquid_secondary_particles,
             "configure_liquid_diffusion": self.configure_liquid_diffusion,
             "animate_liquid_flow": self.animate_liquid_flow,
@@ -765,6 +766,8 @@ class BlenderMCPServer(
             "prepare_liquid_render_mesh": self.prepare_liquid_render_mesh,
             "export_liquid_simulation": self.export_liquid_simulation,
             "analyze_liquid_performance": self.analyze_liquid_performance,
+            "setup_liquid_shot": self.setup_liquid_shot,
+            "validate_liquid_result": self.validate_liquid_result,
         }
 
         # Add Polyhaven handlers only if enabled

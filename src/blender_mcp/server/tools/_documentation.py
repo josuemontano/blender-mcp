@@ -55,6 +55,7 @@ _FILE_TOOLS = {
     "export_rigid_body_animation",
     "manage_geometry_nodes_bake",
     "render_lighting_preview",
+    "setup_liquid_shot",
     "render_scene",
 }
 _IMAGE_TOOLS = {
@@ -92,6 +93,7 @@ _DESTRUCTIVE_PREFIXES = (
     "transfer_",
 )
 _DESTRUCTIVE_TOOLS = {
+    "apply_liquid_quality_profile",
     "apply_polyhaven_texture",
     "assign_bone_custom_shapes",
     "bind_mesh_to_armature",
@@ -110,6 +112,7 @@ _DESTRUCTIVE_TOOLS = {
     "patch_armature_bones",
     "project_mesh_elements",
     "run_geometry_nodes_tool",
+    "setup_liquid_shot",
     "realize_procedural_output",
     "redistribute_edge_loop",
     "relax_topology",
