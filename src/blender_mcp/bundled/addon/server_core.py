@@ -537,6 +537,7 @@ class BlenderMCPServer(
             "manage_object_constraints": self.manage_object_constraints,
             "manage_modifiers": self.manage_modifiers,
             "remove_scene_objects": self.remove_scene_objects,
+            "reset_scene": self.reset_scene,
             "inspect_render_setup": self.inspect_render_setup,
             "configure_render_settings": self.configure_render_settings,
             "get_scene_physics_info": self.get_scene_physics_info,

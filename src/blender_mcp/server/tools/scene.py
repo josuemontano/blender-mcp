@@ -721,3 +721,24 @@ async def remove_scene_objects(
         },
         object_names or [],
     )
+
+
+@mcp.tool()
+async def reset_scene(
+    ctx: Context,
+    confirm_reset: bool = False,
+    scene_name: str | None = None,
+    purge_orphaned_data: bool = True,
+) -> dict:
+    """Clear one scene to an empty, deterministic starting state after explicit confirmation."""
+    if not confirm_reset:
+        raise ValueError("confirm_reset=True is required")
+    return await asyncio.to_thread(
+        _call,
+        "reset_scene",
+        {
+            "confirm_reset": confirm_reset,
+            "scene_name": scene_name,
+            "purge_orphaned_data": purge_orphaned_data,
+        },
+    )

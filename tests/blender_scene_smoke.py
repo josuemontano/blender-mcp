@@ -218,6 +218,19 @@ def main() -> None:
         "Scene Smoke Hair",
         "Scene Smoke Grease Pencil",
     }
+
+    triangle_name = obj.name
+    remaining_objects = sorted(o.name for o in bpy.context.scene.objects)
+    assert remaining_objects, "expected leftover objects before the reset_scene smoke test"
+
+    reset = handler.reset_scene(confirm_reset=True)
+    assert reset["scene"] == bpy.context.scene.name
+    assert set(reset["unlinked_objects"]) >= {triangle_name, "Scene Smoke Copy"}
+    assert list(bpy.context.scene.objects) == []
+    assert list(bpy.context.scene.collection.children) == []
+    assert reset["purged_datablock_count"] > 0
+    assert bpy.data.objects.get(remaining_objects[0]) is None
+
     print("SCENE_SMOKE_OK")
 
 

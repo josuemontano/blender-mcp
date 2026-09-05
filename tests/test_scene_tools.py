@@ -18,6 +18,7 @@ SCENE_COMMANDS = {
     "manage_object_constraints",
     "manage_modifiers",
     "remove_scene_objects",
+    "reset_scene",
 }
 
 
@@ -51,6 +52,28 @@ def test_create_geometry_object_serializes_discriminated_geometry(monkeypatch) -
     assert connection.calls[0][0] == "create_geometry_object"
     assert connection.calls[0][1]["geometry"]["kind"] == "MESH"
     assert result["changed_objects"] == ["Triangle"]
+
+
+def test_reset_scene_requires_explicit_confirmation(monkeypatch) -> None:
+    connection = _Connection()
+    monkeypatch.setattr(scene, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ValueError, match="confirm_reset=True is required"):
+        asyncio.run(scene.reset_scene(ctx=None))
+
+    assert connection.calls == []
+
+
+def test_reset_scene_dispatches_with_confirmation(monkeypatch) -> None:
+    connection = _Connection()
+    monkeypatch.setattr(scene, "get_blender_connection", lambda: connection)
+
+    asyncio.run(scene.reset_scene(ctx=None, confirm_reset=True, scene_name="Scene", purge_orphaned_data=False))
+
+    assert connection.calls[0] == (
+        "reset_scene",
+        {"confirm_reset": True, "scene_name": "Scene", "purge_orphaned_data": False},
+    )
 
 
 def test_scene_models_reject_ambiguous_or_degenerate_transforms() -> None:

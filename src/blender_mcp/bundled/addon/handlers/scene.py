@@ -1072,6 +1072,35 @@ class SceneHandlersMixin:
             "changed_objects": object_names,
         }
 
+    def reset_scene(self, confirm_reset=False, scene_name=None, purge_orphaned_data=True):
+        if not confirm_reset:
+            raise ValueError("confirm_reset=True is required")
+        scene = bpy.context.scene if scene_name is None else bpy.data.scenes.get(scene_name)
+        if scene is None:
+            raise ValueError(f"Scene not found: {scene_name}")
+
+        master = scene.collection
+        unlinked_objects = sorted(obj.name for obj in scene.objects)
+        for obj in list(master.objects):
+            master.objects.unlink(obj)
+
+        unlinked_collections = sorted(child.name for child in master.children)
+        for child in list(master.children):
+            master.children.unlink(child)
+
+        purged_datablock_count = 0
+        if purge_orphaned_data:
+            purged_datablock_count = bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=False, do_recursive=True)
+
+        return {
+            "scene": scene.name,
+            "unlinked_objects": unlinked_objects,
+            "unlinked_collections": unlinked_collections,
+            "purged_datablock_count": purged_datablock_count,
+            "changed_objects": unlinked_objects,
+            "changed_resources": unlinked_collections,
+        }
+
 
 def _base_counts(obj):
     if obj.type != "MESH":
