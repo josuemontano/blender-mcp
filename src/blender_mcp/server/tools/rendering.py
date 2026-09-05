@@ -2,16 +2,21 @@
 """Typed tools for scene render configuration, view layers, passes, and rendering."""
 
 import asyncio
+import logging
+import os
+import tempfile
 
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import Context
+from mcp.server.fastmcp import Context, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..app import mcp
 from ..connection import get_blender_connection
 from .envelope import ok
+
+logger = logging.getLogger("BlenderMCPServer")
 
 
 class RenderSettingsPatch(BaseModel):
@@ -252,7 +257,16 @@ async def render_scene(
     verify_passes: bool = True,
     max_duration_seconds: Annotated[float | None, Field(gt=0, le=604_800)] = None,
 ) -> dict:
-    """Render a still or bounded animation to an explicit path after confirmation."""
+    """
+    Render a still or bounded animation to an explicit path after confirmation.
+
+    This writes the actual rendered frame(s) to disk but returns only metadata (written
+    path, byte size, per-frame status), not pixel content. get_viewport_screenshot
+    captures the live viewport, not this render, so it is not a substitute for looking
+    at the output. To actually see this render's pixels, call
+    inspect_render_output(output_path=<one of this result's "files" paths>) afterward -
+    or omit output_path there to read the in-memory Render Result directly.
+    """
     if not confirm_render:
         raise ToolError("confirm_render=True is required")
     return await _call(
@@ -272,3 +286,103 @@ async def render_scene(
             "max_duration_seconds": max_duration_seconds,
         },
     )
+
+
+def _render_output_metadata(result: dict) -> dict:
+    """
+    Build the metadata dict for a rendered-frame inspection result, alongside its Image content item.
+
+    Args:
+        result: The raw dict returned by the Blender-side handler.
+
+    Returns:
+        dict: "width", "height", "native_width", "native_height", "source" ("output_path" or "render_result"),
+        "source_path", and "frame".
+
+    """
+    return {
+        "width": result.get("width"),
+        "height": result.get("height"),
+        "native_width": result.get("native_width"),
+        "native_height": result.get("native_height"),
+        "source": result.get("source"),
+        "source_path": result.get("source_path"),
+        "frame": result.get("frame"),
+    }
+
+
+@mcp.tool(structured_output=False)
+def inspect_render_output(
+    ctx: Context,
+    output_path: Annotated[str | None, Field(min_length=1)] = None,
+    frame: int | None = None,
+    max_size: Annotated[int, Field(ge=16, le=4096)] = 1000,
+) -> list[Image | dict]:
+    """
+    Return a previously rendered frame's actual pixels for visual inspection.
+
+    Unlike get_viewport_screenshot, which captures the live viewport and never matches
+    final render output (different engine, lighting, and color management), this reads
+    real render output: an explicit output_path (typically one of render_scene's
+    returned "files" paths - read-only, never modified) or, when omitted, the in-memory
+    "Render Result" datablock. Render Result only ever reflects the most recently
+    rendered frame, so an animation's earlier frames are only reachable by passing
+    their own written output_path.
+
+    Unlike most other tools, this returns two content items instead of one dict: the
+    rendered image itself, followed by an ok() envelope carrying its metadata - read
+    both.
+
+    Args:
+        ctx: MCP request context.
+        output_path: Exact path to an existing rendered file on disk. Takes precedence
+            over frame; the file is read but never modified.
+        frame: Frame number the in-memory Render Result must currently hold; only
+            checked when output_path is omitted. A mismatch raises rather than
+            silently returning a different frame's pixels.
+        max_size: Maximum pixel length of the returned image's largest dimension;
+            defaults to 1000.
+
+    Returns:
+        [Image, dict]: the rendered frame, then an envelope whose data has "width",
+        "height", "native_width", "native_height", "source", "source_path", "frame".
+
+    Raises:
+        Exception: If the operation cannot be completed.
+
+    """
+    temp_path = None
+    try:
+        blender = get_blender_connection()
+
+        descriptor, temp_path = tempfile.mkstemp(prefix="blender_mcp_render_output_", suffix=".png")
+        os.close(descriptor)
+
+        result = blender.send_command(
+            "inspect_render_output",
+            {
+                "filepath": temp_path,
+                "output_path": output_path,
+                "frame": frame,
+                "max_size": max_size,
+                "format": "png",
+            },
+        )
+
+        if not os.path.exists(temp_path):
+            raise Exception("Rendered-frame copy was not created")
+
+        with open(temp_path, "rb") as f:
+            image_bytes = f.read()
+
+        return [Image(data=image_bytes, format="png"), ok(_render_output_metadata(result))]
+
+    except Exception as e:
+        logger.error(f"Error inspecting render output: {e!s}")
+        raise Exception(f"Render output inspection failed: {e!s}") from e
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass

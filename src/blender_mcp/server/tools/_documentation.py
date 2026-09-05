@@ -57,7 +57,13 @@ _FILE_TOOLS = {
     "render_lighting_preview",
     "render_scene",
 }
-_IMAGE_TOOLS = {"get_viewport_screenshot", "get_sketchfab_model_preview", "render_lighting_preview"}
+_IMAGE_TOOLS = {
+    "get_viewport_screenshot",
+    "get_sketchfab_model_preview",
+    "render_lighting_preview",
+    "render_pbr_material_preview",
+    "inspect_render_output",
+}
 _DESTRUCTIVE_PREFIXES = (
     "aim_",
     "animate_",

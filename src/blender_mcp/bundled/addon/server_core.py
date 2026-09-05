@@ -545,6 +545,7 @@ class BlenderMCPServer(
             "keyframe_object_transform": self.keyframe_object_transform,
             "manage_view_layers": self.manage_view_layers,
             "render_scene": self.render_scene,
+            "inspect_render_output": self.inspect_render_output,
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_sketchfab_status": self.get_sketchfab_status,
             "create_primitive": self.create_primitive,
@@ -857,6 +858,7 @@ class BlenderMCPServer(
             "validate_retopology",
             "test_deformation",
             "inspect_render_setup",
+            "inspect_render_output",
             "get_scene_physics_info",
         }
     )

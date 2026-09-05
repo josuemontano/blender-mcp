@@ -85,6 +85,13 @@ def asset_creation_strategy() -> str:
           get_mesh_data() to confirm the things a screenshot can't show.
         - Use a screenshot before/after a visually-meaningful change (placement, deformation,
           lighting, material) - not as a substitute for the structured checks above.
+        - A screenshot is the live viewport, not a render, and render_scene itself returns
+          only the written file's path/size/status, not pixels. To actually see rendered
+          pixels: for the real scene's final render, call
+          inspect_render_output(output_path=<one of render_scene's "files" paths>)
+          afterward (or with no arguments, to read the in-memory Render Result); for a
+          bounded preview render, use render_lighting_preview or render_pbr_material_preview
+          instead (a disposable staging scene, not the real one).
 
     6. Stop-and-check gates - do not continue past these without addressing them:
         - "ok": false means the request reached Blender but nothing changed - this includes an

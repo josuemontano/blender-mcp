@@ -659,3 +659,81 @@ class RenderingHandlersMixin:
             "progress": progress,
             "progress_truncated": len(written_files) > len(progress),
         }
+
+    def inspect_render_output(self, filepath, output_path=None, frame=None, max_size=1000, format="png"):
+        """
+        Read a previously rendered frame's pixels into a bounded copy for visual inspection.
+
+        Unlike a viewport screenshot, this reads actual render output: an explicit
+        output_path (a file render_scene already wrote), read-only and never modified,
+        or - when omitted - the in-memory "Render Result" datablock. Render Result only
+        ever reflects the most recently rendered frame, so an animation's earlier frames
+        are only reachable through their own written output_path.
+
+        Args:
+            filepath: Destination path this call writes the (possibly downscaled) copy to.
+            output_path: Path to an existing rendered file on disk. Takes precedence over frame.
+            frame: Frame number the in-memory Render Result must currently hold; only
+                checked when output_path is omitted.
+            max_size: Maximum size in pixels for the largest dimension of the saved copy.
+            format: Image format for the saved copy (png, jpg, etc.)
+
+        Returns:
+            success status with width/height/native dimensions, source, and frame.
+
+        Raises:
+            ValueError: If the operation cannot be completed.
+            RuntimeError: If the operation cannot be completed.
+
+        """
+        if not filepath:
+            raise ValueError("No destination filepath provided")
+
+        staging_path = None
+        if output_path:
+            if not os.path.isfile(output_path):
+                raise ValueError(f"Render output file not found: {output_path}")
+            source = "output_path"
+            img = bpy.data.images.load(output_path, check_existing=False)
+        else:
+            render_result = bpy.data.images.get("Render Result")
+            if render_result is None:
+                raise RuntimeError("No render result available; render a frame first with render_scene")
+            current_frame = bpy.context.scene.frame_current
+            if frame is not None and frame != current_frame:
+                raise ValueError(
+                    f"Render Result currently holds frame {current_frame}, not {frame}; pass "
+                    "output_path to inspect a specific previously-written frame instead"
+                )
+            frame = current_frame
+            source = "render_result"
+            staging_path = f"{filepath}.src.png"
+            render_result.save_render(filepath=staging_path)
+            img = bpy.data.images.load(staging_path, check_existing=False)
+
+        try:
+            native_width, native_height = img.size
+            width, height = native_width, native_height
+            if max(width, height) > max_size:
+                scale = max_size / max(width, height)
+                width, height = max(1, int(width * scale)), max(1, int(height * scale))
+                img.scale(width, height)
+            img.filepath_raw = filepath
+            img.file_format = format.upper()
+            img.save()
+        finally:
+            bpy.data.images.remove(img)
+            if staging_path and os.path.exists(staging_path):
+                os.remove(staging_path)
+
+        return {
+            "success": True,
+            "width": width,
+            "height": height,
+            "native_width": native_width,
+            "native_height": native_height,
+            "filepath": filepath,
+            "source": source,
+            "source_path": output_path,
+            "frame": frame,
+        }
