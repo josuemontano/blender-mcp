@@ -4,7 +4,7 @@ import asyncio
 
 from test_mutation_transaction import _load_addon
 
-from blender_mcp.server.tools import fluid
+from blender_mcp.server.tools import liquid as fluid
 
 
 class _Connection:

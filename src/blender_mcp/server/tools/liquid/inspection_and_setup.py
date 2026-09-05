@@ -120,6 +120,54 @@ class LiquidBoundaryPatch(_StrictModel):
     bottom: bool | None = None
 
 
+FluidDomainType = Literal["LIQUID", "GAS"]
+
+
+class FluidSolverPatch(_StrictModel):
+    """Common and gas-specific Mantaflow solver settings for both LIQUID and GAS domains."""
+
+    resolution_max: int | None = Field(default=None, ge=6, le=10_000)
+    time_scale: float | None = Field(default=None, gt=0.0)
+    timesteps_min: int | None = Field(default=None, ge=1)
+    timesteps_max: int | None = Field(default=None, ge=1)
+    use_adaptive_timesteps: bool | None = None
+    cfl_condition: float | None = Field(default=None, gt=0.0)
+    simulation_method: SimulationMethod | None = None
+    flip_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    vorticity: float | None = Field(default=None, ge=0.0)
+    burning_rate: float | None = Field(default=None, ge=0.0)
+    flame_smoke: float | None = Field(default=None, ge=0.0)
+    flame_vorticity: float | None = Field(default=None, ge=0.0)
+    use_noise: bool | None = None
+    noise_scale: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "FluidSolverPatch":
+        if (
+            self.timesteps_min is not None
+            and self.timesteps_max is not None
+            and self.timesteps_min > self.timesteps_max
+        ):
+            raise ValueError("timesteps_min must be <= timesteps_max")
+        return self
+
+
+class FluidFlowPatch(_StrictModel):
+    """Common liquid or gas flow settings."""
+
+    flow_behavior: FlowBehavior | None = None
+    use_inflow: bool | None = None
+    use_plane_init: bool | None = None
+    surface_distance: float | None = Field(default=None, ge=0.0)
+    subframes: int | None = Field(default=None, ge=0)
+    use_initial_velocity: bool | None = None
+    velocity_coord: tuple[float, float, float] | None = None
+    density: float | None = Field(default=None, ge=0.0)
+    fuel_amount: float | None = Field(default=None, ge=0.0)
+    smoke_color: tuple[float, float, float] | None = None
+    temperature: float | None = None
+
+
 @mcp.tool()
 async def get_liquid_simulation_info(
     ctx: Context,
@@ -490,4 +538,115 @@ async def validate_liquid_setup(
             "domain_object_names": domain_object_names,
             "max_findings": max_findings,
         },
+    )
+
+
+@mcp.tool()
+async def inspect_fluid_simulation(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    scene_name: str | None = None,
+    domain_object_name: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=100)] = 25,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> dict:
+    """Inspect bounded liquid or gas domain state through the canonical fluid surface."""
+    return await asyncio.to_thread(
+        _call,
+        "inspect_fluid_simulation",
+        {
+            "domain_type": domain_type,
+            "scene_name": scene_name,
+            "domain_object_name": domain_object_name,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+@mcp.tool()
+async def create_fluid_domain(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    scene_name: Annotated[str, Field(min_length=1)],
+    cache_directory: Annotated[str, Field(min_length=1)],
+    object_name: str | None = None,
+    new_object_name: str = "Fluid Domain",
+    collection_name: str | None = None,
+    dimensions: tuple[float, float, float] = (4.0, 4.0, 4.0),
+    location: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    modifier_name: str = "Fluid Domain",
+    flow_collection_name: str | None = None,
+    effector_collection_name: str | None = None,
+    cache_type: CacheType = "REPLAY",
+    cache_frame_start: int = 1,
+    cache_frame_end: int = 250,
+    resolution_max: Annotated[int, Field(ge=6, le=10_000)] = 64,
+) -> dict:
+    """Create a live LIQUID or GAS Mantaflow domain with isolated collections and cache path."""
+    if cache_frame_end < cache_frame_start:
+        raise ValueError("cache_frame_end must be >= cache_frame_start")
+    return await asyncio.to_thread(
+        _call,
+        "create_fluid_domain",
+        {key: value for key, value in locals().items() if key != "ctx"},
+        [object_name] if object_name else None,
+    )
+
+
+@mcp.tool()
+async def add_fluid_flow(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    object_name: str,
+    domain_object_name: str,
+    modifier_name: str = "Fluid Flow",
+    existing_policy: ExistingPolicy = "ERROR",
+    behavior: FlowBehavior = "GEOMETRY",
+    gas_flow_type: Literal["SMOKE", "FIRE", "BOTH"] = "SMOKE",
+    settings: FluidFlowPatch | None = None,
+) -> dict:
+    """Add a liquid or gas mesh flow and register it with one explicit domain."""
+    return await asyncio.to_thread(
+        _call,
+        "add_fluid_flow",
+        {
+            "domain_type": domain_type,
+            "object_name": object_name,
+            "domain_object_name": domain_object_name,
+            "modifier_name": modifier_name,
+            "existing_policy": existing_policy,
+            "behavior": behavior,
+            "gas_flow_type": gas_flow_type,
+            "settings": _dump(settings),
+        },
+        [object_name, domain_object_name],
+    )
+
+
+@mcp.tool()
+async def add_fluid_effector(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    object_name: str,
+    domain_object_name: str,
+    modifier_name: str = "Fluid Effector",
+    existing_policy: ExistingPolicy = "ERROR",
+    effector_type: EffectorType = "COLLISION",
+    settings: LiquidEffectorPatch | None = None,
+) -> dict:
+    """Add a shared collision/guide effector to a LIQUID or GAS domain."""
+    return await asyncio.to_thread(
+        _call,
+        "add_fluid_effector",
+        {
+            "domain_type": domain_type,
+            "object_name": object_name,
+            "domain_object_name": domain_object_name,
+            "modifier_name": modifier_name,
+            "existing_policy": existing_policy,
+            "effector_type": effector_type,
+            "settings": _dump(settings),
+        },
+        [object_name, domain_object_name],
     )

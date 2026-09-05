@@ -6,7 +6,12 @@ from .delivery import *  # noqa: F403
 from .force_fields import *  # noqa: F403
 from .guides import *  # noqa: F403
 from .inspection_and_setup import *  # noqa: F403
-from .inspection_and_setup import mcp as mcp
+from .inspection_and_setup import (
+    FluidDomainType as FluidDomainType,
+    FluidFlowPatch as FluidFlowPatch,
+    FluidSolverPatch as FluidSolverPatch,
+    mcp as mcp,
+)
 from .lifecycle import *  # noqa: F403
 from .mesh_and_materials import *  # noqa: F403
 from .quality import *  # noqa: F403

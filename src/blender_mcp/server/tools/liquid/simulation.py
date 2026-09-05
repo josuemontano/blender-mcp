@@ -10,6 +10,7 @@ from pydantic import Field, model_validator
 
 from ...app import mcp
 from ._shared import _call, _dump, _StrictModel
+from .inspection_and_setup import FluidDomainType, FluidSolverPatch
 from .mesh_and_materials import CacheMeshFormat
 
 CacheAction = Literal[
@@ -32,6 +33,27 @@ CacheAction = Literal[
 ]
 BakeStage = Literal["DATA", "GUIDES", "MESH", "PARTICLES", "ALL"]
 LiquidCacheType = Literal["REPLAY", "MODULAR", "FINAL", "ALL"]
+FluidBakeStage = Literal["DATA", "GUIDES", "MESH", "PARTICLES", "NOISE", "ALL"]
+FluidCacheAction = Literal[
+    "STATUS",
+    "CONFIGURE",
+    "BAKE_DATA",
+    "BAKE_GUIDES",
+    "BAKE_MESH",
+    "BAKE_PARTICLES",
+    "BAKE_NOISE",
+    "BAKE_ALL",
+    "START_BAKE",
+    "RESUME",
+    "CANCEL",
+    "PAUSE",
+    "FREE_DATA",
+    "FREE_GUIDES",
+    "FREE_MESH",
+    "FREE_PARTICLES",
+    "FREE_NOISE",
+    "FREE_ALL",
+]
 
 
 class LiquidCachePatch(_StrictModel):
@@ -156,6 +178,64 @@ async def manage_liquid_cache(
             "confirm_external_overwrite": confirm_external_overwrite,
             "max_bake_frames": max_bake_frames,
             "max_existing_cache_bytes": max_existing_cache_bytes,
+        },
+        [domain_object_name],
+    )
+
+
+@mcp.tool()
+async def configure_fluid_solver(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    domain_object_name: str,
+    modifier_name: str,
+    patch: FluidSolverPatch,
+) -> dict:
+    """Patch validated common or domain-specific solver settings without touching omitted fields."""
+    return await asyncio.to_thread(
+        _call,
+        "configure_fluid_solver",
+        {
+            "domain_type": domain_type,
+            "domain_object_name": domain_object_name,
+            "modifier_name": modifier_name,
+            "patch": _dump(patch),
+        },
+        [domain_object_name],
+    )
+
+
+@mcp.tool()
+async def manage_fluid_cache(
+    ctx: Context,
+    domain_type: FluidDomainType,
+    domain_object_name: str,
+    modifier_name: str,
+    action: FluidCacheAction = "STATUS",
+    patch: LiquidCachePatch | None = None,
+    stage: FluidBakeStage | None = None,
+    confirm_bake: bool = False,
+    confirm_free: bool = False,
+    confirm_external_path: bool = False,
+    confirm_external_overwrite: bool = False,
+    max_bake_frames: Annotated[int, Field(ge=1, le=10_000)] = 250,
+) -> dict:
+    """Manage a normalized Mantaflow cache lifecycle for LIQUID or GAS domains."""
+    return await asyncio.to_thread(
+        _call,
+        "manage_fluid_cache",
+        {
+            "domain_type": domain_type,
+            "domain_object_name": domain_object_name,
+            "modifier_name": modifier_name,
+            "action": action,
+            "patch": _dump(patch),
+            "stage": stage,
+            "confirm_bake": confirm_bake,
+            "confirm_free": confirm_free,
+            "confirm_external_path": confirm_external_path,
+            "confirm_external_overwrite": confirm_external_overwrite,
+            "max_bake_frames": max_bake_frames,
         },
         [domain_object_name],
     )
