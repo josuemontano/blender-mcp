@@ -102,6 +102,20 @@ def main() -> None:
     validation = handler.validate_pbr_asset([obj.name], profile="BLENDER_BOTH")
     assert "findings" in validation
 
+    water = handler.create_pbr_material("PBR Smoke Water", "BOTH", preset="WATER")
+    assert water["created"]
+    assert water["preset"] == "WATER"
+    assert water["volume_node"]
+    material = bpy.data.materials["PBR Smoke Water"]
+    volume_input = next(
+        node for node in material.node_tree.nodes if node.bl_idname == "ShaderNodeOutputMaterial"
+    ).inputs["Volume"]
+    assert volume_input.is_linked
+
+    removed = handler.configure_pbr_material("PBR Smoke Water", {"volume_density": 0.0}, "BOTH")
+    assert removed["volume_node"] is None
+    assert not volume_input.is_linked
+
     print("TEXTURE_SMOKE_OK")
 
 

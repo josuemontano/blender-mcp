@@ -22,6 +22,7 @@ from .simulation import (
     _scene_context_for_object,
     _update_or_restore,
 )
+from ..texture.materials import _MATERIAL_PRESETS as _PBR_MATERIAL_PRESETS
 
 # Recorded on ParticleSettings (not the ParticleSystem, which rejects ID properties) the first time a
 # Mantaflow system is observed, so later reads survive a rename of either datablock.
@@ -111,40 +112,6 @@ _LIQUID_PRESETS = {
         "surface_tension": 2.0,
     },
 }
-_MATERIAL_PRESETS = {
-    "WATER": {
-        "base_color": (0.92, 0.98, 1.0, 1.0),
-        "transmission_weight": 1.0,
-        "ior": 1.333,
-        "roughness": 0.04,
-        "volume_absorption_color": (0.75, 0.95, 1.0, 1.0),
-        "volume_density": 0.02,
-    },
-    "GLASS": {
-        "base_color": (1.0, 1.0, 1.0, 1.0),
-        "transmission_weight": 1.0,
-        "ior": 1.45,
-        "roughness": 0.02,
-        "volume_absorption_color": (1.0, 1.0, 1.0, 1.0),
-        "volume_density": 0.0,
-    },
-    "OIL": {
-        "base_color": (0.55, 0.32, 0.08, 1.0),
-        "transmission_weight": 0.82,
-        "ior": 1.47,
-        "roughness": 0.12,
-        "volume_absorption_color": (0.35, 0.12, 0.02, 1.0),
-        "volume_density": 0.15,
-    },
-    "TINTED": {
-        "base_color": (0.1, 0.45, 0.8, 1.0),
-        "transmission_weight": 0.95,
-        "ior": 1.36,
-        "roughness": 0.08,
-        "volume_absorption_color": (0.04, 0.22, 0.7, 1.0),
-        "volume_density": 0.12,
-    },
-}
 
 
 def _estimate_mesh_output(obj, settings):
@@ -200,25 +167,6 @@ def _expand_viscosity_config(config):
     else:
         expanded = config
     return expanded, source, conversion
-
-
-def _configure_principled_material(material, values):
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    nodes.clear()
-    output = nodes.new("ShaderNodeOutputMaterial")
-    principled = nodes.new("ShaderNodeBsdfPrincipled")
-    principled.inputs["Base Color"].default_value = values["base_color"]
-    principled.inputs["Transmission Weight"].default_value = values["transmission_weight"]
-    principled.inputs["IOR"].default_value = values["ior"]
-    principled.inputs["Roughness"].default_value = values["roughness"]
-    material.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    if values["volume_density"] > 0:
-        volume = nodes.new("ShaderNodeVolumeAbsorption")
-        volume.inputs["Color"].default_value = values["volume_absorption_color"]
-        volume.inputs["Density"].default_value = values["volume_density"]
-        material.node_tree.links.new(volume.outputs["Volume"], output.inputs["Volume"])
-    return {"surface_node": principled.name, "output_node": output.name}
 
 
 def _octahedron_mesh(name):
@@ -398,6 +346,7 @@ class LiquidMeshAndMaterialHandlers:
         assignment="APPEND",
         slot_index=None,
     ):
+        """Resolve the domain and preset, then delegate node construction and assignment to the shared PBR handlers."""
         obj, modifier, settings = _get_domain(domain_object_name, modifier_name)
         if existing_policy not in {"ERROR", "REUSE"}:
             raise ValueError("existing_policy must be ERROR or REUSE")
@@ -408,69 +357,58 @@ class LiquidMeshAndMaterialHandlers:
                 raise ValueError("REPLACE_SLOT requires an existing valid slot_index")
         elif slot_index is not None:
             raise ValueError("slot_index is valid only with REPLACE_SLOT")
-        material = bpy.data.materials.get(material_name)
-        created = material is None
-        if material is not None and existing_policy == "ERROR":
+        existing_material = bpy.data.materials.get(material_name)
+        created = existing_material is None
+        if existing_material is not None and existing_policy == "ERROR":
             raise ValueError(f"Material already exists: {material_name}")
         preset = config.get("preset", "WATER")
-        if preset not in _MATERIAL_PRESETS:
+        if preset not in _PBR_MATERIAL_PRESETS:
             raise ValueError(f"Unknown liquid material preset: {preset}")
-        values = dict(_MATERIAL_PRESETS[preset])
-        values.update({key: value for key, value in config.items() if key != "preset"})
+        overrides = {key: value for key, value in config.items() if key != "preset"}
+        values = {**_PBR_MATERIAL_PRESETS[preset], **overrides}
         for color_name in ("base_color", "volume_absorption_color"):
             color = values[color_name]
             _finite(color, color_name)
             if len(color) != 4 or any(not 0.0 <= component <= 1.0 for component in color):
                 raise ValueError(f"{color_name} must contain four values in [0, 1]")
-        if material is None:
-            material = bpy.data.materials.new(material_name)
-            nodes = _configure_principled_material(material, values)
+
+        creation = self.create_pbr_material(
+            material_name,
+            target_engine="BOTH",
+            preset=preset,
+            settings=overrides,
+            reuse_existing=(existing_policy == "REUSE"),
+        )
+        material = bpy.data.materials[material_name]
+        if created:
             material["blendermcp_liquid_material"] = obj.name
             material["blendermcp_liquid_material_schema"] = 1
-        else:
-            nodes = None
-        old_material = obj.data.materials[slot_index] if assignment == "REPLACE_SLOT" else None
-        appended = False
-        changed_slot = False
         try:
-            if assignment == "APPEND":
-                existing_slot = next(
-                    (index for index, candidate in enumerate(obj.data.materials) if candidate == material), None
-                )
-                if existing_slot is None:
-                    obj.data.materials.append(material)
-                    slot_index = len(obj.data.materials) - 1
-                    appended = True
-                else:
-                    slot_index = existing_slot
-            elif old_material != material:
-                obj.data.materials[slot_index] = material
-                changed_slot = True
-            bpy.context.view_layer.update()
+            assignment_result = self.assign_material(material_name, [obj.name], mode=assignment, slot_index=slot_index)
         except Exception:
-            if appended:
-                with contextlib.suppress(Exception):
-                    obj.data.materials.pop(index=slot_index)
-            elif changed_slot:
-                with contextlib.suppress(Exception):
-                    obj.data.materials[slot_index] = old_material
             if created:
                 with contextlib.suppress(Exception):
                     bpy.data.materials.remove(material)  # pyright: ignore[reportArgumentType]
             raise
-        changed_objects = [obj.name] if appended or changed_slot else []
+        changed_objects = list(assignment_result["changed_objects"])
         return {
             "changed_objects": changed_objects,
-            "changed_resources": [material.name] if created else [],
+            "changed_resources": creation["changed_resources"],
             "domain": obj.name,
             "modifier": modifier.name,
             "material": material.name,
             "created": created,
-            "configured_nodes": nodes,
+            "configured_nodes": (
+                {"surface_node": "PBR Principled BSDF", "output_node": "PBR Material Output"} if created else None
+            ),
             "preset_schema_version": 1,
             "expanded_values": values if created else None,
             "existing_material_reused_unchanged": not created,
-            "assignment": {"policy": assignment, "slot_index": slot_index, "slot_changed": bool(changed_objects)},
+            "assignment": {
+                "policy": assignment,
+                "slot_index": assignment_result["assignments"][0]["slot_index"],
+                "slot_changed": bool(changed_objects),
+            },
             "solver_settings_changed": False,
             "cache_changed": False,
             "warnings": [] if settings.use_mesh else ["Liquid mesh generation is currently disabled on this domain."],

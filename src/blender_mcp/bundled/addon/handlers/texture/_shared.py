@@ -145,6 +145,12 @@ def set_finite_socket(node, names, value, label):
     return socket.name
 
 
+def validate_unit_color(value, label):
+    """Reject a color that is not exactly four finite channels in [0, 1]."""
+    if value is None or len(value) != 4 or any(not 0.0 <= float(component) <= 1.0 for component in value):
+        raise ValueError(f"{label} must contain four values in [0, 1]")
+
+
 def tag_node(node, role):
     """Mark a node as managed without relying on its mutable display label."""
     node["mcp_owner"] = MANAGED_OWNER
