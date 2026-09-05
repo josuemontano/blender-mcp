@@ -12,16 +12,6 @@ from test_mutation_transaction import _load_addon
 from blender_mcp.server.tools import cloth
 
 
-class _StubConnection:
-    def __init__(self, result=None) -> None:
-        self.result = result or {"status": "ok"}
-        self.calls = []
-
-    def send_command(self, command, params):
-        self.calls.append((command, params))
-        return self.result
-
-
 def _run(function, **kwargs):
     return asyncio.run(function(ctx=None, **kwargs))
 
@@ -38,8 +28,14 @@ def test_vertex_weight_assignment_rejects_out_of_range_weights(weight) -> None:
 
 
 def test_configure_material_serializes_only_explicit_patch_fields(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects)) or {"ok": True, "changed_objects": ["Cape"]}
+        ),
+    )
 
     result = _run(
         cloth.configure_cloth_material,
@@ -51,7 +47,7 @@ def test_configure_material_serializes_only_explicit_patch_fields(monkeypatch) -
 
     assert result["ok"] is True
     assert result["changed_objects"] == ["Cape"]
-    assert connection.calls == [
+    assert calls == [
         (
             "configure_cloth_material",
             {
@@ -60,13 +56,18 @@ def test_configure_material_serializes_only_explicit_patch_fields(monkeypatch) -
                 "patch": {"mass": 0.42},
                 "preset": "COTTON",
             },
+            ["Cape"],
         )
     ]
 
 
 def test_set_weights_serializes_typed_assignments(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.set_cloth_vertex_weights,
@@ -78,7 +79,7 @@ def test_set_weights_serializes_typed_assignments(monkeypatch) -> None:
         operation="REPLACE",
     )
 
-    assert connection.calls[0] == (
+    assert calls[0] == (
         "set_cloth_vertex_weights",
         {
             "object_name": "Cape",
@@ -88,22 +89,37 @@ def test_set_weights_serializes_typed_assignments(monkeypatch) -> None:
             "assignments": [{"vertex_index": 3, "weight": 0.75}],
             "operation": "REPLACE",
         },
+        ["Cape"],
     )
 
 
 def test_read_only_cloth_tool_does_not_report_changes(monkeypatch) -> None:
-    connection = _StubConnection({"objects": [], "dependencies": []})
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects))
+            or {"objects": [], "dependencies": [], "changed_objects": []}
+        ),
+    )
 
     result = _run(cloth.get_cloth_simulation_info, scene_name="Scene")
 
     assert result["changed_objects"] == []
-    assert connection.calls[0][0] == "get_cloth_simulation_info"
+    assert calls[0][0] == "get_cloth_simulation_info"
+    assert calls[0][2] is None
 
 
 def test_resource_estimate_forwards_bounded_object_page(monkeypatch) -> None:
-    connection = _StubConnection({"estimates": []})
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects)) or {"estimates": []}
+        ),
+    )
 
     _run(
         cloth.estimate_cloth_resources,
@@ -113,7 +129,7 @@ def test_resource_estimate_forwards_bounded_object_page(monkeypatch) -> None:
         object_offset=20,
     )
 
-    assert connection.calls == [
+    assert calls == [
         (
             "estimate_cloth_resources",
             {
@@ -123,13 +139,21 @@ def test_resource_estimate_forwards_bounded_object_page(monkeypatch) -> None:
                 "object_limit": 10,
                 "object_offset": 20,
             },
+            None,
         )
     ]
 
 
 def test_handler_supplied_change_and_warning_metadata_wins(monkeypatch) -> None:
-    connection = _StubConnection({"changed_objects": ["Cape", "BodyProxy"], "warnings": ["cache invalidated"]})
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects))
+            or {"changed_objects": ["Cape", "BodyProxy"], "warnings": ["cache invalidated"]}
+        ),
+    )
 
     result = _run(
         cloth.add_cloth_collider,
@@ -416,8 +440,15 @@ def test_dispatch_advertises_cloth_and_marks_only_inspection_read_only(monkeypat
 
 
 def test_sewing_dry_run_forwards_exact_pairs_without_reporting_changes(monkeypatch) -> None:
-    connection = _StubConnection({"dry_run": True, "analysis": {"pairs": 1}})
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects))
+            or {"dry_run": True, "analysis": {"pairs": 1}, "changed_objects": []}
+        ),
+    )
 
     result = _run(
         cloth.configure_cloth_sewing,
@@ -428,7 +459,7 @@ def test_sewing_dry_run_forwards_exact_pairs_without_reporting_changes(monkeypat
     )
 
     assert result["changed_objects"] == []
-    assert connection.calls == [
+    assert calls == [
         (
             "configure_cloth_sewing",
             {
@@ -440,13 +471,18 @@ def test_sewing_dry_run_forwards_exact_pairs_without_reporting_changes(monkeypat
                 "dry_run": True,
                 "max_pair_distance": None,
             },
+            [],
         )
     ]
 
 
 def test_animation_records_and_cache_index_are_strictly_serialized(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.animate_cloth_parameters,
@@ -470,7 +506,7 @@ def test_animation_records_and_cache_index_are_strictly_serialized(monkeypatch) 
         patch=cloth.PointCachePatch(index=3, frame_start=1, frame_end=80),
     )
 
-    assert connection.calls[0][1]["keyframes"] == [
+    assert calls[0][1]["keyframes"] == [
         {
             "owner": "CLOTH_SETTINGS",
             "property_name": "uniform_pressure_force",
@@ -481,12 +517,16 @@ def test_animation_records_and_cache_index_are_strictly_serialized(monkeypatch) 
             "interpolation": "LINEAR",
         }
     ]
-    assert connection.calls[1][1]["patch"] == {"frame_start": 1, "frame_end": 80, "index": 3}
+    assert calls[1][1]["patch"] == {"frame_start": 1, "frame_end": 80, "index": 3}
 
 
 def test_character_setup_forwards_explicit_modifier_names(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.create_character_cloth_setup,
@@ -503,7 +543,7 @@ def test_character_setup_forwards_explicit_modifier_names(monkeypatch) -> None:
         cache_frame_end=120,
     )
 
-    params = connection.calls[0][1]
+    params = calls[0][1]
     assert params["collider_modifier_name"] == "Body Cloth Collision"
     assert params["subdivision_modifier_name"] == "Render Subdivision"
     assert params["solidify_modifier_name"] == "Render Thickness"
@@ -584,7 +624,7 @@ def test_point_cache_operator_override_contains_exact_cache(monkeypatch) -> None
     view_layer = object()
     obj = object()
     cache = object()
-    monkeypatch.setattr(handler, "_scene_context_for_object", lambda _obj: (scene, view_layer))
+    monkeypatch.setattr(handler._cache_helpers, "_scene_context_for_object", lambda _obj: (scene, view_layer))
 
     _scene, _view_layer, override = handler._point_cache_context(obj, cache)
 
@@ -626,8 +666,12 @@ def test_field_strength_is_the_only_direct_field_animation_control(monkeypatch) 
 
 
 def test_proxy_rig_serializes_explicit_topology_permission(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.create_cloth_proxy_rig,
@@ -639,7 +683,7 @@ def test_proxy_rig_serializes_explicit_topology_permission(monkeypatch) -> None:
         validation_frames=[1, 12, 24],
     )
 
-    command, params = connection.calls[0]
+    command, params, _changed_objects = calls[0]
     assert command == "create_cloth_proxy_rig"
     assert params["allow_topology_change"] is True
     assert params["decimate_ratio"] == 0.2
@@ -647,8 +691,12 @@ def test_proxy_rig_serializes_explicit_topology_permission(monkeypatch) -> None:
 
 
 def test_variant_requires_explicit_dependency_policies(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.duplicate_cloth_setup_variant,
@@ -664,15 +712,19 @@ def test_variant_requires_explicit_dependency_policies(monkeypatch) -> None:
         render_surface_policy="DUPLICATE",
     )
 
-    command, params = connection.calls[0]
+    command, params, _changed_objects = calls[0]
     assert command == "duplicate_cloth_setup_variant"
     assert params["mesh_data_policy"] == "COPY"
     assert params["render_surface_policy"] == "DUPLICATE"
 
 
 def test_render_surface_serializes_typed_modifier_patches(monkeypatch) -> None:
-    connection = _StubConnection()
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: calls.append((command, params, changed_objects)) or {"ok": True},
+    )
 
     _run(
         cloth.prepare_cloth_render_surface,
@@ -682,7 +734,7 @@ def test_render_surface_serializes_typed_modifier_patches(monkeypatch) -> None:
         solidify=cloth.ClothSolidifyPatch(thickness=0.003, use_even_offset=True),
     )
 
-    command, params = connection.calls[0]
+    command, params, _changed_objects = calls[0]
     assert command == "prepare_cloth_render_surface"
     assert params["subdivision"] == {"levels": 1, "render_levels": 2}
     assert params["solidify"] == {"thickness": 0.003, "use_even_offset": True}
@@ -691,13 +743,14 @@ def test_render_surface_serializes_typed_modifier_patches(monkeypatch) -> None:
 
 
 def test_cloth_envelope_lifts_changed_resources(monkeypatch) -> None:
-    connection = _StubConnection(
-        {
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: {
             "changed_objects": ["Cape Final"],
             "changed_resources": ["Cape Final Mesh", "Cape Final Material"],
-        }
+        },
     )
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
 
     result = _run(
         cloth.analyze_cloth_performance,
@@ -711,8 +764,14 @@ def test_cloth_envelope_lifts_changed_resources(monkeypatch) -> None:
 
 
 def test_export_forwards_complete_delivery_contract(monkeypatch, tmp_path) -> None:
-    connection = _StubConnection({"filepath": str(tmp_path / "cape.usdc")})
-    monkeypatch.setattr(cloth, "get_blender_connection", lambda: connection)
+    calls = []
+    monkeypatch.setattr(
+        cloth,
+        "_call",
+        lambda command, params, changed_objects=None: (
+            calls.append((command, params, changed_objects)) or {"filepath": str(tmp_path / "cape.usdc")}
+        ),
+    )
 
     _run(
         cloth.export_cloth_simulation,
@@ -732,7 +791,7 @@ def test_export_forwards_complete_delivery_contract(monkeypatch, tmp_path) -> No
         overwrite=True,
     )
 
-    command, params = connection.calls[0]
+    command, params, _changed_objects = calls[0]
     assert command == "export_cloth_simulation"
     assert params["scene_name"] == "Shot"
     assert params["object_names"] == ["Cape"]
