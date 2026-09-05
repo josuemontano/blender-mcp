@@ -9,7 +9,7 @@ from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from ...app import mcp
-from ._shared import _call, _dump, _StrictModel
+from ._shared import _call, _StrictModel
 
 WeightOperation = Literal["REPLACE", "ADD", "SUBTRACT"]
 WeightRole = Literal[
@@ -68,32 +68,6 @@ async def set_cloth_vertex_weights(
             "group_name": group_name,
             "assignments": [item.model_dump() for item in assignments],
             "operation": operation,
-        },
-        [object_name],
-    )
-
-
-@mcp.tool()
-async def configure_cloth_pinning(
-    ctx: Context,
-    object_name: str,
-    modifier_name: str,
-    group_name: str,
-    patch: ClothPinningPatch,
-) -> dict:
-    """Assign an existing group as cloth pins and patch its goal behavior.
-
-    This does not create weights or animation. Use set_cloth_vertex_weights first when necessary.
-    The result reports weak/empty coverage and deformers that occur on the wrong side of Cloth.
-    """
-    return await asyncio.to_thread(
-        _call,
-        "configure_cloth_pinning",
-        {
-            "object_name": object_name,
-            "modifier_name": modifier_name,
-            "group_name": group_name,
-            "patch": _dump(patch),
         },
         [object_name],
     )

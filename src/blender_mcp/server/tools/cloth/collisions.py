@@ -55,24 +55,6 @@ class ClothColliderRegistration(_StrictModel):
 
 
 @mcp.tool()
-async def configure_cloth_collisions(
-    ctx: Context, object_name: str, modifier_name: str, patch: ClothCollisionPatch
-) -> dict:
-    """Patch cloth-side object and self-collision, scope, and exclusion groups.
-
-    ``collection_name`` selects one existing scene-linked collision collection;
-    ``clear_collection`` restores scene-wide scope. The tool never adds Collision modifiers and
-    rejects baked caches. Distances are compared with local edge scale and active collider thickness.
-    """
-    return await asyncio.to_thread(
-        _call,
-        "configure_cloth_collisions",
-        {"object_name": object_name, "modifier_name": modifier_name, "patch": _dump(patch)},
-        [object_name],
-    )
-
-
-@mcp.tool()
 async def add_cloth_collider(
     ctx: Context,
     object_name: str,
@@ -97,22 +79,5 @@ async def add_cloth_collider(
             "settings": _dump(settings),
             "registrations": [item.model_dump() for item in registrations or []],
         },
-        [object_name],
-    )
-
-
-@mcp.tool()
-async def configure_cloth_collider(
-    ctx: Context, object_name: str, modifier_name: str, patch: ClothColliderPatch
-) -> dict:
-    """Patch Blender 5.1 cloth-relevant collider thickness, friction, damping, and sidedness.
-
-    This never adds rigid-body, fluid, particle, or soft-body behavior. It reports all active,
-    in-scope cloth caches and refuses the edit if any of those caches is baked.
-    """
-    return await asyncio.to_thread(
-        _call,
-        "configure_cloth_collider",
-        {"object_name": object_name, "modifier_name": modifier_name, "patch": _dump(patch)},
         [object_name],
     )

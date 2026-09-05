@@ -33,20 +33,23 @@ def test_configure_material_serializes_only_explicit_patch_fields(monkeypatch) -
         cloth,
         "_call",
         lambda command, params, changed_objects=None: (
-            calls.append((command, params, changed_objects)) or {"ok": True, "changed_objects": ["Cape"]}
+            calls.append((command, params, changed_objects))
+            or {"ok": True, "data": {"mass": {"old": 0.3, "new": 0.42}}, "changed_objects": ["Cape"]}
         ),
     )
 
     result = _run(
-        cloth.configure_cloth_material,
+        cloth.configure_cloth,
         object_name="Cape",
         modifier_name="Cape Cloth",
-        preset="COTTON",
-        patch=cloth.ClothMaterialPatch(mass=0.42),
+        patch=cloth.ClothPatch(
+            material=cloth.ClothMaterialSection(preset="COTTON", patch=cloth.ClothMaterialPatch(mass=0.42))
+        ),
     )
 
     assert result["ok"] is True
     assert result["changed_objects"] == ["Cape"]
+    assert result["data"] == {"material": {"mass": {"old": 0.3, "new": 0.42}}}
     assert calls == [
         (
             "configure_cloth_material",
@@ -59,6 +62,80 @@ def test_configure_material_serializes_only_explicit_patch_fields(monkeypatch) -
             ["Cape"],
         )
     ]
+
+
+def test_configure_cloth_dispatches_multiple_sections_in_fixed_order_and_merges_metadata(monkeypatch) -> None:
+    calls = []
+
+    def fake_call(command, params, changed_objects=None):
+        calls.append((command, params, changed_objects))
+        if command == "configure_cloth_pinning":
+            return {
+                "ok": True,
+                "data": {"pin_stiffness": {"old": 1.0, "new": 5.0}},
+                "warnings": ["pin group already existed"],
+                "changed_objects": ["Cape"],
+            }
+        return {
+            "ok": True,
+            "data": {"uniform_pressure_force": {"old": 0.0, "new": 2.0}},
+            "warnings": ["pressure enabled"],
+            "changed_objects": ["Cape"],
+            "changed_resources": ["Cape Cloth"],
+        }
+
+    monkeypatch.setattr(cloth, "_call", fake_call)
+
+    result = _run(
+        cloth.configure_cloth,
+        object_name="Cape",
+        modifier_name="Cape Cloth",
+        patch=cloth.ClothPatch(
+            pinning=cloth.ClothPinningSection(group_name="Pins", patch=cloth.ClothPinningPatch(pin_stiffness=5.0)),
+            pressure=cloth.ClothPressurePatch(use_pressure=True, uniform_pressure_force=2.0),
+        ),
+    )
+
+    assert [call[0] for call in calls] == ["configure_cloth_pinning", "configure_cloth_pressure"]
+    assert result["ok"] is True
+    assert result["data"] == {
+        "pinning": {"pin_stiffness": {"old": 1.0, "new": 5.0}},
+        "pressure": {"uniform_pressure_force": {"old": 0.0, "new": 2.0}},
+    }
+    assert result["warnings"] == ["pin group already existed", "pressure enabled"]
+    assert result["changed_objects"] == ["Cape"]
+    assert result["changed_resources"] == ["Cape Cloth"]
+
+
+def test_empty_cloth_patch_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        cloth.ClothPatch()
+
+
+def test_cloth_patch_forbids_unknown_section() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        cloth.ClothPatch(bogus_section={"foo": "bar"})
+
+
+def test_configure_cloth_merges_ok_false_from_any_section(monkeypatch) -> None:
+    def fake_call(command, params, changed_objects=None):
+        if command == "configure_cloth_solver":
+            return {"ok": True, "data": {}, "changed_objects": ["Cape"]}
+        return {"ok": False, "data": {}, "changed_objects": []}
+
+    monkeypatch.setattr(cloth, "_call", fake_call)
+
+    result = _run(
+        cloth.configure_cloth,
+        object_name="Cape",
+        modifier_name="Cape Cloth",
+        patch=cloth.ClothPatch(
+            solver=cloth.ClothSolverPatch(quality=10),
+            collisions=cloth.ClothCollisionPatch(use_collision=False),
+        ),
+    )
+
+    assert result["ok"] is False
 
 
 def test_set_weights_serializes_typed_assignments(monkeypatch) -> None:
@@ -171,25 +248,16 @@ def test_handler_supplied_change_and_warning_metadata_wins(monkeypatch) -> None:
     assert result["warnings"] == ["cache invalidated"]
 
 
-def test_all_twenty_eight_public_commands_are_registered() -> None:
+def test_all_nineteen_public_commands_are_registered() -> None:
     names = {
         "get_cloth_simulation_info",
         "get_cloth_object_info",
         "add_cloth_simulation",
-        "configure_cloth_material",
-        "configure_cloth_solver",
+        "configure_cloth",
         "set_cloth_vertex_weights",
-        "configure_cloth_pinning",
-        "configure_cloth_collisions",
         "add_cloth_collider",
-        "configure_cloth_collider",
         "estimate_cloth_resources",
         "validate_cloth_setup",
-        "configure_cloth_sewing",
-        "configure_cloth_pressure",
-        "configure_cloth_internal_springs",
-        "configure_cloth_rest_shape",
-        "configure_cloth_field_weights",
         "animate_cloth_parameters",
         "create_cloth_attachment",
         "create_character_cloth_setup",
@@ -446,19 +514,24 @@ def test_sewing_dry_run_forwards_exact_pairs_without_reporting_changes(monkeypat
         "_call",
         lambda command, params, changed_objects=None: (
             calls.append((command, params, changed_objects))
-            or {"dry_run": True, "analysis": {"pairs": 1}, "changed_objects": []}
+            or {"ok": True, "data": {"dry_run": True, "analysis": {"pairs": 1}}, "changed_objects": []}
         ),
     )
 
     result = _run(
-        cloth.configure_cloth_sewing,
+        cloth.configure_cloth,
         object_name="Garment",
         modifier_name="Cloth",
-        seam_pairs=[cloth.SewingPair(source_vertex=4, target_vertex=9)],
-        sewing_force_max=25.0,
+        patch=cloth.ClothPatch(
+            sewing=cloth.ClothSewingSection(
+                seam_pairs=[cloth.SewingPair(source_vertex=4, target_vertex=9)],
+                sewing_force_max=25.0,
+            )
+        ),
     )
 
     assert result["changed_objects"] == []
+    assert result["data"] == {"sewing": {"dry_run": True, "analysis": {"pairs": 1}}}
     assert calls == [
         (
             "configure_cloth_sewing",

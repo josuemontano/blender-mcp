@@ -5,6 +5,7 @@ from .animation import *  # noqa: F403
 from .attachment import *  # noqa: F403
 from .character_setup import *  # noqa: F403
 from .collisions import *  # noqa: F403
+from .configure import *  # noqa: F403
 from .diagnostics import *  # noqa: F403
 from .dynamics import *  # noqa: F403
 from .exporting import *  # noqa: F403
