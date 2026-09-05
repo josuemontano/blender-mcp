@@ -31,7 +31,7 @@ async def create_procedural_scatter(
     object_name: str,
     group_name: str,
     source_type: Literal["OBJECT", "COLLECTION"],
-    source_name: str,
+    source_name: str | None = None,
     distribution: Literal["SURFACE_RANDOM", "SURFACE_POISSON", "VOLUME"] = "SURFACE_RANDOM",
     density: float = 10.0,
     distance_min: float = 0.1,
@@ -41,14 +41,23 @@ async def create_procedural_scatter(
     mask_attribute: str | None = None,
     include_original: bool = True,
     realize_instances: bool = False,
+    output_type: Literal["INSTANCES", "POINTS", "HAIR_CURVES"] = "INSTANCES",
+    density_attribute: str | None = "mcp_scatter_density",
+    selection_attribute: str | None = "mcp_scatter_selection",
+    orientation: Literal["NORMAL", "RANDOM", "NONE"] = "NORMAL",
+    orientation_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    guide_length: float = 1.0,
+    source_collection_policy: Literal["WHOLE_COLLECTION", "PICK_INSTANCE", "SEPARATE_CHILDREN"] = "PICK_INSTANCE",
 ) -> dict:
     """Build and attach a deterministic surface or volume instance scatter system.
 
     Instances remain unrealized by default. Source object/collection, density or minimum distance,
     mask, seed, scale range, original-geometry passthrough, and realization are exposed as controls.
     """
-    if density < 0 or distance_min <= 0 or scale_min < 0 or scale_max < scale_min:
+    if density < 0 or distance_min <= 0 or scale_min < 0 or scale_max < scale_min or guide_length <= 0:
         raise ValueError("Require density >= 0, distance_min > 0, and 0 <= scale_min <= scale_max")
+    if output_type == "INSTANCES" and not source_name:
+        raise ValueError("source_name is required for INSTANCES output")
     return await _build("create_procedural_scatter", _without_context(locals()), object_name, group_name)
 
 
@@ -180,12 +189,27 @@ async def create_volume_generator(
     radius: float = 0.5,
     threshold: float = 0.1,
     material_name: str | None = None,
+    density_grid_name: str = "density",
+    delivery: Literal["LIVE_GRAPH", "OPENVDB"] = "LIVE_GRAPH",
+    output_path: str | None = None,
+    confirm_write: bool = False,
+    confirm_overwrite: bool = False,
 ) -> dict:
     """Build and attach a bounded static volume or fog-source graph after runtime capability checks.
 
     This creates procedural volume geometry, not a fluid simulation. Voxel size and estimated memory
-    risk are reported so an agent can avoid accidentally requesting an impractical resolution.
+    risk are reported so an agent can avoid accidentally requesting an impractical resolution. OPENVDB
+    delivery writes through Blender's bundled OpenVDB module and creates a native file-backed Volume object;
+    it does not claim that Blender's Volume RNA can author arbitrary grids.
     """
     if density < 0 or voxel_size <= 0 or radius <= 0:
         raise ValueError("Require density >= 0, voxel_size > 0, and radius > 0")
+    if not density_grid_name.strip():
+        raise ValueError("density_grid_name must be non-empty")
+    if delivery == "OPENVDB" and (not output_path or not confirm_write):
+        raise ValueError("OPENVDB delivery requires output_path and confirm_write=True")
+    if delivery == "OPENVDB" and output_type != "VOLUME":
+        raise ValueError("OPENVDB delivery requires output_type=VOLUME")
+    if delivery == "LIVE_GRAPH" and output_path is not None:
+        raise ValueError("output_path is only valid for OPENVDB delivery")
     return await _build("create_volume_generator", _without_context(locals()), object_name, group_name)

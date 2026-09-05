@@ -5,6 +5,7 @@ from typing import Any
 
 import bpy
 
+from ..node_graph import apply_graph_operation
 from ._shared import (
     add_interface_socket,
     find_interface_item,
@@ -12,8 +13,6 @@ from ._shared import (
     group_users,
     initialize_group,
     require_group,
-    resolve_rna_value,
-    resolve_socket,
     set_writable_property,
 )
 
@@ -48,128 +47,22 @@ def atomic_group_edit(group, edit: Callable[[Any], Any]):
     return working, result
 
 
-def _node(group, name: str | None):
-    """Resolve one exact node name in a working graph."""
-    if not name:
-        raise ValueError("A node name is required")
-    node = group.nodes.get(name)
-    if node is None:
-        raise ValueError(f"Node '{name}' not found in '{group.name}'")
-    return node
-
-
-def _validate_node_type(bl_idname: str) -> None:
-    """Allow only runtime-registered node families appropriate for Geometry Nodes."""
-    allowed_prefixes = ("GeometryNode", "ShaderNode", "FunctionNode", "NodeFrame", "NodeGroupInput", "NodeGroupOutput")
-    if not bl_idname.startswith(allowed_prefixes):
-        raise ValueError(f"Node type '{bl_idname}' is outside the Geometry Nodes authoring allowlist")
-    if getattr(bpy.types, bl_idname, None) is None:
-        raise ValueError(f"Node type unavailable in this Blender runtime: {bl_idname}")
-
-
-def _set_node_properties(node, properties: dict[str, Any]) -> None:
-    """Apply runtime-verified direct properties to one node."""
-    for key, value in properties.items():
-        if key == "location":
-            node.location = value
-        elif key == "parent":
-            raise ValueError("Use MOVE_TO_FRAME to set a node parent")
-        else:
-            set_writable_property(node, key, value)
-
-
 def _apply_graph_operation(group, operation: dict[str, Any], name_map: dict[str, str]) -> None:
-    """Apply one already schema-validated graph edit to a private working copy."""
-    action = operation["operation"]
-    if action == "ADD_NODE":
-        bl_idname = operation.get("bl_idname")
-        if not bl_idname:
-            raise ValueError("ADD_NODE requires bl_idname")
-        _validate_node_type(bl_idname)
-        node = group.nodes.new(bl_idname)
-        requested = operation.get("new_name") or operation.get("node_name")
-        if requested:
-            if group.nodes.get(requested) is not None and group.nodes.get(requested) != node:
-                group.nodes.remove(node)
-                raise ValueError(f"Node name already exists: {requested}")
-            node.name = requested
-        _set_node_properties(node, operation.get("properties", {}))
-        name_map[requested or node.name] = node.name
-        return
-    node_name = operation.get("node_name")
-    if action not in {"ADD_LINK", "REMOVE_LINK"} and not node_name:
-        raise ValueError(f"{action} requires node_name")
-    if action == "UPDATE_NODE":
-        node = _node(group, node_name)
-        new_name = operation.get("new_name")
-        if new_name and new_name != node.name:
-            if group.nodes.get(new_name) is not None:
-                raise ValueError(f"Node name already exists: {new_name}")
-            node.name = new_name
-        _set_node_properties(node, operation.get("properties", {}))
-    elif action == "SET_INPUT":
-        node = _node(group, node_name)
-        socket = resolve_socket(
-            node.inputs,
-            operation.get("socket_identifier"),
-            operation.get("socket_index"),
-            f"input on {node.name}",
-        )
-        if not hasattr(socket, "default_value"):
-            raise ValueError(f"Input '{socket.identifier}' on '{node.name}' has no settable default")
-        prop = socket.bl_rna.properties.get("default_value")
-        value = resolve_rna_value(prop, operation.get("value")) if prop is not None else operation.get("value")
-        socket.default_value = value
-    elif action == "ADD_LINK":
-        from_node = _node(group, operation.get("from_node"))
-        to_node = _node(group, operation.get("to_node"))
-        from_socket = resolve_socket(
-            from_node.outputs,
-            operation.get("from_socket_identifier"),
-            operation.get("from_socket_index"),
-            f"output on {from_node.name}",
-        )
-        to_socket = resolve_socket(
-            to_node.inputs,
-            operation.get("to_socket_identifier"),
-            operation.get("to_socket_index"),
-            f"input on {to_node.name}",
-        )
-        group.links.new(from_socket, to_socket)
-    elif action == "REMOVE_LINK":
-        from_node = _node(group, operation.get("from_node"))
-        to_node = _node(group, operation.get("to_node"))
-        from_socket = resolve_socket(
-            from_node.outputs,
-            operation.get("from_socket_identifier"),
-            operation.get("from_socket_index"),
-            f"output on {from_node.name}",
-        )
-        to_socket = resolve_socket(
-            to_node.inputs,
-            operation.get("to_socket_identifier"),
-            operation.get("to_socket_index"),
-            f"input on {to_node.name}",
-        )
-        matches = [link for link in group.links if link.from_socket == from_socket and link.to_socket == to_socket]
-        if len(matches) != 1:
-            raise ValueError(f"Expected one matching link, found {len(matches)}")
-        group.links.remove(matches[0])
-    elif action == "MOVE_TO_FRAME":
-        node = _node(group, node_name)
-        frame_name = operation.get("frame_name")
-        node.parent = _node(group, frame_name) if frame_name else None
-        if node.parent is not None and node.parent.bl_idname != "NodeFrame":
-            raise ValueError(f"Node '{frame_name}' is not a frame")
-    elif action == "REMOVE_NODE":
-        group.nodes.remove(_node(group, node_name))
-    elif action == "SET_ACTIVE_OUTPUT":
-        node = _node(group, node_name)
-        if not hasattr(node, "is_active_output"):
-            raise ValueError(f"Node '{node.name}' cannot be an active output")
-        node.is_active_output = True
-    else:
-        raise ValueError(f"Unsupported graph operation: {action}")
+    """Apply one Geometry Nodes edit through the shared node-graph engine."""
+    apply_graph_operation(
+        group,
+        operation,
+        name_map,
+        allowed_prefixes=(
+            "GeometryNode",
+            "ShaderNode",
+            "FunctionNode",
+            "NodeFrame",
+            "NodeGroupInput",
+            "NodeGroupOutput",
+        ),
+        graph_label="Geometry Nodes",
+    )
 
 
 def _apply_interface_edit(group, edit: dict[str, Any], migration_policy: str) -> dict[str, Any]:

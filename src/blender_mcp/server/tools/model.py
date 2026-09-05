@@ -10,13 +10,12 @@ from pydantic import Field
 
 from ..app import mcp
 from ..connection import get_blender_connection
-from .envelope import SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING, ok
+from .envelope import STALE_INDEX_WARNING, ok
 
 logger = logging.getLogger("BlenderMCPServer")
 
 Axis = Literal["X", "Y", "Z"]
 Space = Literal["LOCAL", "WORLD"]
-DisplaceTextureType = Literal["NOISE"]
 
 
 @mcp.tool()
@@ -73,213 +72,7 @@ async def copy_object_transform(
 
 
 @mcp.tool()
-async def add_subdivision_surface_modifier(
-    ctx: Context,
-    object_name: str,
-    levels: Annotated[int, Field(ge=0, le=6)] = 1,
-    apply: bool = False,
-) -> dict:
-    """
-    Smooth a mesh and increase its effective resolution via a Subdivision Surface modifier.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to refine.
-        levels: Subdivision levels (viewport and render).
-        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-
-    Note: this always calls shade_smooth on the object's base mesh, regardless of apply - so the base mesh's
-    shading changes even when apply=False and the modifier stays live. When apply=True, this also changes
-    topology - indices returned by an earlier get_mesh_data call are no longer valid afterward; call
-    get_mesh_data again before further index-based edits.
-
-    Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
-        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "add_subdivision_surface_modifier",
-            {
-                "object_name": object_name,
-                "levels": levels,
-                "apply": apply,
-            },
-        )
-        warnings = [SHADE_SMOOTH_WARNING, STALE_INDEX_WARNING] if apply else [SHADE_SMOOTH_WARNING]
-        return ok(result, changed_objects=[object_name], warnings=warnings)
-    except Exception as e:
-        logger.error(f"Error refining model: {e}")
-        raise ToolError(f"Error refining model: {e}") from e
-
-
-@mcp.tool()
-async def add_displace_modifier(
-    ctx: Context,
-    object_name: str,
-    strength: float = 0.1,
-    scale: Annotated[float, Field(gt=0)] = 5.0,
-    texture_type: DisplaceTextureType = "NOISE",
-    apply: bool = False,
-    subdivide: bool = False,
-) -> dict:
-    """
-    Add fine procedural surface detail to a mesh via a Displace modifier driven by a procedural texture.
-
-    Displace only offsets existing vertices - it cannot produce fine detail on a mesh
-    that doesn't already have enough topology. Set subdivide=True to add a Subdivision
-    Surface pass first, or ensure the mesh is already dense enough.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to detail.
-        strength: Displacement strength.
-        scale: Noise scale of the driving texture.
-        texture_type: Blender texture type to drive the displacement, e.g. NOISE or VORONOI.
-        apply: If True, bake the modifier(s) into the mesh and remove the generated texture datablock. If False
-            (default), leave everything as live modifiers/texture.
-        subdivide: If True, add a Subdivision Surface modifier before adding the Displace modifier, to ensure enough
-            topology exists for visible detail. It is only baked in when apply is also True - with apply=False both
-            modifiers stay live.
-
-    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
-    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
-    base mesh (and its indices) are untouched.
-
-    Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
-        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "add_displace_modifier",
-            {
-                "object_name": object_name,
-                "strength": strength,
-                "scale": scale,
-                "texture_type": texture_type,
-                "apply": apply,
-                "subdivide": subdivide,
-            },
-        )
-        warnings = [STALE_INDEX_WARNING] if apply else None
-        return ok(result, changed_objects=[object_name], warnings=warnings)
-    except Exception as e:
-        logger.error(f"Error adding procedural displacement: {e}")
-        raise ToolError(f"Error adding procedural displacement: {e}") from e
-
-
-@mcp.tool()
-async def model_mirror(
-    ctx: Context,
-    object_name: str,
-    axis: Axis = "X",
-    merge: bool = True,
-    clip: bool = True,
-    apply: bool = False,
-) -> dict:
-    """
-    Add a Mirror modifier to an object across the given axis.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to mirror.
-        axis: One of X, Y, Z.
-        merge: Weld coincident vertices at the mirror seam.
-        clip: Prevent vertices from crossing the mirror plane during transforms. Independent of merge.
-        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-
-    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
-    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
-    base mesh (and its indices) are untouched.
-
-    Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
-        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "model_mirror",
-            {
-                "object_name": object_name,
-                "axis": axis,
-                "merge": merge,
-                "clip": clip,
-                "apply": apply,
-            },
-        )
-        warnings = [STALE_INDEX_WARNING] if apply else None
-        return ok(result, changed_objects=[object_name], warnings=warnings)
-    except Exception as e:
-        logger.error(f"Error mirroring model: {e}")
-        raise ToolError(f"Error mirroring model: {e}") from e
-
-
-@mcp.tool()
-async def model_array(
-    ctx: Context,
-    object_name: str,
-    count: Annotated[int, Field(ge=1, le=10000)] = 2,
-    relative_offset: tuple[float, float, float] = (1, 0, 0),
-    apply: bool = False,
-) -> dict:
-    """
-    Add a linear Array modifier to an object, duplicating it along an offset direction.
-
-    Args:
-        ctx: MCP request context.
-        object_name: Name of the mesh object to array.
-        count: Number of copies (including the original).
-        relative_offset: [x, y, z] offset between copies, relative to the object's bounding box.
-        apply: If True, bake the modifier into the mesh. If False (default), leave it as a live modifier.
-
-    Note: when apply=True, this changes topology - indices returned by an earlier get_mesh_data call are no
-    longer valid afterward; call get_mesh_data again before further index-based edits. When apply=False, the
-    base mesh (and its indices) are untouched.
-
-    Returns:
-        the object's name, whether the modifier was applied, base vertex/edge/polygon counts, and (when apply=False)
-        an "evaluated" count, "modifier" name, and world-space "bounds" reflecting the live modifier's effect.
-
-    Raises:
-        ToolError: If the operation cannot be completed.
-
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command(
-            "model_array",
-            {
-                "object_name": object_name,
-                "count": count,
-                "relative_offset": list(relative_offset),
-                "apply": apply,
-            },
-        )
-        warnings = [STALE_INDEX_WARNING] if apply else None
-        return ok(result, changed_objects=[object_name], warnings=warnings)
-    except Exception as e:
-        logger.error(f"Error arraying model: {e}")
-        raise ToolError(f"Error arraying model: {e}") from e
-
-
-@mcp.tool()
-async def model_radial_array(
+async def add_radial_array_modifier(
     ctx: Context,
     object_name: str,
     count: Annotated[int, Field(ge=2, le=10000)] = 6,
@@ -325,7 +118,7 @@ async def model_radial_array(
     try:
         blender = get_blender_connection()
         result = blender.send_command(
-            "model_radial_array",
+            "add_radial_array_modifier",
             {
                 "object_name": object_name,
                 "count": count,

@@ -1,6 +1,8 @@
 import json
+import math
 import os
 import shutil
+import stat
 import tempfile
 import zipfile
 
@@ -9,6 +11,54 @@ from contextlib import suppress
 import bpy
 import mathutils
 import requests
+
+from pathlib import PurePosixPath
+
+from ..network import download_file, get_bytes, get_json
+
+_MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 20_000
+_MAX_COMPRESSION_RATIO = 200
+_MAX_PREVIEW_BYTES = 20 * 1024 * 1024
+
+
+def _validate_archive(zip_ref):
+    """Reject traversal, links, archive bombs, and unreasonable member counts before extraction."""
+    members = zip_ref.infolist()
+    if len(members) > _MAX_ARCHIVE_MEMBERS:
+        raise ValueError(f"Archive contains more than {_MAX_ARCHIVE_MEMBERS} members")
+    total = 0
+    for item in members:
+        normalized = item.filename.replace("\\", "/")
+        path = PurePosixPath(normalized)
+        if path.is_absolute() or ".." in path.parts or (path.parts and ":" in path.parts[0]):
+            raise ValueError(f"Unsafe archive path: {item.filename}")
+        mode = item.external_attr >> 16
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"Archive symlinks are not allowed: {item.filename}")
+        total += item.file_size
+        if total > _MAX_UNCOMPRESSED_BYTES:
+            raise ValueError("Archive exceeds the uncompressed-size limit")
+        if item.compress_size and item.file_size / item.compress_size > _MAX_COMPRESSION_RATIO:
+            raise ValueError(f"Archive member has an unsafe compression ratio: {item.filename}")
+
+
+def _world_mesh_bounds(objects):
+    """Return combined world bounds and dimensions for imported mesh objects."""
+    meshes = [obj for obj in objects if obj.type == "MESH"]
+    if not meshes:
+        return None, None
+    minimum = mathutils.Vector((float("inf"), float("inf"), float("inf")))
+    maximum = mathutils.Vector((float("-inf"), float("-inf"), float("-inf")))
+    for obj in meshes:
+        for corner in obj.bound_box:
+            world = obj.matrix_world @ mathutils.Vector(corner)
+            for axis in range(3):
+                minimum[axis] = min(minimum[axis], world[axis])
+                maximum[axis] = max(maximum[axis], world[axis])
+    dimensions = [maximum[axis] - minimum[axis] for axis in range(3)]
+    return [[*minimum], [*maximum]], dimensions
 
 
 class SketchfabHandlersMixin:
@@ -84,7 +134,7 @@ class SketchfabHandlersMixin:
                             4. Restart the connection to Claude""",
             }
 
-    def search_sketchfab_models(self, query, categories=None, count=20, downloadable=True):
+    def search_sketchfab_models(self, query, categories=None, count=20, downloadable=True, cursor=None):
         """
         Search for models on Sketchfab based on query and optional filters.
 
@@ -103,16 +153,23 @@ class SketchfabHandlersMixin:
             if not api_key:
                 return {"error": "Sketchfab API key is not configured"}
 
-            # Build search parameters with exact fields from Sketchfab API docs
-            params = {
-                "type": "models",
-                "q": query,
-                "count": count,
-                "downloadable": downloadable,
-                "archives_flavours": False,
-            }
+            if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 100:
+                return {"error": "count must be an integer from 1 through 100"}
+            params = None
+            endpoint = cursor or "https://api.sketchfab.com/v3/search"
+            if cursor:
+                if not isinstance(cursor, str) or not cursor.startswith("https://api.sketchfab.com/v3/"):
+                    return {"error": "cursor must be a Sketchfab API continuation URL"}
+            else:
+                params = {
+                    "type": "models",
+                    "q": query,
+                    "count": count,
+                    "downloadable": downloadable,
+                    "archives_flavours": False,
+                }
 
-            if categories:
+            if categories and params is not None:
                 params["categories"] = categories
 
             # Make API request to Sketchfab search endpoint
@@ -121,7 +178,7 @@ class SketchfabHandlersMixin:
 
             # Use the search endpoint as specified in the API documentation
             response = requests.get(
-                "https://api.sketchfab.com/v3/search",
+                endpoint,
                 headers=headers,
                 params=params,
                 timeout=30,  # Add timeout of 30 seconds
@@ -215,15 +272,12 @@ class SketchfabHandlersMixin:
                 return {"error": "Thumbnail URL not found"}
 
             # Download the thumbnail image
-            img_response = requests.get(thumbnail_url, timeout=30)
-            if img_response.status_code != 200:
-                return {"error": f"Failed to download thumbnail: {img_response.status_code}"}
+            image_bytes, content_type = get_bytes(thumbnail_url, max_bytes=_MAX_PREVIEW_BYTES)
 
             # Encode image as base64
-            image_data = base64.b64encode(img_response.content).decode("ascii")
+            image_data = base64.b64encode(image_bytes).decode("ascii")
 
             # Determine format from content type or URL
-            content_type = img_response.headers.get("Content-Type", "")
             img_format = "png" if "png" in content_type or thumbnail_url.endswith(".png") else "jpeg"
 
             # Get additional model info for context
@@ -249,245 +303,106 @@ class SketchfabHandlersMixin:
             traceback.print_exc()
             return {"error": f"Failed to get model preview: {e!s}"}
 
-    def download_sketchfab_model(self, uid, normalize_size=False, target_size=1.0):
-        """
-        Download a model from Sketchfab by its UID.
+    def import_sketchfab_model(self, uid, normalize_size=False, target_size=1.0):
+        """Download, validate, import, and optionally normalize one Sketchfab glTF archive."""
+        if not isinstance(target_size, (int, float)) or isinstance(target_size, bool):
+            raise ValueError("target_size must be a finite positive number")
+        target_size = float(target_size)
+        if not math.isfinite(target_size) or target_size <= 0:
+            raise ValueError("target_size must be a finite positive number")
+        api_key = self.get_sketchfab_api_key()
+        if not api_key:
+            raise ValueError("Sketchfab API key is not configured")
 
-        Args:
-            uid: The unique identifier of the Sketchfab model
-            normalize_size: If True, scale the model so its largest dimension equals target_size
-            target_size: The target size in Blender units (meters) for the largest dimension
-
-        Returns:
-            Result produced by the operation.
-
-        """
+        headers = {"Authorization": f"Token {api_key}"}
+        temp_dir = tempfile.mkdtemp(prefix="blender_mcp_sketchfab_")
         try:
-            api_key = self.get_sketchfab_api_key()
-            if not api_key:
-                return {"error": "Sketchfab API key is not configured"}
-
-            # Use proper authorization header for API key auth
-            headers = {"Authorization": f"Token {api_key}"}
-
-            # Request download URL using the exact endpoint from the documentation
-            download_endpoint = f"https://api.sketchfab.com/v3/models/{uid}/download"
-
-            response = requests.get(
-                download_endpoint,
-                headers=headers,
-                timeout=30,  # Add timeout of 30 seconds
-            )
-
-            if response.status_code == 401:
-                return {"error": "Authentication failed (401). Check your API key."}
-
-            if response.status_code != 200:
-                return {"error": f"Download request failed with status code {response.status_code}"}
-
-            data = response.json()
-
-            # Safety check for None data
-            if data is None:
-                return {"error": "Received empty response from Sketchfab API for download request"}
-
-            # Extract download URL with safety checks
-            gltf_data = data.get("gltf")
-            if not gltf_data:
-                return {"error": "No gltf download URL available for this model. Response: " + str(data)}
-
-            download_url = gltf_data.get("url")
+            metadata = get_json(f"https://api.sketchfab.com/v3/models/{uid}", headers=headers)
+            download = get_json(f"https://api.sketchfab.com/v3/models/{uid}/download", headers=headers)
+            gltf = download.get("gltf") if isinstance(download, dict) else None
+            download_url = gltf.get("url") if isinstance(gltf, dict) else None
             if not download_url:
-                return {
-                    "error": "No download URL available for this model. Make sure the model is downloadable and you have access."
-                }
+                raise ValueError("No glTF download is available for this model")
 
-            # Download the model (already has timeout)
-            model_response = requests.get(download_url, timeout=60)  # 60 second timeout
+            archive_path = os.path.join(temp_dir, "model.zip")
+            download_file(download_url, archive_path, max_bytes=_MAX_ARCHIVE_BYTES)
+            with zipfile.ZipFile(archive_path, "r") as archive:
+                _validate_archive(archive)
+                archive.extractall(temp_dir)
 
-            if model_response.status_code != 200:
-                return {"error": f"Model download failed with status code {model_response.status_code}"}
+            candidates = sorted(
+                os.path.join(root, filename)
+                for root, _directories, files in os.walk(temp_dir)
+                for filename in files
+                if filename.lower().endswith((".gltf", ".glb"))
+            )
+            if not candidates:
+                raise ValueError("No glTF file was found in the downloaded archive")
+            main_file = next((path for path in candidates if path.lower().endswith(".gltf")), candidates[0])
 
-            # Save to temporary file
-            temp_dir = tempfile.mkdtemp()
-            zip_file_path = os.path.join(temp_dir, f"{uid}.zip")
+            before_ids = {obj.session_uid for obj in bpy.data.objects}
+            result = bpy.ops.import_scene.gltf(filepath=main_file)
+            if "FINISHED" not in result:
+                raise RuntimeError(f"Blender glTF import was cancelled: {result}")
+            imported = [obj for obj in bpy.data.objects if obj.session_uid not in before_ids]
+            if not imported:
+                raise RuntimeError("Blender reported success but imported no objects")
 
-            with open(zip_file_path, "wb") as f:
-                f.write(model_response.content)
+            imported_set = set(imported)
+            roots = [obj for obj in imported if obj.parent not in imported_set]
+            bounds, dimensions = _world_mesh_bounds(imported)
+            scale_applied = 1.0
+            if normalize_size:
+                if not dimensions or max(dimensions) <= 0:
+                    raise ValueError("Imported model has no non-degenerate mesh bounds to normalize")
+                scale_applied = target_size / max(dimensions)
+                for root in roots:
+                    root.scale = tuple(float(value) * scale_applied for value in root.scale)
+                bpy.context.view_layer.update()
+                bounds, dimensions = _world_mesh_bounds(imported)
 
-            # Extract the zip file with enhanced security
-            with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
-                # More secure zip slip prevention
-                for file_info in zip_ref.infolist():
-                    # Get the path of the file
-                    file_path = file_info.filename
+            author = metadata.get("user", {}) if isinstance(metadata, dict) else {}
+            license_data = metadata.get("license", {}) if isinstance(metadata, dict) else {}
+            provenance = {
+                "uid": uid,
+                "name": metadata.get("name") if isinstance(metadata, dict) else None,
+                "source_url": f"https://sketchfab.com/3d-models/{uid}",
+                "author": author.get("displayName") or author.get("username"),
+                "author_profile": author.get("profileUrl"),
+                "license": license_data.get("label") or license_data.get("slug"),
+                "license_url": license_data.get("url"),
+                "attribution": metadata.get("attribution") if isinstance(metadata, dict) else None,
+            }
+            for obj in imported:
+                obj["blender_mcp_source"] = "Sketchfab"
+                obj["blender_mcp_source_uid"] = uid
+                obj["blender_mcp_source_url"] = provenance["source_url"]
+                if provenance["author"]:
+                    obj["blender_mcp_author"] = provenance["author"]
+                if provenance["license"]:
+                    obj["blender_mcp_license"] = provenance["license"]
 
-                    # Convert directory separators to the current OS style
-                    # This handles both / and \ in zip entries
-                    target_path = os.path.join(temp_dir, os.path.normpath(file_path))
-
-                    # Get absolute paths for comparison
-                    abs_temp_dir = os.path.abspath(temp_dir)
-                    abs_target_path = os.path.abspath(target_path)
-
-                    # Ensure the normalized path doesn't escape the target directory
-                    if not abs_target_path.startswith(abs_temp_dir):
-                        with suppress(Exception):
-                            shutil.rmtree(temp_dir)
-                        return {"error": "Security issue: Zip contains files with path traversal attempt"}
-
-                    # Additional explicit check for directory traversal
-                    if ".." in file_path:
-                        with suppress(Exception):
-                            shutil.rmtree(temp_dir)
-                        return {"error": "Security issue: Zip contains files with directory traversal sequence"}
-
-                # If all files passed security checks, extract them
-                zip_ref.extractall(temp_dir)
-
-            # Find the main glTF file
-            gltf_files = [f for f in os.listdir(temp_dir) if f.endswith((".gltf", ".glb"))]
-
-            if not gltf_files:
-                with suppress(Exception):
-                    shutil.rmtree(temp_dir)
-                return {"error": "No glTF file found in the downloaded model"}
-
-            main_file = os.path.join(temp_dir, gltf_files[0])
-
-            # Import the model
-            bpy.ops.import_scene.gltf(filepath=main_file)
-
-            # Get the imported objects
-            imported_objects = list(bpy.context.selected_objects)
-            imported_object_names = [obj.name for obj in imported_objects]
-
-            # Clean up temporary files
+            response = {
+                "success": True,
+                "message": "Model imported successfully",
+                "imported_objects": [obj.name for obj in imported],
+                "root_objects": [obj.name for obj in roots],
+                "provenance": provenance,
+                "normalized": bool(normalize_size),
+                "scale_applied": round(scale_applied, 6),
+            }
+            if bounds is not None:
+                response["world_bounding_box"] = bounds
+                response["dimensions"] = [round(value, 4) for value in dimensions]
+            return response
+        except (requests.exceptions.Timeout, json.JSONDecodeError, ValueError, RuntimeError) as exc:
+            return {"error": str(exc)}
+        except Exception as exc:
+            return {"error": f"Failed to import model: {exc!s}"}
+        finally:
             with suppress(Exception):
                 shutil.rmtree(temp_dir)
 
-            # Find root objects (objects without parents in the imported set)
-            root_objects = [obj for obj in imported_objects if obj.parent is None]
-
-            # Helper function to recursively get all mesh children
-            def get_all_mesh_children(obj):
-                """
-                Recursively collect all mesh objects in the hierarchy.
-
-                Args:
-                    obj: Value for obj.
-
-                Returns:
-                    Result produced by the operation.
-
-                """
-                meshes = []
-                if obj.type == "MESH":
-                    meshes.append(obj)
-                for child in obj.children:
-                    meshes.extend(get_all_mesh_children(child))
-                return meshes
-
-            # Collect ALL meshes from the entire hierarchy (starting from roots)
-            all_meshes = []
-            for obj in root_objects:
-                all_meshes.extend(get_all_mesh_children(obj))
-
-            if all_meshes:
-                # Calculate combined world bounding box for all meshes
-                all_min = mathutils.Vector((float("inf"), float("inf"), float("inf")))
-                all_max = mathutils.Vector((float("-inf"), float("-inf"), float("-inf")))
-
-                for mesh_obj in all_meshes:
-                    # Get world-space bounding box corners
-                    for corner in mesh_obj.bound_box:
-                        world_corner = mesh_obj.matrix_world @ mathutils.Vector(corner)
-                        all_min.x = min(all_min.x, world_corner.x)
-                        all_min.y = min(all_min.y, world_corner.y)
-                        all_min.z = min(all_min.z, world_corner.z)
-                        all_max.x = max(all_max.x, world_corner.x)
-                        all_max.y = max(all_max.y, world_corner.y)
-                        all_max.z = max(all_max.z, world_corner.z)
-
-                # Calculate dimensions
-                dimensions = [
-                    all_max.x - all_min.x,
-                    all_max.y - all_min.y,
-                    all_max.z - all_min.z,
-                ]
-                max_dimension = max(dimensions)
-
-                # Apply normalization if requested
-                scale_applied = 1.0
-                if normalize_size and max_dimension > 0:
-                    scale_factor = target_size / max_dimension
-                    scale_applied = scale_factor
-
-                    # ✅ Only apply scale to ROOT objects (not children!)
-                    # Child objects inherit parent's scale through matrix_world
-                    for root in root_objects:
-                        root.scale = (
-                            root.scale.x * scale_factor,
-                            root.scale.y * scale_factor,
-                            root.scale.z * scale_factor,
-                        )
-
-                    # Update the scene to recalculate matrix_world for all objects
-                    bpy.context.view_layer.update()
-
-                    # Recalculate bounding box after scaling
-                    all_min = mathutils.Vector((float("inf"), float("inf"), float("inf")))
-                    all_max = mathutils.Vector((float("-inf"), float("-inf"), float("-inf")))
-
-                    for mesh_obj in all_meshes:
-                        for corner in mesh_obj.bound_box:
-                            world_corner = mesh_obj.matrix_world @ mathutils.Vector(corner)
-                            all_min.x = min(all_min.x, world_corner.x)
-                            all_min.y = min(all_min.y, world_corner.y)
-                            all_min.z = min(all_min.z, world_corner.z)
-                            all_max.x = max(all_max.x, world_corner.x)
-                            all_max.y = max(all_max.y, world_corner.y)
-                            all_max.z = max(all_max.z, world_corner.z)
-
-                    dimensions = [
-                        all_max.x - all_min.x,
-                        all_max.y - all_min.y,
-                        all_max.z - all_min.z,
-                    ]
-
-                world_bounding_box = [
-                    [all_min.x, all_min.y, all_min.z],
-                    [all_max.x, all_max.y, all_max.z],
-                ]
-            else:
-                world_bounding_box = None
-                dimensions = None
-                scale_applied = 1.0
-
-            result = {
-                "success": True,
-                "message": "Model imported successfully",
-                "imported_objects": imported_object_names,
-            }
-
-            if world_bounding_box:
-                result["world_bounding_box"] = world_bounding_box
-            if dimensions:
-                result["dimensions"] = [round(d, 4) for d in dimensions]
-            if normalize_size:
-                result["scale_applied"] = round(scale_applied, 6)
-                result["normalized"] = True
-
-            return result
-
-        except requests.exceptions.Timeout:
-            return {"error": "Request timed out. Check your internet connection and try again with a simpler model."}
-        except json.JSONDecodeError as e:
-            return {"error": f"Invalid JSON response from Sketchfab API: {e!s}"}
-        except Exception as e:
-            import traceback
-
-            traceback.print_exc()
-            return {"error": f"Failed to download model: {e!s}"}
+    # endregion
 
     # endregion

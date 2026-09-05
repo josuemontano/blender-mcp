@@ -479,13 +479,19 @@ def external_file_findings(tree):
     ]
 
 
-def evaluated_bounds_point(obj, position):
-    """Return center/top/bottom of an object's evaluated world-space bounds."""
+def evaluated_object_bounds(obj):
+    """Return the (minimum, maximum) corners of an object's evaluated world-space AABB."""
     depsgraph = bpy.context.evaluated_depsgraph_get()
     evaluated = obj.evaluated_get(depsgraph)
     corners = [evaluated.matrix_world @ mathutils.Vector(corner) for corner in evaluated.bound_box]
     minimum = mathutils.Vector(tuple(min(point[index] for point in corners) for index in range(3)))
     maximum = mathutils.Vector(tuple(max(point[index] for point in corners) for index in range(3)))
+    return minimum, maximum
+
+
+def evaluated_bounds_point(obj, position):
+    """Return center/top/bottom of an object's evaluated world-space bounds."""
+    minimum, maximum = evaluated_object_bounds(obj)
     center = (minimum + maximum) * 0.5
     if position == "TOP":
         center.z = maximum.z

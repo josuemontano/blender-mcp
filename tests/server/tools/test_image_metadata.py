@@ -1,3 +1,8 @@
+import os
+
+import pytest
+
+from blender_mcp.server.tools import viewport
 from blender_mcp.server.tools.sketchfab import _preview_metadata
 from blender_mcp.server.tools.viewport import _screenshot_metadata
 
@@ -40,3 +45,23 @@ def test_screenshot_metadata_defaults_missing_fields_to_none() -> None:
     metadata = _screenshot_metadata({})
 
     assert metadata == {"width": None, "height": None, "method": None}
+
+
+def test_screenshot_tempfile_is_removed_when_blender_fails(monkeypatch, tmp_path) -> None:
+    screenshot = tmp_path / "request.png"
+
+    class Connection:
+        def send_command(self, *_args, **_kwargs):
+            raise RuntimeError("capture failed")
+
+    def fake_mkstemp(**_kwargs):
+        descriptor = os.open(screenshot, os.O_CREAT | os.O_RDWR)
+        return descriptor, str(screenshot)
+
+    monkeypatch.setattr(viewport, "get_blender_connection", Connection)
+    monkeypatch.setattr(viewport.tempfile, "mkstemp", fake_mkstemp)
+
+    with pytest.raises(Exception, match="Screenshot failed"):
+        viewport.get_viewport_screenshot(ctx=None)
+
+    assert not screenshot.exists()

@@ -29,6 +29,9 @@ _TRACKED_COLLECTIONS = (
     "lights",
     "collections",
     "pointclouds",
+    "volumes",
+    "metaballs",
+    "lattices",
     "grease_pencils",
 )
 
@@ -210,6 +213,13 @@ class Transaction:
         discard_backups(self._states)
         return _push_undo_checkpoint(f"MCP: {self.cmd_type}")
 
+    def finish_without_checkpoint(self) -> None:
+        """Discard rollback backups for a confirmed no-change/cancelled result."""
+        if self.committed:
+            return
+        self.committed = True
+        discard_backups(self._states)
+
 
 @contextlib.contextmanager
 def mutation_transaction(cmd_type, targets=(), capture_geometry=False):
@@ -228,8 +238,8 @@ def mutation_transaction(cmd_type, targets=(), capture_geometry=False):
 
     Explicitly NOT guaranteed (documented limitations, not silent gaps):
     deleted pre-existing datablocks are not resurrected; applied modifiers
-    (e.g. nd_apply_modifiers) are irreversible; execute_code side effects and
-    any object state outside the captured fields are not restored. Rollback
+    (e.g. nd_apply_modifiers) are irreversible; object state outside the
+    captured fields is not restored. Rollback
     removes tracked datablocks directly rather than calling bpy.ops.ed.undo():
     the undo stack is bounded (undo_steps, default 32) and evictable, is a
     no-op in background mode / when global undo is off, and is documented

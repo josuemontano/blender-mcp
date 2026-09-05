@@ -68,6 +68,7 @@ def _load_server_class():
     # _make_server), so empty stand-ins are enough to satisfy the ClassDef.
     mixin_names = (
         "ViewportHandlersMixin",
+        "AnimationHandlersMixin",
         "CameraHandlersMixin",
         "LightingHandlers",
         "CharacterRiggingHandlersMixin",
@@ -77,8 +78,10 @@ def _load_server_class():
         "ModelHandlersMixin",
         "ClothHandlersMixin",
         "LiquidHandlersMixin",
+        "SceneHandlersMixin",
         "ScenePhysicsHandlersMixin",
         "ObjectAnimationHandlersMixin",
+        "RenderingHandlersMixin",
         "NDHandlersMixin",
         "PolyhavenHandlersMixin",
         "SketchfabHandlersMixin",

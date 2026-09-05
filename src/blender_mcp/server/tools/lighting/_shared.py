@@ -14,6 +14,7 @@ logger = logging.getLogger("BlenderMCPServer")
 
 TargetEngine = Literal["BOTH", "CYCLES", "EEVEE"]
 LightType = Literal["POINT", "SPOT", "AREA", "SUN"]
+StudioLightingMood = Literal["SOFT", "HIGH_CONTRAST", "BEAUTY"]
 
 
 class StrictLightingInput(BaseModel):

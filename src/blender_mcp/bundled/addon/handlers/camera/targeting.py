@@ -132,24 +132,13 @@ def _binary_smallest_fit(predicate, low, high):
 class _TargetingMixin:
     """Provide camera aiming, camera-target, object-framing, and constraint handlers."""
 
-    def aim_camera(
+    def point_camera_at(
         self,
         scene_name,
         camera_name,
-        mode="IMMEDIATE",
         target_object_name=None,
         target_point=None,
         subtarget=None,
-        controls_collection_name="MCP Camera Controls",
-        constraint_name="MCP Aim",
-        constraint_type="DAMPED_TRACK",
-        track_axis="TRACK_NEGATIVE_Z",
-        up_axis="UP_Y",
-        lock_axis="LOCK_Y",
-        influence=1.0,
-        owner_space="WORLD",
-        target_space="WORLD",
-        stack_index=-1,
     ):
         scene = _scene(scene_name)
         camera = _camera(camera_name, scene=scene)
@@ -159,50 +148,13 @@ class _TargetingMixin:
             raise ValueError("subtarget requires target_object_name")
         target = _object(target_object_name, scene=scene) if target_object_name is not None else None
         point = _target_world_point(target, subtarget) if target is not None else _vector(target_point, "target_point")
-        mode = str(mode).upper()
-        if mode == "IMMEDIATE":
-            _set_world_rotation(camera, _look_quaternion(camera.matrix_world.translation, point))
-            return {
-                "camera": camera.name,
-                "mode": mode,
-                "target_object": target.name if target else None,
-                "target_point": list(point),
-                "transform": _transform_info(camera),
-                "changed_objects": [camera.name],
-            }
-        if mode != "CONSTRAINT":
-            raise ValueError("mode must be IMMEDIATE or CONSTRAINT")
-        created_target = None
-        if target is None:
-            collection = _ensure_collection(scene, controls_collection_name)
-            rig_id = str(uuid.uuid4())
-            target = _new_empty(collection, f"{camera.name} Aim", point, rig_id, "target", display_type="SPHERE")
-            created_target = target
-        constraint = _add_constraint(
-            camera,
-            target,
-            name=constraint_name,
-            constraint_type=constraint_type,
-            track_axis=track_axis,
-            up_axis=up_axis,
-            lock_axis=lock_axis,
-            influence=influence,
-            owner_space=owner_space,
-            target_space=target_space,
-            stack_index=stack_index,
-            subtarget=subtarget,
-        )
-        changed = [camera.name]
-        if created_target:
-            changed.append(created_target.name)
+        _set_world_rotation(camera, _look_quaternion(camera.matrix_world.translation, point))
         return {
             "camera": camera.name,
-            "mode": mode,
-            "target_object": target.name,
-            "constraint": _constraint_info(constraint),
-            "constraint_index": list(camera.constraints).index(constraint),
-            "retained_dependencies": [target.name],
-            "changed_objects": changed,
+            "target_object": target.name if target else None,
+            "target_point": list(point),
+            "transform": _transform_info(camera),
+            "changed_objects": [camera.name],
         }
 
     def create_camera_target(

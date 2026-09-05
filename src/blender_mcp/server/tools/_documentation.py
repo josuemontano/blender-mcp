@@ -41,13 +41,12 @@ _READ_ONLY_PREFIXES = (
 )
 _MUTATING_READ_PREFIXES = ("sample_",)
 _EXTERNAL_TOOLS = {
-    "execute_blender_code",
     "get_polyhaven_categories",
-    "search_polyhaven_assets",
+    "list_polyhaven_assets",
     "import_polyhaven_asset",
     "search_sketchfab_models",
     "get_sketchfab_model_preview",
-    "download_sketchfab_model",
+    "import_sketchfab_model",
 }
 _FILE_TOOLS = {
     "bake_retopology_maps",
@@ -57,8 +56,15 @@ _FILE_TOOLS = {
     "manage_geometry_nodes_bake",
     "render_lighting_preview",
     "setup_liquid_shot",
+    "render_scene",
 }
-_IMAGE_TOOLS = {"get_viewport_screenshot", "get_sketchfab_model_preview", "render_lighting_preview"}
+_IMAGE_TOOLS = {
+    "get_viewport_screenshot",
+    "get_sketchfab_model_preview",
+    "render_lighting_preview",
+    "render_pbr_material_preview",
+    "inspect_render_output",
+}
 _DESTRUCTIVE_PREFIXES = (
     "aim_",
     "animate_",
@@ -93,8 +99,7 @@ _DESTRUCTIVE_TOOLS = {
     "bind_mesh_to_armature",
     "clean_skin_weights",
     "create_camera_markers",
-    "download_sketchfab_model",
-    "execute_blender_code",
+    "import_sketchfab_model",
     "import_polyhaven_asset",
     "manage_cloth_cache",
     "manage_bone_collections",
@@ -134,15 +139,12 @@ _ACRONYMS = {
 
 _TOOL_TITLES = {
     "apply_polyhaven_texture": "Apply Poly Haven Texture",
-    "download_sketchfab_model": "Import Sketchfab Model",
-    "execute_blender_code": "Execute Arbitrary Blender Python",
+    "import_sketchfab_model": "Import Sketchfab Model",
     "get_polyhaven_categories": "List Poly Haven Categories",
     "import_polyhaven_asset": "Import Poly Haven Asset",
-    "model_array": "Add Array Modifier",
-    "model_mirror": "Add Mirror Modifier",
-    "model_radial_array": "Add Radial Array Modifier",
-    "search_polyhaven_assets": "List Poly Haven Assets",
-    "viewport_overlay_toggle": "Set Viewport Overlay",
+    "add_radial_array_modifier": "Add Radial Array Modifier",
+    "list_polyhaven_assets": "List Poly Haven Assets",
+    "set_viewport_overlay": "Set Viewport Overlay",
 }
 
 # Shared Blender/MCP vocabulary.  Tool-specific Google-style Args descriptions
@@ -157,7 +159,7 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "Zero-based index into the target array property (for example 0/1/2 for X/Y/Z on a vector or color "
         "channel); the tool description states the sentinel meaning 'not an array property'."
     ),
-    "asset_id": "Exact Poly Haven asset identifier returned by search_polyhaven_assets.",
+    "asset_id": "Exact Poly Haven asset identifier returned by list_polyhaven_assets.",
     "asset_type": "Provider asset class used to filter, download, or interpret the result.",
     "cache_directory": (
         "Explicit external filesystem directory for this simulation's disk cache; omitting it keeps the cache "
@@ -165,9 +167,6 @@ _PARAMETER_DESCRIPTIONS: dict[str, str] = {
     ),
     "camera_name": "Exact name of the existing Blender Camera object to inspect or modify.",
     "categories": "Comma-separated provider category slugs; omit to avoid category filtering.",
-    "code": (
-        "Python source to execute inside Blender. It has the permissions of the Blender process and is not sandboxed."
-    ),
     "collection_name": (
         "Exact Blender collection name to use. The tool description states whether it must exist or may be created."
     ),
@@ -590,10 +589,6 @@ def _tool_contract(name: str, *, read_only: bool, returns: str | None) -> str:
         )
     elif read_only:
         effects = "Read-only: does not persistently modify Blender data."
-    elif name == "execute_blender_code":
-        effects = (
-            "Side effects: unrestricted code may mutate Blender data, access files or networks, and block Blender."
-        )
     elif name in _FILE_TOOLS:
         effects = (
             "Side effects: may write the explicit output path and may evaluate Blender data; "

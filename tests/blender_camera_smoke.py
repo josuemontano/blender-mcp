@@ -126,6 +126,12 @@ constraint_result = handler.add_camera_constraint(
 )
 assert constraint_result["constraint"]["type"] == "COPY_LOCATION"
 
+target.location = (3.0, 4.0, 5.0)
+point_result = handler.point_camera_at(scene.name, camera.name, target_object_name=target.name)
+expected_rotation = (target.location - camera.matrix_world.translation).to_track_quat("-Z", "Y")
+assert all(abs(a - b) < 1e-6 for a, b in zip(camera.rotation_quaternion, expected_rotation, strict=True))
+assert point_result["target_object"] == target.name
+
 gate_result = handler.configure_camera_render_gate(
     scene.name,
     camera.name,

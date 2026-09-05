@@ -95,6 +95,41 @@ def main() -> None:
     linking = handler.configure_light_linking(scene.name, "Key Light", "Lighting Receivers")
     assert linking["after"]["receiver"]["collection"] == "Lighting Receivers"
 
+    if bpy.data.objects.get("Cube") is None:
+        bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0.0, 0.0, 1.0))
+        bpy.context.active_object.name = "Cube"
+    studio_target = bpy.data.objects["Cube"]
+    studio_camera = scene.camera
+    assert studio_camera is not None
+
+    try:
+        handler.create_studio_lighting(scene.name, studio_target.name, studio_camera.name, mood="INVALID")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid mood must fail")
+    assert bpy.data.objects.get("Cube Key") is None
+
+    studio = handler.create_studio_lighting(
+        scene.name, studio_target.name, studio_camera.name, mood="SOFT", rig_name="Studio Rig"
+    )
+    assert {entry["role"] for entry in studio["lights"]} == {"key", "fill", "rim"}
+    energy_by_role = {entry["role"]: entry["energy"] for entry in studio["lights"]}
+    assert energy_by_role["key"] > energy_by_role["fill"] > 0
+    assert energy_by_role["key"] > energy_by_role["rim"] > 0
+    for role in ("key", "fill", "rim"):
+        rig_light = bpy.data.objects[f"Studio Rig {role.capitalize()}"]
+        assert rig_light.data.type == "AREA"
+        assert rig_light.users_collection[0].name == "Studio Lighting"
+
+    try:
+        handler.create_studio_lighting(scene.name, studio_target.name, studio_camera.name, rig_name="Studio Rig")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Colliding rig name must fail")
+    assert bpy.data.objects.get("Studio Rig Key") is not None  # the earlier successful rig, untouched
+
     world = handler.configure_world_background(scene.name, (0.04, 0.05, 0.08), 0.7, False, "Lighting World", True)
     assert world["source"] == "BACKGROUND"
 

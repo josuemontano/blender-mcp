@@ -274,7 +274,7 @@ class NDHandlersMixin:
         here, so each call just flips ND's internal toggle operator - it is NOT guaranteed
         idempotent. ND's SILHOUETTE toggle is a genuine modal operator and is intentionally not
         exposed here. For the native Blender viewport overlays (cavity, wireframes, face
-        orientation), use viewport_overlay_toggle instead - those are true idempotent setters.
+        orientation), use set_viewport_overlay instead - those are true idempotent setters.
 
         Args:
             toggle: One of CLEAR_VIEW, CUSTOM_VIEW, UTILS.

@@ -17,6 +17,8 @@ from blender_mcp.server.tools.texture import _shared
 TEXTURE_COMMANDS = {
     "list_materials",
     "inspect_material",
+    "get_shader_node_type_info",
+    "patch_shader_graph",
     "create_pbr_material",
     "configure_pbr_material",
     "assign_material",
@@ -38,6 +40,7 @@ TEXTURE_COMMANDS = {
 READ_ONLY_TEXTURE_COMMANDS = {
     "list_materials",
     "inspect_material",
+    "get_shader_node_type_info",
     "list_texture_images",
     "inspect_uv_layout",
     "validate_pbr_asset",
@@ -150,6 +153,62 @@ def test_texture_set_rejects_ambiguous_semantic_channels():
         texture.TextureSetFiles(roughness="/tmp/r.png", glossiness="/tmp/g.png")
     with pytest.raises(ValidationError, match="normal_opengl or normal_directx"):
         texture.TextureSetFiles(normal_opengl="/tmp/n.png", normal_directx="/tmp/n_dx.png")
+
+
+def test_shader_graph_patch_is_strict_and_serializes_stable_socket_identity(monkeypatch):
+    connection = StubConnection({"target": {"type": "MATERIAL", "name": "Paint"}})
+    monkeypatch.setattr(_shared, "get_blender_connection", lambda: connection)
+
+    with pytest.raises(ValidationError):
+        texture.ShaderGraphEdit(operation="ADD_NODE", properties={"value": float("inf")})
+
+    result = run_tool(
+        texture.patch_shader_graph,
+        target=texture.ShaderGraphTarget(type="MATERIAL", name="Paint"),
+        operations=[
+            texture.ShaderGraphEdit(
+                operation="ADD_NODE",
+                bl_idname="ShaderNodeTexNoise",
+                new_name="Procedural Noise",
+                managed_role="surface_noise",
+            ),
+            texture.ShaderGraphEdit(
+                operation="SET_INPUT",
+                node_name="Procedural Noise",
+                socket_identifier="Scale",
+                socket_index=2,
+                value=4.5,
+            ),
+        ],
+    )
+
+    assert result["ok"]
+    assert connection.calls == [
+        (
+            "patch_shader_graph",
+            {
+                "target": {"type": "MATERIAL", "name": "Paint"},
+                "operations": [
+                    {
+                        "operation": "ADD_NODE",
+                        "bl_idname": "ShaderNodeTexNoise",
+                        "properties": {},
+                        "new_name": "Procedural Noise",
+                        "managed_role": "surface_noise",
+                    },
+                    {
+                        "operation": "SET_INPUT",
+                        "node_name": "Procedural Noise",
+                        "properties": {},
+                        "socket_identifier": "Scale",
+                        "socket_index": 2,
+                        "value": 4.5,
+                    },
+                ],
+                "enable_nodes": False,
+            },
+        )
+    ]
 
 
 def test_destructive_or_expensive_inputs_are_gated_before_dispatch(monkeypatch):

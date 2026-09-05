@@ -77,12 +77,10 @@ def test_ad_hoc_failure_message_leaves_real_success_alone(result) -> None:
 
 
 def test_send_command_raises_on_nested_error_dict(monkeypatch) -> None:
-    conn = _connection_returning(
-        {"status": "success", "result": {"error": "API key is not given"}}, monkeypatch
-    )
+    conn = _connection_returning({"status": "success", "result": {"error": "API key is not given"}}, monkeypatch)
 
     with pytest.raises(Exception, match="API key is not given"):
-        conn.send_command_locked("download_sketchfab_model")
+        conn.send_command_locked("import_sketchfab_model")
 
     # A clean operation failure is not a transport problem - the socket must survive it.
     assert conn.sock is not None
@@ -115,8 +113,6 @@ def test_send_command_still_raises_cleanly_on_top_level_error_status(monkeypatch
 
 
 def test_send_command_passes_through_real_success(monkeypatch) -> None:
-    conn = _connection_returning(
-        {"status": "success", "result": {"succeed": True, "name": "Cube"}}, monkeypatch
-    )
+    conn = _connection_returning({"status": "success", "result": {"succeed": True, "name": "Cube"}}, monkeypatch)
 
     assert conn.send_command_locked("import_polyhaven_asset") == {"succeed": True, "name": "Cube"}

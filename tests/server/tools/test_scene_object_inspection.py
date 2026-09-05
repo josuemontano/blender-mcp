@@ -106,12 +106,21 @@ class FakeObjectsCollection(dict):
             rotation_quaternion=types.SimpleNamespace(w=1.0, x=0.0, y=0.0, z=0.0),
             rotation_axis_angle=(0.0, 0.0, 0.0, 1.0),
             scale=FakeVector(1.0, 1.0, 1.0),
+            matrix_world=((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 0.0, 1.0)),
+            dimensions=(0.0, 0.0, 0.0),
+            parent=None,
+            parent_type="OBJECT",
+            parent_bone="",
+            users_collection=[],
+            hide_viewport=False,
+            hide_render=False,
             material_slots=[],
             modifiers=[],
             data=data,
             editmode_sync_calls=0,
         )
         obj.visible_get = lambda: True
+        obj.select_get = lambda: False
 
         def _update_from_editmode():
             obj.editmode_sync_calls += 1
@@ -131,11 +140,12 @@ def _load_addon(monkeypatch):
         objects=objects.values(),
         blendermcp_use_polyhaven=False,
         blendermcp_use_sketchfab=False,
+        unit_settings=types.SimpleNamespace(system="NONE", scale_length=1.0, length_unit="METERS"),
     )
 
     bpy = types.ModuleType("bpy")
     bpy.data = types.SimpleNamespace(objects=objects, materials=materials)
-    bpy.context = types.SimpleNamespace(scene=scene)
+    bpy.context = types.SimpleNamespace(scene=scene, selected_objects=[], mode="OBJECT", view_layer=None)
     bpy.types = types.SimpleNamespace(
         AddonPreferences=object,
         Operator=object,

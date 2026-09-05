@@ -46,6 +46,20 @@ _DOMAIN_FIELDS = {
 # through the generic idempotent _patch_rna path would turn the feature off for a caller who asked
 # for it to be on. _set_flip_particles below wraps it back into set-to-desired-state semantics.
 _FLIP_PARTICLES_FIELD = "use_flip_particles"
+_GAS_DOMAIN_FIELDS = {
+    "resolution_max",
+    "time_scale",
+    "timesteps_min",
+    "timesteps_max",
+    "use_adaptive_timesteps",
+    "cfl_condition",
+    "vorticity",
+    "burning_rate",
+    "flame_smoke",
+    "flame_vorticity",
+    "use_noise",
+    "noise_scale",
+}
 _FLOW_FIELDS = {
     "flow_behavior",
     "use_inflow",
@@ -81,6 +95,7 @@ _LIQUID_ROLES = frozenset(
 # Real FluidFlowSettings properties that Blender only honours for particle-system smoke/fire
 # emission. They are rejected with an explanation rather than silently allowed on a liquid surface.
 _SMOKE_ONLY_FLOW_FIELDS = {"use_particle_size", "particle_size"}
+_GAS_FLOW_FIELDS = _FLOW_FIELDS | {"density", "fuel_amount", "smoke_color", "temperature"}
 _EFFECTOR_FIELDS = {
     "use_effector",
     "effector_type",
@@ -220,7 +235,7 @@ def _get_fluid_modifier(obj, modifier_name, role=None):
     return modifier
 
 
-def _get_domain(object_name, modifier_name=None):
+def _get_domain(object_name, modifier_name=None, expected_domain_type="LIQUID"):
     obj = _get_object(object_name, {"MESH"})
     candidates = [
         modifier for modifier in obj.modifiers if modifier.type == "FLUID" and modifier.fluid_type == "DOMAIN"
@@ -234,8 +249,10 @@ def _get_domain(object_name, modifier_name=None):
     else:
         raise ValueError(f"Object '{object_name}' has multiple domain modifiers; provide modifier_name")
     settings = modifier.domain_settings
-    if settings is None or settings.domain_type != "LIQUID":
-        raise ValueError(f"Modifier '{modifier.name}' on '{obj.name}' is not an initialized liquid domain")
+    if settings is None or settings.domain_type != expected_domain_type:
+        raise ValueError(
+            f"Modifier '{modifier.name}' on '{obj.name}' is not an initialized {expected_domain_type.lower()} domain"
+        )
     return obj, modifier, settings
 
 
@@ -2142,4 +2159,250 @@ class LiquidInspectionAndSetupHandlers:
                     "frames in Blender."
                 ),
             ],
+        }
+
+    def inspect_fluid_simulation(self, domain_type, scene_name=None, domain_object_name=None, limit=25, offset=0):
+        """Canonical bounded inspection for either Mantaflow domain type."""
+        domain_type = str(domain_type).upper()
+        if domain_type not in {"LIQUID", "GAS"}:
+            raise ValueError("domain_type must be LIQUID or GAS")
+        scene = _get_scene(scene_name)
+        if domain_object_name:
+            obj, modifier, settings = _get_domain(domain_object_name, expected_domain_type=domain_type)
+            if obj.name not in scene.objects:
+                raise ValueError(f"Domain '{obj.name}' is not linked to scene '{scene.name}'")
+            domains = [(obj, modifier, settings)]
+        else:
+            domains = []
+            for obj in scene.objects:
+                for modifier in obj.modifiers:
+                    settings = getattr(modifier, "domain_settings", None)
+                    if modifier.type == "FLUID" and modifier.fluid_type == "DOMAIN" and settings is not None:
+                        if settings.domain_type == domain_type:
+                            domains.append((obj, modifier, settings))
+        domains.sort(key=lambda record: (record[0].name, record[1].name))
+        start, end, truncated, next_offset = paginate(len(domains), offset, limit, 100)
+        return {
+            "scene": scene.name,
+            "domain_type": domain_type,
+            "total": len(domains),
+            "offset": start,
+            "limit": limit,
+            "returned_count": end - start,
+            "truncated": truncated,
+            "next_offset": next_offset,
+            "domains": [_domain_info(*record) for record in domains[start:end]],
+        }
+
+    def create_fluid_domain(self, domain_type, **kwargs):
+        """Compatibility-preserving canonical domain constructor."""
+        domain_type = str(domain_type).upper()
+        if domain_type not in {"LIQUID", "GAS"}:
+            raise ValueError("domain_type must be LIQUID or GAS")
+        if domain_type == "LIQUID":
+            result = self.create_liquid_domain(**kwargs)
+            result["domain_type"] = domain_type
+            return result
+        result = self.create_liquid_domain(**kwargs)
+        obj = _get_object(result["object"], {"MESH"})
+        modifier = _get_fluid_modifier(obj, result["modifier"], "DOMAIN")
+        settings = modifier.domain_settings
+        settings.domain_type = "GAS"
+        obj["blendermcp_fluid_domain_type"] = "GAS"
+        bpy.context.view_layer.update()
+        result["domain_type"] = "GAS"
+        result["domain"] = _domain_info(obj, modifier, settings)
+        result["warnings"] = [
+            *result.get("warnings", []),
+            "Gas domain created through the shared fluid core; configure smoke/fire fields before baking.",
+        ]
+        return result
+
+    def configure_fluid_solver(self, domain_type, domain_object_name, modifier_name, patch):
+        domain_type = str(domain_type).upper()
+        if domain_type == "LIQUID":
+            return self.configure_liquid_solver(domain_object_name, modifier_name, patch)
+        obj, modifier, settings = _get_domain(domain_object_name, modifier_name, "GAS")
+        _reject_baked(settings)
+        if not patch:
+            raise ValueError("Solver patch cannot be empty")
+        liquid_only = sorted(set(patch) - _GAS_DOMAIN_FIELDS)
+        if liquid_only:
+            raise ValueError(f"Unsupported GAS solver properties: {liquid_only}")
+        changes = _patch_rna(settings, patch, _GAS_DOMAIN_FIELDS)
+        try:
+            bpy.context.view_layer.update()
+        except Exception:
+            _restore_rna(settings, changes)
+            raise
+        return {
+            "changed_objects": [obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "domain_type": "GAS",
+            "changes": changes,
+            "invalidated_cache_stages": ["DATA", "NOISE"],
+        }
+
+    def add_fluid_flow(
+        self,
+        domain_type,
+        object_name,
+        domain_object_name,
+        modifier_name="Fluid Flow",
+        existing_policy="ERROR",
+        behavior="GEOMETRY",
+        gas_flow_type="SMOKE",
+        settings=None,
+    ):
+        domain_type = str(domain_type).upper()
+        if domain_type == "LIQUID":
+            liquid_settings = dict(settings or {})
+            unsupported = sorted(set(liquid_settings) - _FLOW_FIELDS)
+            if unsupported:
+                raise ValueError(f"Unsupported LIQUID flow settings: {unsupported}")
+            return self.add_liquid_flow(
+                object_name,
+                domain_object_name,
+                modifier_name,
+                existing_policy,
+                behavior,
+                liquid_settings,
+            )
+        if domain_type != "GAS":
+            raise ValueError("domain_type must be LIQUID or GAS")
+        obj = _get_object(object_name, {"MESH"})
+        sync_from_editmode(obj)
+        if not obj.data.vertices or not obj.data.polygons:
+            raise ValueError(f"Flow mesh '{object_name}' must contain vertices and faces")
+        domain_obj, _domain_modifier, domain = _get_domain(domain_object_name, expected_domain_type="GAS")
+        if obj == domain_obj:
+            raise ValueError("A fluid domain cannot also be its own flow")
+        if existing_policy not in {"ERROR", "REUSE"}:
+            raise ValueError("existing_policy must be ERROR or REUSE")
+        collection = self._domain_collection_for_role(domain, "FLOW")
+        existing = obj.modifiers.get(modifier_name)
+        created = existing is None
+        if existing is not None:
+            if existing_policy == "ERROR":
+                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
+            modifier = _get_fluid_modifier(obj, modifier_name, "FLOW")
+        else:
+            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
+        linked = False
+        changes = {}
+        try:
+            if created:
+                modifier.fluid_type = "FLOW"
+                bpy.context.view_layer.update()
+            flow = modifier.flow_settings
+            if flow is None:
+                raise RuntimeError("Blender did not initialize FluidFlowSettings")
+            if not created and flow.flow_type not in {"SMOKE", "FIRE", "BOTH"}:
+                raise ValueError("REUSE requires an existing gas flow")
+            flow.flow_type = gas_flow_type
+            patch = dict(settings or {})
+            patch["flow_behavior"] = behavior
+            changes = _patch_rna(flow, patch, _GAS_FLOW_FIELDS)
+            linked = _link_object(collection, obj)
+            bpy.context.view_layer.update()
+        except Exception:
+            if changes and modifier.flow_settings is not None:
+                _restore_rna(modifier.flow_settings, changes)
+            if linked:
+                with contextlib.suppress(Exception):
+                    collection.objects.unlink(obj)
+            if created:
+                with contextlib.suppress(Exception):
+                    obj.modifiers.remove(modifier)
+            raise
+        return {
+            "changed_objects": [obj.name, domain_obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "domain": domain_obj.name,
+            "domain_type": "GAS",
+            "flow_type": gas_flow_type,
+            "changes": changes,
+            "retained_live_modifier": True,
+        }
+
+    def add_fluid_effector(
+        self,
+        domain_type,
+        object_name,
+        domain_object_name,
+        modifier_name="Fluid Effector",
+        existing_policy="ERROR",
+        effector_type="COLLISION",
+        settings=None,
+    ):
+        domain_type = str(domain_type).upper()
+        if domain_type == "LIQUID":
+            return self.add_liquid_effector(
+                object_name,
+                domain_object_name,
+                modifier_name,
+                existing_policy,
+                effector_type,
+                settings,
+            )
+        if domain_type != "GAS":
+            raise ValueError("domain_type must be LIQUID or GAS")
+        obj = _get_object(object_name, {"MESH"})
+        sync_from_editmode(obj)
+        if not obj.data.vertices or not obj.data.polygons:
+            raise ValueError(f"Effector mesh '{object_name}' must contain vertices and faces")
+        domain_obj, domain_modifier, domain = _get_domain(domain_object_name, expected_domain_type="GAS")
+        _reject_baked(domain)
+        if obj == domain_obj:
+            raise ValueError("A fluid domain cannot also be its own effector")
+        if existing_policy not in {"ERROR", "REUSE"}:
+            raise ValueError("existing_policy must be ERROR or REUSE")
+        collection = self._domain_collection_for_role(domain, "EFFECTOR")
+        modifier = obj.modifiers.get(modifier_name)
+        created = modifier is None
+        if modifier is not None:
+            if existing_policy == "ERROR":
+                raise ValueError(f"Modifier '{modifier_name}' already exists on '{object_name}'")
+            modifier = _get_fluid_modifier(obj, modifier_name, "EFFECTOR")
+        else:
+            modifier = obj.modifiers.new(name=modifier_name, type="FLUID")
+        linked = False
+        changes = {}
+        try:
+            if created:
+                modifier.fluid_type = "EFFECTOR"
+                bpy.context.view_layer.update()
+            effector = modifier.effector_settings
+            if effector is None:
+                raise RuntimeError("Blender did not initialize FluidEffectorSettings")
+            patch = dict(settings or {})
+            patch["effector_type"] = effector_type
+            changes = _patch_rna(effector, patch, _EFFECTOR_FIELDS)
+            linked = _link_object(collection, obj)
+            bpy.context.view_layer.update()
+        except Exception:
+            if changes and modifier.effector_settings is not None:
+                _restore_rna(modifier.effector_settings, changes)
+            if linked:
+                with contextlib.suppress(Exception):
+                    collection.objects.unlink(obj)
+            if created:
+                with contextlib.suppress(Exception):
+                    obj.modifiers.remove(modifier)
+            raise
+        return {
+            "changed_objects": [obj.name, domain_obj.name],
+            "object": obj.name,
+            "modifier": modifier.name,
+            "created": created,
+            "domain": domain_obj.name,
+            "domain_modifier": domain_modifier.name,
+            "domain_type": "GAS",
+            "effector_collection": collection.name,
+            "collection_membership_added": linked,
+            "changes": changes,
+            "invalidated_cache_stages": ["DATA", "NOISE"],
+            "warnings": _warning_for_effector(obj),
         }

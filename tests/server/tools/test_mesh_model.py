@@ -579,12 +579,8 @@ MESH_HANDLER_CALLS = [
     ("mesh_subdivide", {}),
     ("mesh_remesh", {}),
     ("mesh_solidify", {}),
-    ("add_subdivision_surface_modifier", {}),
-    ("add_displace_modifier", {}),
     ("mesh_symmetrize", {}),
-    ("model_mirror", {}),
-    ("model_array", {}),
-    ("model_radial_array", {"radius": 2.0}),
+    ("add_radial_array_modifier", {"radius": 2.0}),
 ]
 
 
@@ -889,91 +885,22 @@ def test_create_primitive_blockout_dimensions_consistent_across_primitive_types(
     assert bpy.data.objects["blockout_cube"]["blockout"] is True
 
 
-def test_add_subdivision_surface_modifier_reports_evaluated_and_modifier_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R")
-
-    result = server.add_subdivision_surface_modifier(object_name="R", apply=False)
-
-    assert result["applied"] is False
-    assert result["modifier"] == "Subdivision"
-    assert set(result["evaluated"]) == {"vertices", "edges", "polygons"}
-    assert "bounds" in result and "min" in result["bounds"] and "max" in result["bounds"]
-
-
-def test_add_subdivision_surface_modifier_reports_no_modifier_when_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "R2")
-
-    result = server.add_subdivision_surface_modifier(object_name="R2", apply=True)
-
-    assert result["applied"] is True
-    assert result["modifier"] is None
-
-
-def test_add_displace_modifier_removes_texture_orphan_when_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "D")
-
-    server.add_displace_modifier(object_name="D", apply=True)
-
-    assert bpy.data.textures.get("D_detail") is None
-
-
-def test_add_displace_modifier_keeps_texture_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    _new_mesh_object(bpy, "D2")
-
-    server.add_displace_modifier(object_name="D2", apply=False)
-
-    assert bpy.data.textures.get("D2_detail") is not None
-
-
-def test_add_displace_modifier_subdivide_stays_live_when_not_applied(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    obj = _new_mesh_object(bpy, "D3")
-
-    server.add_displace_modifier(object_name="D3", apply=False, subdivide=True)
-
-    # With apply=False, subdivide must NOT be baked - both modifiers stay live.
-    names = [m.name for m in obj.modifiers]
-    assert names == ["Subdivision", "Displace"]
-
-
-def test_add_displace_modifier_subdivide_applies_extra_modifier_first(monkeypatch) -> None:
-    addon, bpy = _load_addon(monkeypatch)
-    server = addon.BlenderMCPServer()
-    obj = _new_mesh_object(bpy, "D4")
-
-    server.add_displace_modifier(object_name="D4", apply=True, subdivide=True)
-
-    # With apply=True, the subdivide pass is baked (and removed) before Displace
-    # is applied, so no modifiers remain.
-    names = [m.name for m in obj.modifiers]
-    assert names == []
-
-
-def test_model_radial_array_requires_a_pivot(monkeypatch) -> None:
+def test_add_radial_array_modifier_requires_a_pivot(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
     with pytest.raises(ValueError, match="pivot"):
-        server.model_radial_array(object_name="R", count=4, axis="Z")
+        server.add_radial_array_modifier(object_name="R", count=4, axis="Z")
 
 
-def test_model_radial_array_rejects_multiple_pivot_options(monkeypatch) -> None:
+def test_add_radial_array_modifier_rejects_multiple_pivot_options(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
     with pytest.raises(ValueError, match="at most one"):
-        server.model_radial_array(object_name="R", count=4, radius=2.0, pivot_location=(1, 0, 0))
+        server.add_radial_array_modifier(object_name="R", count=4, radius=2.0, pivot_location=(1, 0, 0))
 
 
 def _pivot_rotation_matrix(pivot, axis, angle):
@@ -986,12 +913,12 @@ def _assert_matrices_close(a, b) -> None:
     assert (a.scale.x, a.scale.y, a.scale.z) == pytest.approx((b.scale.x, b.scale.y, b.scale.z))
 
 
-def test_model_radial_array_with_radius_offsets_pivot(monkeypatch) -> None:
+def test_add_radial_array_modifier_with_radius_offsets_pivot(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "R")
 
-    result = server.model_radial_array(object_name="R", count=4, axis="Z", radius=3.0)
+    result = server.add_radial_array_modifier(object_name="R", count=4, axis="Z", radius=3.0)
 
     assert result["applied"] is False
     empty = bpy.data.objects.get("R_radial_pivot")
@@ -1003,7 +930,7 @@ def test_model_radial_array_with_radius_offsets_pivot(monkeypatch) -> None:
     _assert_matrices_close(empty.matrix_world, expected)
 
 
-def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_object(
+def test_add_radial_array_modifier_with_radius_uses_world_space_pivot_for_parented_object(
     monkeypatch,
 ) -> None:
     addon, bpy = _load_addon(monkeypatch)
@@ -1018,7 +945,7 @@ def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_obje
     # obj's world location is (100, 0, 0) even though its local location is
     # (0, 0, 0) - the pivot must be offset from the world position, not the
     # parent-local one, or every rotated copy would land on top of the parent.
-    server.model_radial_array(object_name="R", count=4, axis="Z", radius=3.0)
+    server.add_radial_array_modifier(object_name="R", count=4, axis="Z", radius=3.0)
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
@@ -1028,12 +955,12 @@ def test_model_radial_array_with_radius_uses_world_space_pivot_for_parented_obje
     _assert_matrices_close(empty.matrix_world, expected)
 
 
-def test_model_radial_array_with_explicit_pivot_location(monkeypatch) -> None:
+def test_add_radial_array_modifier_with_explicit_pivot_location(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "R")
 
-    server.model_radial_array(object_name="R", count=6, axis="Z", pivot_location=(5, 5, 5))
+    server.add_radial_array_modifier(object_name="R", count=6, axis="Z", pivot_location=(5, 5, 5))
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
@@ -1043,14 +970,14 @@ def test_model_radial_array_with_explicit_pivot_location(monkeypatch) -> None:
     _assert_matrices_close(empty.matrix_world, expected)
 
 
-def test_model_radial_array_with_pivot_object(monkeypatch) -> None:
+def test_add_radial_array_modifier_with_pivot_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     obj = _new_mesh_object(bpy, "R")
     pivot_obj = _new_mesh_object(bpy, "Pivot")
     pivot_obj.location = FakeVector(1, 2, 3)
 
-    server.model_radial_array(object_name="R", count=6, pivot_object_name="Pivot")
+    server.add_radial_array_modifier(object_name="R", count=6, pivot_object_name="Pivot")
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
@@ -1060,7 +987,7 @@ def test_model_radial_array_with_pivot_object(monkeypatch) -> None:
     _assert_matrices_close(empty.matrix_world, expected)
 
 
-def test_model_radial_array_rotates_a_rotated_scaled_object_about_an_arbitrary_pivot(
+def test_add_radial_array_modifier_rotates_a_rotated_scaled_object_about_an_arbitrary_pivot(
     monkeypatch,
 ) -> None:
     addon, bpy = _load_addon(monkeypatch)
@@ -1070,7 +997,7 @@ def test_model_radial_array_rotates_a_rotated_scaled_object_about_an_arbitrary_p
     obj.rotation_euler = FakeVector(0.0, 0.0, math.radians(30))
     obj.scale = FakeVector(2.0, 2.0, 2.0)
 
-    server.model_radial_array(object_name="R", count=4, axis="Z", pivot_location=(0, 0, 0))
+    server.add_radial_array_modifier(object_name="R", count=4, axis="Z", pivot_location=(0, 0, 0))
 
     empty = bpy.data.objects.get("R_radial_pivot")
     assert empty is not None
@@ -1080,21 +1007,21 @@ def test_model_radial_array_rotates_a_rotated_scaled_object_about_an_arbitrary_p
     _assert_matrices_close(empty.matrix_world, expected)
 
 
-def test_model_radial_array_rejects_unknown_pivot_object(monkeypatch) -> None:
+def test_add_radial_array_modifier_rejects_unknown_pivot_object(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R")
 
     with pytest.raises(ValueError, match="Pivot object not found"):
-        server.model_radial_array(object_name="R", pivot_object_name="missing")
+        server.add_radial_array_modifier(object_name="R", pivot_object_name="missing")
 
 
-def test_model_radial_array_cleans_up_helper_empty_when_applied(monkeypatch) -> None:
+def test_add_radial_array_modifier_cleans_up_helper_empty_when_applied(monkeypatch) -> None:
     addon, bpy = _load_addon(monkeypatch)
     server = addon.BlenderMCPServer()
     _new_mesh_object(bpy, "R2")
 
-    server.model_radial_array(object_name="R2", count=6, axis="Z", apply=True, radius=2.0)
+    server.add_radial_array_modifier(object_name="R2", count=6, axis="Z", apply=True, radius=2.0)
 
     assert bpy.data.objects.get("R2_radial_pivot") is None
 

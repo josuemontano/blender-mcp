@@ -1,9 +1,19 @@
 """
 Shared structured-result envelope for MCP tool return values.
 
-Every tool that returns a dict (all tools except `get_viewport_screenshot` and
-`get_sketchfab_model_preview`, which return an image plus this same envelope as a
-second content item - see their docstrings) uses `ok()` to build it:
+Every tool that returns a dict (all tools except `get_viewport_screenshot`,
+`get_sketchfab_model_preview`, `render_lighting_preview`, `render_pbr_material_preview`,
+`inspect_render_output`, and `create_studio_lighting`, which return one or more images
+plus this same envelope as additional content items - see their docstrings) uses `ok()`
+to build it:
+
+Of those five, only `get_viewport_screenshot` is a live viewport capture (OpenGL/GPU
+offscreen draw, not a render). `render_lighting_preview` and `render_pbr_material_preview`
+render a disposable staging scene (a lighting comparison, a studio material preview) -
+not the user's actual scene. `render_scene` renders the user's actual scene but only
+writes files to disk and returns metadata (path, size, per-frame status), not pixels;
+call `inspect_render_output` afterward (pointed at one of those written paths, or with
+no path at all to read the in-memory Render Result) to actually see that render's pixels.
 
     {"ok": bool, "data": ..., "error": None, "warnings": [...], "changed_objects": [...],
      "changed_resources": [...]}
@@ -23,7 +33,7 @@ second content item - see their docstrings) uses `ok()` to build it:
   worlds, node groups, textures) - the counterpart to `changed_objects` for data that
   isn't a scene object.
 
-Pagination fields (`list_scene_objects`, `get_mesh_data`, `search_polyhaven_assets`) live
+Pagination fields (`list_scene_objects`, `get_mesh_data`, `list_polyhaven_assets`) live
 inside `data`, not in this envelope: a `limit`/`offset` request, a total-count field
 specific to that tool, `returned_count`, `truncated`, and `next_offset`. When `truncated`
 is true, call again with `offset=next_offset` to continue.
@@ -36,12 +46,6 @@ STALE_INDEX_WARNING = (
     "before this one are no longer reliable - call get_mesh_data again before reusing indices in further "
     "index-based edits."
 )
-
-SHADE_SMOOTH_WARNING = (
-    "This operation always calls shade_smooth() on the object's base mesh, changing its per-face shading "
-    "even when apply=False and the modifier stays live."
-)
-
 
 def ok(
     data: Any = None,

@@ -7,7 +7,7 @@ import types
 import pytest
 
 from pydantic import ValidationError
-from test_liquid_tools import _FakeRnaProperties, _FakeRnaProperty, _load_liquid_handler
+from server.tools.liquid.test_tools import _load_liquid_handler
 
 from blender_mcp.server.tools import liquid
 
@@ -181,7 +181,11 @@ def test_cache_state_normalizes_the_numeric_openvdb_depth_to_a_writable_identifi
     _addon, handler = _load_liquid_handler(monkeypatch)
     module = handler.simulation
     settings = types.SimpleNamespace(openvdb_data_depth=16)
-    monkeypatch.setattr(module, "_read_fields", lambda *_args: {"openvdb_data_depth": 16})
+    monkeypatch.setattr(
+        module,
+        "mantaflow_cache_info",
+        lambda *_args: {"configuration": {"openvdb_data_depth": 16}, "stages": {}},
+    )
     monkeypatch.setattr(module, "_CACHE_FLAGS", ())
 
     assert module._cache_state(settings)["configuration"]["openvdb_data_depth"] == "16"

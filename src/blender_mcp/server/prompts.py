@@ -37,16 +37,18 @@ def asset_creation_strategy() -> str:
         - For a mesh edit that needs vertex/edge/face indices, call get_mesh_data(name) (also
           paginated) to get current indices before building the edit.
 
-    3. Choose a dedicated, non-destructive tool over execute_blender_code.
+    3. Use dedicated, validated tools for every operation.
         - Primitives: create_primitive_object() (cube, sphere, cylinder, cone, torus, plane,
           curve; purpose="blockout" for placeholder proxies).
         - Direct mesh edits: mesh_extrude(), mesh_inset(), mesh_bevel(), mesh_bridge(),
           mesh_boolean(), mesh_subdivide(), mesh_remesh(), mesh_solidify(), mesh_symmetrize().
-        - Higher-level modeling: copy_object_transform(), add_subdivision_surface_modifier(),
-          add_displace_modifier(), model_mirror(), model_array(), model_radial_array().
+        - Higher-level modeling: copy_object_transform(); manage_modifiers() for
+          Mirror/Array/Subdivision Surface/Displace/etc. (ADD/PATCH/MOVE/REMOVE/APPLY on any
+          allowlisted modifier type); add_radial_array_modifier() for a pivot-driven radial
+          array (it manages a helper empty, so it's not covered by manage_modifiers()).
         - Cleanup/data: clear_materials(), clear_vertex_groups(), clear_edge_marks(),
           sync_data_name().
-        - Viewport: viewport_overlay_toggle() for native overlays (cavity, wireframe, face
+        - Viewport: set_viewport_overlay() for native overlays (cavity, wireframe, face
           orientation).
         - Non-destructive hard-surface work (utility booleans, ID materials, LOD naming): the
           ND tools - nd_boolean(), nd_mark_as_util(), nd_clean_utils(),
@@ -56,20 +58,15 @@ def asset_creation_strategy() -> str:
         - Asset/material/HDRI needs, only after confirming the provider is enabled: PolyHaven's
           import_polyhaven_asset() (asset_type="models"/"textures"/"hdris") and
           apply_polyhaven_texture(); Sketchfab's search_sketchfab_models() then
-          download_sketchfab_model(uid). For a specific existing real-world object, try
+          import_sketchfab_model(uid). For a specific existing real-world object, try
           Sketchfab first, then PolyHaven; for generic objects/furniture, try PolyHaven first;
           for lighting, use PolyHaven HDRIs.
         - Modifier tools take apply: bool. apply=False (default) keeps a live, reversible
           modifier - prefer this. apply=True bakes it into the mesh: irreversible from this
           server's perspective and it invalidates any vertex/edge/face indices you fetched
           earlier (see stage 4).
-        - Reach for execute_blender_code only when none of the above cover the operation, or
-          the task specifically needs basic material/color assignment (there is currently no
-          dedicated tool for that - write the smallest script that does just this one thing,
-          never delete/purge data or touch files unless that was explicitly requested, and
-          verify the result afterward with get_object_info rather than assuming the script
-          worked). Do not use it for anything listed above - each of those already has a
-          dedicated tool.
+        - If no dedicated tool covers an operation, report the missing capability instead of
+          executing arbitrary Python in Blender.
 
     4. Re-query after anything that changes topology.
         - mesh_extrude/inset/bevel/bridge/boolean/subdivide/remesh/symmetrize, and any call
@@ -88,6 +85,13 @@ def asset_creation_strategy() -> str:
           get_mesh_data() to confirm the things a screenshot can't show.
         - Use a screenshot before/after a visually-meaningful change (placement, deformation,
           lighting, material) - not as a substitute for the structured checks above.
+        - A screenshot is the live viewport, not a render, and render_scene itself returns
+          only the written file's path/size/status, not pixels. To actually see rendered
+          pixels: for the real scene's final render, call
+          inspect_render_output(output_path=<one of render_scene's "files" paths>)
+          afterward (or with no arguments, to read the in-memory Render Result); for a
+          bounded preview render, use render_lighting_preview or render_pbr_material_preview
+          instead (a disposable staging scene, not the real one).
 
     6. Stop-and-check gates - do not continue past these without addressing them:
         - "ok": false means the request reached Blender but nothing changed - this includes an
